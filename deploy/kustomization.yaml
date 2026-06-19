@@ -1,0 +1,12 @@
+# One-command install: kubectl apply -k deploy
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - crds/agentdefinition.yaml
+  - crds/station.yaml
+  - crds/agent.yaml
+  - rbac/controller-rbac.yaml
+  - rbac/caller-rbac.yaml
+  - rbac/networkpolicy.yaml
+  - controller.yaml

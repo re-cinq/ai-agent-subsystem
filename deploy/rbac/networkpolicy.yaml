@@ -1,0 +1,24 @@
+# Run pods get egress only: DNS resolution + outbound HTTPS (model provider,
+# git forges, registries). All ingress is denied.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-job-egress
+  namespace: ai-agents
+spec:
+  podSelector:
+    matchLabels:
+      agents.re-cinq.com/component: job
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []
+  egress:
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - ports:
+        - protocol: TCP
+          port: 443
