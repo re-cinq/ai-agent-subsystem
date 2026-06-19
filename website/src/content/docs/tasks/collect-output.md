@@ -39,5 +39,5 @@ output:
 ```
 
 The supervisor POSTs each `stream-json` line to that URL (fire-and-forget). This is how a UI or an
-indexer consumes runs in real time. See [Agent runtime](/ai-agent-subsystem/concepts/agent-runtime/)
+indexer consumes runs in real time. See [Agent runtime](/concepts/agent-runtime/)
 for how the supervisor produces these events.

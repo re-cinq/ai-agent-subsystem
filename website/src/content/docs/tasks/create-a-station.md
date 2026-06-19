@@ -3,8 +3,8 @@ title: Create a station
 description: Pair a recipe with a Pod template by defining a Station.
 ---
 
-A [Station](/ai-agent-subsystem/concepts/station/) pairs an
-[AgentDefinition](/ai-agent-subsystem/concepts/agentdefinition/) with the Pod it runs in. The
+A [Station](/concepts/station/) pairs an
+[AgentDefinition](/concepts/agentdefinition/) with the Pod it runs in. The
 controller injects the agent runtime, so the container image only needs to be glibc-based.
 
 ```yaml
@@ -47,4 +47,4 @@ kubectl apply -f node-fixer.yaml
 kubectl get stations
 ```
 
-Now launch a run in [Launch an agent](/ai-agent-subsystem/tasks/launch-an-agent/).
+Now launch a run in [Launch an agent](/tasks/launch-an-agent/).

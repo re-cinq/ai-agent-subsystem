@@ -33,7 +33,7 @@ kubectl apply -f deploy/controller.yaml
 
 The controller runs least-privilege: it can watch and patch Agents, read Stations and
 AgentDefinitions, manage Jobs, and read pod logs. See
-[RBAC & network](/ai-agent-subsystem/reference/rbac-and-network/).
+[RBAC & network](/reference/rbac-and-network/).
 
 ## 3. Verify
 
@@ -47,5 +47,5 @@ is reconciling.
 
 ## Next
 
-Define your first recipe in [Define a recipe](/ai-agent-subsystem/tasks/define-a-recipe/), or jump
-straight to the [Examples](/ai-agent-subsystem/tasks/examples/).
+Define your first recipe in [Define a recipe](/tasks/define-a-recipe/), or jump
+straight to the [Examples](/tasks/examples/).

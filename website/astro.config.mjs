@@ -5,8 +5,9 @@ import starlight from '@astrojs/starlight';
 
 // https://astro.build/config
 export default defineConfig({
-	site: 'https://re-cinq.github.io',
-	base: '/ai-agent-subsystem',
+	// GitHub's new isolated Pages domains serve project sites at the domain root,
+	// so there is no repo-name base path.
+	site: 'https://glowing-garbanzo-y7ek98q.pages.github.io',
 	integrations: [
 		// astro-mermaid must be registered before starlight so its remark/rehype
 		// transforms wrap the ```mermaid fenced blocks before Starlight renders them.

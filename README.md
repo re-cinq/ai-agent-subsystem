@@ -7,7 +7,7 @@ of truth: a run *is* a resource, and its result lives on the resource's `status`
 This is a clean-sheet, standalone rebuild of an internal subsystem, written in **D** as a statically
 linked [dub](https://dub.pm) monorepo with **no runtime dependencies**.
 
-📖 **Documentation:** https://re-cinq.github.io/ai-agent-subsystem/
+📖 **Documentation:** https://glowing-garbanzo-y7ek98q.pages.github.io/
 
 ## The model
 
@@ -68,7 +68,7 @@ The docs live in [`website/`](website/) and deploy to GitHub Pages on every push
 ```sh
 cd website
 npm install
-npm run dev      # local preview at http://localhost:4321/ai-agent-subsystem/
+npm run dev      # local preview at http://localhost:4321/
 npm run build    # production build
 ```
 
@@ -77,7 +77,7 @@ npm run build    # production build
 ## Status
 
 This phase delivers the documentation and scaffold; the D implementation follows, guided by the
-docs. See the [roadmap](https://re-cinq.github.io/ai-agent-subsystem/contribute/roadmap/).
+docs. See the [roadmap](https://glowing-garbanzo-y7ek98q.pages.github.io/contribute/roadmap/).
 
 ## License
 

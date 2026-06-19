@@ -37,4 +37,4 @@ eval "$(minikube -p ai-agents docker-env)"
 
 ## Next
 
-With a cluster running, continue to [Install](/ai-agent-subsystem/setup/install/).
+With a cluster running, continue to [Install](/setup/install/).

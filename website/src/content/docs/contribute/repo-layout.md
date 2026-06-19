@@ -25,10 +25,10 @@ ai-agent-subsystem/
 
 | Artifact | Produced by | Documented in |
 | --- | --- | --- |
-| `agentcore` | `packages/agentcore` | [Architecture](/ai-agent-subsystem/concepts/architecture/) |
-| `controller` binary | `source/controller` | [Controller lifecycle](/ai-agent-subsystem/concepts/controller-lifecycle/) |
-| `supervisor` binary | `source/supervisor` | [Agent runtime](/ai-agent-subsystem/concepts/agent-runtime/) |
-| CRDs / RBAC | `deploy/` | [Reference](/ai-agent-subsystem/reference/crd-agent/) |
+| `agentcore` | `packages/agentcore` | [Architecture](/concepts/architecture/) |
+| `controller` binary | `source/controller` | [Controller lifecycle](/concepts/controller-lifecycle/) |
+| `supervisor` binary | `source/supervisor` | [Agent runtime](/concepts/agent-runtime/) |
+| CRDs / RBAC | `deploy/` | [Reference](/reference/crd-agent/) |
 
 :::note
 The D sources are produced by the implementation phase these docs specify. This page describes the

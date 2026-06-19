@@ -3,7 +3,7 @@ title: Agent
 description: One run — a Station reference, parameters, and a status that tracks the lifecycle.
 ---
 
-An `Agent` is **one run**. It references a [Station](/ai-agent-subsystem/concepts/station/), supplies
+An `Agent` is **one run**. It references a [Station](/concepts/station/), supplies
 per-run parameters, and carries a `status` the controller updates as the run progresses.
 
 ```mermaid
@@ -37,5 +37,5 @@ The controller owns `status`:
 - **`prUrl`** — a pull-request URL when applicable.
 
 The phase transitions are driven by the controller's reconcile loop — see
-[Controller lifecycle](/ai-agent-subsystem/concepts/controller-lifecycle/). The full field reference
-is in [Agent CRD](/ai-agent-subsystem/reference/crd-agent/).
+[Controller lifecycle](/concepts/controller-lifecycle/). The full field reference
+is in [Agent CRD](/reference/crd-agent/).

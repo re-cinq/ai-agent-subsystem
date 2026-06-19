@@ -10,7 +10,7 @@ cluster is plenty.
 
 - **`kubectl`** — configured to talk to your target cluster.
 - **A Kubernetes cluster** — `v1.27+`. Any distribution works; for local use see
-  [Local cluster](/ai-agent-subsystem/setup/local-cluster/).
+  [Local cluster](/setup/local-cluster/).
 - **A container registry** — to host the controller and agent images, unless you side-load them into
   a local cluster.
 
@@ -21,10 +21,10 @@ The project is a D monorepo. To build the binaries yourself you need:
 - **LDC** (the LLVM-based D compiler) — used for static linking.
 - **dub** — the D package manager and build tool.
 
-See [Building](/ai-agent-subsystem/contribute/building/).
+See [Building](/contribute/building/).
 
 ## Credentials
 
 Agents call a model provider, so the agent process needs credentials available in the Pod. During
 local development these are mounted from a host path; production secret wiring is tracked on the
-[roadmap](/ai-agent-subsystem/contribute/roadmap/).
+[roadmap](/contribute/roadmap/).

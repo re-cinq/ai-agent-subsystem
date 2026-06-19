@@ -60,4 +60,4 @@ The supervisor is the Pod's entrypoint (PID 1). It:
   an `http` sink for streaming consumers.
 - **Credentials** are mounted into the container (a credentials volume) and restored by the
   supervisor before the agent starts. Production secret wiring is on the
-  [roadmap](/ai-agent-subsystem/contribute/roadmap/).
+  [roadmap](/contribute/roadmap/).

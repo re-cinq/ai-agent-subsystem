@@ -88,5 +88,5 @@ flowchart LR
 ```
 
 The same model is described from the controller's perspective in
-[Controller lifecycle](/ai-agent-subsystem/concepts/controller-lifecycle/) and from the pod's
-perspective in [Agent runtime](/ai-agent-subsystem/concepts/agent-runtime/).
+[Controller lifecycle](/concepts/controller-lifecycle/) and from the pod's
+perspective in [Agent runtime](/concepts/agent-runtime/).

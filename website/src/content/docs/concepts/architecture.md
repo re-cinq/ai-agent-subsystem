@@ -57,7 +57,7 @@ and exits with the agent's exit code. It replaces the previous Node-based `run.m
 Both binaries are compiled with **LDC** and statically linked so they ship as self-contained
 executables with no runtime dependencies — no language runtime to install in the controller image,
 and a supervisor that can be injected into any glibc-based Station image. See
-[Building](/ai-agent-subsystem/contribute/building/) for the dub configuration and link flags.
+[Building](/contribute/building/) for the dub configuration and link flags.
 
 ## Kubernetes as the control plane
 

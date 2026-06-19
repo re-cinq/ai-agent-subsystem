@@ -3,7 +3,7 @@ title: Station
 description: The runtime — a Pod template that pairs a recipe with the environment it runs in.
 ---
 
-A `Station` is the **runtime template**. It pairs one [AgentDefinition](/ai-agent-subsystem/concepts/agentdefinition/)
+A `Station` is the **runtime template**. It pairs one [AgentDefinition](/concepts/agentdefinition/)
 with a Kubernetes `PodTemplateSpec` and a few run-management knobs. It is where "the recipe" meets
 "the cluster".
 
@@ -33,6 +33,6 @@ The Station's container image does **not** need the agent toolchain. The control
 container that copies the runtime, the agent CLI, and the supervisor into a shared `emptyDir`, then
 overrides the main container to run the supervisor. The only requirement is a **glibc-based** image
 (for example `debian:bookworm-slim`), because the injected runtime is glibc-linked. See
-[Agent runtime](/ai-agent-subsystem/concepts/agent-runtime/) for details.
+[Agent runtime](/concepts/agent-runtime/) for details.
 
-The full field reference is in [Station CRD](/ai-agent-subsystem/reference/crd-station/).
+The full field reference is in [Station CRD](/reference/crd-station/).

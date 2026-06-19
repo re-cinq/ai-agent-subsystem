@@ -3,7 +3,7 @@ title: Define a recipe
 description: Author an AgentDefinition — the reusable task recipe.
 ---
 
-An [AgentDefinition](/ai-agent-subsystem/concepts/agentdefinition/) describes a task once so many
+An [AgentDefinition](/concepts/agentdefinition/) describes a task once so many
 runs can reuse it. Here is a minimal bug-fixer recipe.
 
 ```yaml
@@ -34,11 +34,11 @@ spec:
 ## Notes
 
 - **`{ticket}`, `{repo}`, `{branch}`** are placeholders filled from an Agent's `parameters` — see
-  [Prompt templating](/ai-agent-subsystem/reference/prompt-templating/).
+  [Prompt templating](/reference/prompt-templating/).
 - **`permission_mode: auto`** enforces the `allowed_tools` / `disallowed_tools` lists. Use `bypass`
   to grant all tools.
 - The recipe is environment-independent: no image, no namespace, no credentials. Those belong to the
-  [Station](/ai-agent-subsystem/concepts/station/).
+  [Station](/concepts/station/).
 
 Apply it:
 
@@ -47,4 +47,4 @@ kubectl apply -f bug-fixer.yaml
 kubectl get agentdefinitions
 ```
 
-Next, pair it with a runtime in [Create a station](/ai-agent-subsystem/tasks/create-a-station/).
+Next, pair it with a runtime in [Create a station](/tasks/create-a-station/).

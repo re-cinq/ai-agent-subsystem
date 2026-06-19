@@ -28,7 +28,7 @@ stateDiagram-v2
 
 1. Resolve `Station` by `spec.stationRef`; if missing, set `phase = Failed` with a reason and stop.
 2. Resolve `AgentDefinition` by `station.spec.agentDefRef`; if missing, fail the same way.
-3. Build the Job (see [Agent runtime](/ai-agent-subsystem/concepts/agent-runtime/)) and create it.
+3. Build the Job (see [Agent runtime](/concepts/agent-runtime/)) and create it.
    Creation is idempotent — an already-existing Job is fine.
 4. Patch `status`: `phase = Running`, `jobName`, `startedAt`.
 

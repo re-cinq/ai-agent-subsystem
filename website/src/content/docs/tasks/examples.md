@@ -110,4 +110,4 @@ EOF
 ```
 
 Watch either run with `kubectl get agents -w` and collect results as described in
-[Collect output](/ai-agent-subsystem/tasks/collect-output/).
+[Collect output](/tasks/collect-output/).

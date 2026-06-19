@@ -3,7 +3,7 @@ title: Launch an agent
 description: Create an Agent to start a run and watch it through to a terminal phase.
 ---
 
-An [Agent](/ai-agent-subsystem/concepts/agent/) is one run. Creating it triggers the controller to
+An [Agent](/concepts/agent/) is one run. Creating it triggers the controller to
 build a Job, supervise it, and record the result.
 
 ```yaml
@@ -52,4 +52,4 @@ You will see the Agent move `Pending → Running → Succeeded` (or `Failed`). I
 kubectl get agent <name> -o jsonpath='{.status.phase} {.status.exitCode}{"\n"}'
 ```
 
-Then [collect the output](/ai-agent-subsystem/tasks/collect-output/).
+Then [collect the output](/tasks/collect-output/).
