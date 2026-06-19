@@ -1,4 +1,4 @@
-# ai-agent-subsystem
+# AI agent subsystem
 
 Run autonomous coding agents as first-class **Kubernetes** resources. Describe the work, pick a
 runtime, launch a run — a reconciling controller does the rest. Kubernetes stays the single source
