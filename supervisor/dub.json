@@ -1,0 +1,15 @@
+{
+	"name": "supervisor",
+	"description": "The in-pod supervisor: launches the agent process and streams its output.",
+	"license": "AGPL-3.0",
+	"targetType": "executable",
+	"targetName": "ai-agent-supervisor",
+	"dependencies": {
+		"ai-agent-subsystem:agentcore": "*"
+	},
+	"buildTypes": {
+		"static": {
+			"buildOptions": ["releaseMode", "optimize", "inline"]
+		}
+	}
+}

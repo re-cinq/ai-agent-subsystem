@@ -1,61 +1,59 @@
 ---
 title: Building
-description: Build the statically linked binaries with dub and LDC.
+description: Build the two binaries and the shared library with dub, and statically link the D runtime.
 ---
 
-Both binaries are built with **LDC** (the LLVM D compiler) and statically linked so they ship as
-self-contained executables with **no runtime dependencies**.
+The monorepo is a single dub project with three sub-packages: the `agentcore` library and the
+`controller` and `supervisor` executables.
 
 ## Prerequisites
 
-- LDC (provides `ldc2`)
-- dub
+- **dub** — the D package manager and build tool.
+- **A D compiler** — `dmd` works out of the box; **LDC** (`ldc2`) is used for optimized release
+  builds and for fully-static (musl) builds.
 
 ## Build
 
+From the repository root:
+
 ```sh
-# the shared library is pulled in as a sub-package dependency
-dub build :controller --compiler=ldc2 --build=release
-dub build :supervisor --compiler=ldc2 --build=release
+dub build :controller           # -> controller/ai-agent-controller
+dub build :supervisor           # -> supervisor/ai-agent-supervisor
+dub build :controller --build=static --compiler=ldc2   # optimized release
 ```
+
+The executables depend on `ai-agent-subsystem:agentcore`, which dub resolves locally as a
+sub-package — no separate install step.
 
 ## Static linking
 
-Static linking is configured per target in `dub.json` via link flags passed to LDC, for example:
+The goal is binaries that ship with **no D runtime dependency**. The default build already achieves
+this: the D runtime (druntime + Phobos) is linked statically, and only the system C library remains
+dynamic — and any glibc-based image (which the [injected runtime](/concepts/agent-runtime/) already
+requires) provides it.
 
-```json
-{
-  "buildTypes": {
-    "static": {
-      "dflags-ldc": ["-static"],
-      "buildOptions": ["releaseMode", "optimize", "inline"]
-    }
-  }
-}
-```
-
-Build the fully static variant with:
+Verify:
 
 ```sh
-dub build :controller --compiler=ldc2 --build=static
+ldd controller/ai-agent-controller
+# libm.so.6, libgcc_s.so.1, libc.so.6, ld-linux — and no libphobos / libdruntime
 ```
 
-Verify there are no dynamic dependencies:
+For a **fully static** binary with no libc dependency at all, build with LDC against **musl** (the
+release/CI target):
 
 ```sh
-ldd ./controller   # expect: "not a dynamic executable"
+dub build :controller --build=static --compiler=ldc2 --d-version=... # musl toolchain
 ```
+
+This requires a musl-enabled LDC (or installed static glibc archives) and is wired up in CI rather
+than assumed on every dev machine.
 
 ## Tests
 
-The pure logic in `agentcore` (reconcile, prompt rendering, job building) is unit-tested with
-injected I/O:
+The pure logic in `agentcore` (prompt rendering, the reconcile state machine, the CRD model and its
+attribute metadata) is unit-tested with D's built-in `unittest` blocks:
 
 ```sh
-dub test :agentcore --compiler=ldc2
+dub test :agentcore
 ```
-
-:::note
-Exact target names and flags are finalized in the implementation phase; this page documents the
-intended build flow.
-:::

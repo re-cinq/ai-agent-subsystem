@@ -1,0 +1,15 @@
+{
+	"name": "controller",
+	"description": "The reconciling controller: watches Agents and drives them to terminal phases.",
+	"license": "AGPL-3.0",
+	"targetType": "executable",
+	"targetName": "ai-agent-controller",
+	"dependencies": {
+		"ai-agent-subsystem:agentcore": "*"
+	},
+	"buildTypes": {
+		"static": {
+			"buildOptions": ["releaseMode", "optimize", "inline"]
+		}
+	}
+}

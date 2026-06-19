@@ -7,9 +7,11 @@
 *.so
 *.dylib
 *.exe
-controller
-supervisor
+# built binaries (named via dub targetName, not the source dirs)
+ai-agent-controller
+ai-agent-supervisor
 __test__*__
+*-test-*
 dub.selections.json.bak
 
 # Node / Astro (docs site)

@@ -1,0 +1,6 @@
+{
+	"name": "agentcore",
+	"description": "Shared core: CR types, prompt templating, and the pure reconcile state machine.",
+	"license": "AGPL-3.0",
+	"targetType": "library"
+}
