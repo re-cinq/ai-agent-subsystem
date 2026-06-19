@@ -1,0 +1,32 @@
+module agentcore.crds.station_spec;
+
+import std.json : JSONValue;
+
+import agentcore.schema;
+
+@Description("The runtime template that pairs a recipe with a Pod template.")
+struct StationSpec
+{
+	@Required @Description("Name of the AgentDefinition this Station runs.")
+	string agentDefRef;
+
+	@Minimum(1) @Description("Wall-clock limit per run; becomes the Job's activeDeadlineSeconds.")
+	int deadlineMinutes = 30;
+
+	@Minimum(0) int successfulRunsHistoryLimit = 3;
+	@Minimum(0) int failedRunsHistoryLimit = 3;
+
+	@Required @Json("template") @PreserveUnknownFields
+	@Description("Standard Kubernetes PodTemplateSpec; the container named \"agent\" is wired with the recipe.")
+	JSONValue template_;
+}
+
+@safe unittest
+{
+	StationSpec s;
+	assert(s.deadlineMinutes == 30 && s.successfulRunsHistoryLimit == 3);
+	static assert(jsonNameOf!(StationSpec.template_) == "template");
+	static assert(jsonNameOf!(StationSpec.agentDefRef) == "agentDefRef");
+	static assert(isRequired!(StationSpec.agentDefRef));
+	static assert(!isRequired!(StationSpec.deadlineMinutes));
+}
