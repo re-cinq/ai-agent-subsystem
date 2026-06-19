@@ -1,0 +1,73 @@
+---
+title: ai-agent-subsystem
+description: Run autonomous coding agents as Kubernetes resources — declarative recipes, reusable runtimes, and a reconciling controller.
+template: splash
+hero:
+  tagline: Run autonomous coding agents as first-class Kubernetes resources. Describe the work, pick a runtime, launch a run — the controller does the rest.
+  actions:
+    - text: Read the concepts
+      link: /ai-agent-subsystem/concepts/overview/
+      icon: right-arrow
+    - text: Quickstart
+      link: /ai-agent-subsystem/setup/install/
+      icon: rocket
+      variant: secondary
+    - text: View on GitHub
+      link: https://github.com/re-cinq/ai-agent-subsystem
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+## What is ai-agent-subsystem?
+
+**ai-agent-subsystem** turns "run a coding agent" into a declarative Kubernetes operation. You
+describe *what* the agent should do (a recipe), *where* it runs (a runtime template), and *which*
+run you want (parameters). A controller reconciles each run into a Kubernetes `Job`, supervises it,
+streams its output, and records the result on the resource's `status` — Kubernetes stays the single
+source of truth.
+
+It is a clean-sheet, standalone rebuild of an internal subsystem, written in **D** as a statically
+linked monorepo with no runtime dependencies.
+
+## The three resources
+
+Everything is built from three Custom Resources that reference each other in a chain:
+
+```mermaid
+flowchart LR
+    AD["AgentDefinition<br/>the recipe"] -->|agentDefRef| ST["Station<br/>the runtime"]
+    ST -->|stationRef| AG["Agent<br/>one run"]
+    AG -->|controller creates| JB["Job → Pod"]
+    classDef ad fill:#2f5fd8,color:#fff,stroke:#16224f;
+    classDef st fill:#3f7be0,color:#fff,stroke:#16224f;
+    classDef ag fill:#5b93ec,color:#fff,stroke:#16224f;
+    class AD ad
+    class ST st
+    class AG ag
+```
+
+<CardGrid>
+	<Card title="AgentDefinition" icon="document">
+		The **recipe**: prompt template, model, allowed tools, permissions, and output sinks.
+	</Card>
+	<Card title="Station" icon="setting">
+		The **runtime**: a Pod template plus a recipe reference and run-history limits.
+	</Card>
+	<Card title="Agent" icon="rocket">
+		One **run**: a Station reference, parameters, and a `status` that tracks the lifecycle.
+	</Card>
+	<Card title="Controller" icon="random">
+		Watches Agents, builds Jobs, patches status, and prunes old runs.
+	</Card>
+</CardGrid>
+
+## Start here
+
+<CardGrid>
+	<LinkCard title="How the pieces relate" href="/ai-agent-subsystem/concepts/relationships/" description="The full relationship schema: data model and runtime composition diagrams." />
+	<LinkCard title="Architecture" href="/ai-agent-subsystem/concepts/architecture/" description="The D monorepo: two binaries and a shared library, statically linked." />
+	<LinkCard title="Install" href="/ai-agent-subsystem/setup/install/" description="Stand up a local cluster and apply the CRDs and controller." />
+	<LinkCard title="Examples" href="/ai-agent-subsystem/tasks/examples/" description="Worked recipes: a bug-fixer and a pure-text story writer." />
+</CardGrid>

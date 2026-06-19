@@ -1,0 +1,38 @@
+/* ai-agent-subsystem docs theme — Kubernetes-inspired blue accent. */
+
+:root {
+	--sl-color-accent-low: #131c44;
+	--sl-color-accent: #2f5fd8;
+	--sl-color-accent-high: #b9c8ff;
+	--sl-color-text-accent: #9db1ff;
+}
+
+:root[data-theme='light'] {
+	--sl-color-accent-low: #d9e2ff;
+	--sl-color-accent: #2f5fd8;
+	--sl-color-accent-high: #16224f;
+	--sl-color-text-accent: #2a55c7;
+}
+
+/* Mermaid relationship diagrams: centered, responsive, framed. */
+.mermaid,
+pre.mermaid {
+	display: flex;
+	justify-content: center;
+	margin: 1.75rem 0;
+	background: transparent;
+	border: 1px solid var(--sl-color-gray-5);
+	border-radius: 0.5rem;
+	padding: 1.25rem;
+	overflow-x: auto;
+}
+
+.mermaid svg {
+	max-width: 100%;
+	height: auto;
+}
+
+/* Tighten dense reference field tables. */
+.sl-markdown-content table {
+	font-size: var(--sl-text-sm);
+}

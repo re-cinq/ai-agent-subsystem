@@ -1,0 +1,25 @@
+# D / dub
+.dub/
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.exe
+controller
+supervisor
+__test__*__
+dub.selections.json.bak
+
+# Node / Astro (docs site)
+node_modules/
+dist/
+.astro/
+website/node_modules/
+website/dist/
+website/.astro/
+
+# Editor / OS
+.DS_Store
+*.log

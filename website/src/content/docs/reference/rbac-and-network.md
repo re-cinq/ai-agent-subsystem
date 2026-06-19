@@ -1,0 +1,41 @@
+---
+title: RBAC & network
+description: The controller and caller permissions and the egress policy for run pods.
+---
+
+The subsystem ships least-privilege RBAC and a restrictive network policy for run pods.
+
+## Controller role
+
+The controller's ServiceAccount is granted exactly what reconciliation needs:
+
+- **Agents** — watch, list, get, and patch (including `status`); delete (for history pruning).
+- **Stations** and **AgentDefinitions** — get and list (read-only).
+- **Jobs** — create and get.
+- **Pods** — list and read logs (to capture `status.output`).
+
+## Caller role
+
+A separate, narrower role lets other in-cluster apps launch and inspect runs **without** touching
+Jobs or pods:
+
+- **Agents** — create, get, list, watch.
+
+This is the role a UI or upstream pipeline binds to when it only needs to start runs and read their
+status.
+
+## Network policy for run pods
+
+Run pods get an **egress-only** NetworkPolicy. Ingress is denied; egress is limited to:
+
+- **DNS** (so service names resolve), and
+- **HTTPS** (so the agent can reach its model provider, source forges, and registries).
+
+```mermaid
+flowchart LR
+    POD["run pod"] -->|53 UDP/TCP| DNS["cluster DNS"]
+    POD -->|443| NET["model provider / git / registry"]
+    X(("ingress")) -. denied .-> POD
+```
+
+Tighten the HTTPS egress to specific CIDRs or an egress proxy if your environment requires it.
