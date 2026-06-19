@@ -3,10 +3,9 @@ title: Architecture
 description: The D monorepo — two binaries and a shared library, statically linked with no runtime dependencies.
 ---
 
-ai-agent-subsystem is built as a single **dub** monorepo (modelled on the layout of
-[ogm-server](https://gitlab.com/GISCollective/backend/ogm-server)): the services live at the top
-level and reusable code lives in local sub-packages. It produces **two binaries** and **one shared
-library**.
+ai-agent-subsystem is built as a single **dub** monorepo: reusable code lives in a shared library and
+the executables are thin layers on top, all under `packages/`. It produces **two binaries** and
+**one shared library**.
 
 ```mermaid
 flowchart TB

@@ -30,10 +30,10 @@ flowchart TB
 
 ## What the controller injects into the container
 
-The Job builder filters and sets the container's environment from the recipe and run:
+The Job builder sets the container's **command** to the supervisor followed by the agent argv — built
+by the agent adapter from the recipe (see [Pluggable agents](#pluggable-agents)) — and injects a few
+environment variables:
 
-- `LORE_PROMPT` — the rendered prompt.
-- `LORE_MODEL` — the recipe's model, or the default.
 - `LORE_NOTIFY_URL` — set when the recipe declares an `http` output sink.
 - `LORE_PARAMETERS` — the run parameters as JSON, when present.
 - `TARGET_REPO` / `BRANCH_NAME` — set when the Agent provides them.
@@ -46,18 +46,34 @@ Station's `deadlineMinutes`.
 
 The supervisor is the Pod's entrypoint (PID 1). It:
 
-- Restores agent credentials/config from a backup directory if present.
-- Launches the agent process configured for **`stream-json`** output.
+- Spawns the agent argv it was handed (built by the controller from the recipe).
 - Reads the agent's stdout line by line, echoes each line to its own stdout (captured in the pod
   logs, and therefore in `status.output`), and POSTs each line to the http sink when one is set.
-- Forwards `SIGTERM`/`SIGINT` to the child for graceful shutdown (used when the deadline is hit or
-  the run is cancelled).
-- Flushes any buffered output and exits with the child's exit code.
+- Exits with the agent's exit code. (Forwarding `SIGTERM` to the agent for graceful shutdown on pod
+  termination is a pending item.)
+
+It runs on vibe's event loop, and posts to the http sink with vibe's HTTP client.
+
+## Pluggable agents
+
+The agent CLI is **not hardcoded**. `agentcore.agent.Agent` is a small interface — `name()` and
+`command(recipe, renderedPrompt)` — that each provider implements, mapping the
+[`AgentDefinition`](/concepts/agentdefinition/) recipe (model, tools, permission mode, max turns) to
+the provider's argv. The controller's job-builder picks the adapter from the recipe's `model` and
+bakes the resulting command into the Job; the supervisor just runs it.
+
+| Provider | Models | Adapter | Command |
+| --- | --- | --- | --- |
+| Claude Code | `claude-*` (default) | `ClaudeAgent` | `claude --print --output-format stream-json …` |
+| OpenAI Codex | `gpt-*`, `o*`, `*codex*` | `CodexAgent` | `codex exec --json …` |
+
+Both emit newline-delimited JSON, so the supervisor streams them identically. Adding a provider is
+one new `Agent` implementation plus a `model` match — nothing else changes.
 
 ## Output and credentials
 
 - **Output** is captured two ways: always to stdout (pod logs → `status.output`), and optionally to
   an `http` sink for streaming consumers.
-- **Credentials** are mounted into the container (a credentials volume) and restored by the
-  supervisor before the agent starts. Production secret wiring is on the
-  [roadmap](/contribute/roadmap/).
+- **Credentials** are the agent's own concern: the controller injects the provider's API key
+  (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …) as an environment variable from a Kubernetes Secret
+  (`AgentDefinition.spec.resources.secrets`). The supervisor stages nothing.

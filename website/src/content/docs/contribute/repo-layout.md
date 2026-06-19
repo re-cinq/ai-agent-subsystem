@@ -4,9 +4,7 @@ description: How the D monorepo is organized — two binaries and a shared libra
 ---
 
 The repository is a single **dub** monorepo (root `dub.json` with `targetType: none`; every
-sub-package lives under `packages/`), following the spirit of
-[ogm-server](https://gitlab.com/GISCollective/backend/ogm-server): reusable code in a local package,
-thin executables on top.
+sub-package lives under `packages/`): reusable code in a shared library, thin executables on top.
 
 ```
 ai-agent-subsystem/

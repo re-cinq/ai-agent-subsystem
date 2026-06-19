@@ -5,7 +5,8 @@
 	"targetType": "executable",
 	"targetName": "ai-agent-supervisor",
 	"dependencies": {
-		"ai-agent-subsystem:agentcore": "*"
+		"ai-agent-subsystem:agentcore": "*",
+		"vibe-d": "~>0.10.3"
 	},
 	"buildTypes": {
 		"static": {

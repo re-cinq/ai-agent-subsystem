@@ -7,3 +7,8 @@ public import agentcore.prompt;
 public import agentcore.reconcile;
 public import agentcore.jobs;
 public import agentcore.env;
+public import agentcore.agent;
+public import agentcore.claude_agent;
+public import agentcore.codex_agent;
+public import agentcore.agentselect;
+public import agentcore.log;

@@ -43,8 +43,9 @@ regenerates into a temp dir and diffs against `deploy/crds`, failing if the comm
 drifted from the D model.
 
 :::note
-`open-api` pulls in vibe-d, so **`ai-agent-crdgen`** links `libssl`/`libcrypto`/`libz`. It is a
-dev/CI tool only — the runtime `controller` and `supervisor` binaries stay lean.
+vibe-d brings `libssl`/`libcrypto`/`libz`. The `ai-agent-crdgen` tool (via `open-api`) and the
+`supervisor` (which uses vibe's HTTP client to post to output sinks) link them; only the
+`controller` stays lean.
 :::
 
 ## Static linking

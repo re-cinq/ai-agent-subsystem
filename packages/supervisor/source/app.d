@@ -1,19 +1,42 @@
 module app;
 
-import std.stdio : writeln, writefln;
-import std.process : environment;
+import std.algorithm.searching : countUntil;
 
-import agentcore.env;
+import vibe.core.core : runEventLoop, runTask, exitEventLoop;
 
-int main()
+import agentcore.log : logError;
+import supervise : supervise;
+
+private __gshared int g_exitCode = 1;
+
+int main(string[] args)
 {
-	const prompt = environment.get(envPrompt, "");
-	const model = environment.get(envModel, defaultModel);
-	const notify = environment.get(envNotifyUrl, "");
+	// The controller invokes the supervisor as `ai-agent-supervisor -- <agent argv>`.
+	const sep = args.countUntil("--");
+	if (sep == -1 || sep + 1 >= args.length)
+	{
+		logError("usage: ai-agent-supervisor -- <agent> [args...]");
+		return 2;
+	}
 
-	writefln("ai-agent supervisor: model=%s notifyConfigured=%s promptBytes=%s",
-		model, notify.length > 0, prompt.length);
+	auto agentArgv = args[sep + 1 .. $].dup;
 
-	writeln("agent process supervision not yet implemented (bootstrap)");
-	return 0;
+	runTask(() nothrow {
+		try
+			g_exitCode = supervise(agentArgv);
+		catch (Exception e)
+		{
+			logError("[supervisor] " ~ e.msg);
+			g_exitCode = 1;
+		}
+
+		try
+			exitEventLoop();
+		catch (Exception e)
+			logError("[supervisor] exitEventLoop failed: " ~ e.msg);
+	});
+
+	runEventLoop();
+
+	return g_exitCode;
 }
