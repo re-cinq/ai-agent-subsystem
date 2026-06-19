@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/**'
+      - 'controller/**'
+      - 'supervisor/**'
+      - 'deploy/crds/**'
+      - 'dub.json'
+      - 'scripts/**'
+      - '.github/workflows/ci.yml'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: dmd-latest
+      - name: Unit tests (agentcore)
+        run: dub test :agentcore
+      - name: Build binaries
+        run: |
+          dub build :controller
+          dub build :supervisor
+          dub build :crdgen
+      - name: CRD drift check
+        run: ./scripts/check-crd-drift.sh

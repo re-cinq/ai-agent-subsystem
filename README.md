@@ -30,8 +30,8 @@ glibc-based base image.
 
 ## Architecture
 
-A single dub monorepo producing **two binaries** and **one shared library**, statically linked with
-LDC:
+A single dub monorepo (every package under `packages/`) producing **two runtime binaries** and a
+**shared library**, statically linked with LDC, plus a `crdgen` dev tool:
 
 ```mermaid
 flowchart TB
@@ -48,16 +48,17 @@ flowchart TB
   templating, and the Job builder.
 - **`controller`** — the operator: reconciles Agents into Jobs and back.
 - **`supervisor`** — runs inside the Job Pod, supervises the agent process, and streams its output.
+- **`crdgen`** — dev/CI tool that generates `deploy/crds` from the annotated `agentcore` structs.
 
 ## Repository layout
 
 ```
 ai-agent-subsystem/
 ├── README.md
-├── source/        # controller and supervisor entrypoints (D)
-├── packages/      # agentcore shared library (D)
-├── deploy/        # CRDs, RBAC, controller manifest
-├── tests/         # unit tests
+├── dub.json       # root: subPackages
+├── packages/      # agentcore (lib) + controller, supervisor, crdgen (apps)
+├── deploy/        # CRDs (generated), RBAC, controller manifest
+├── scripts/       # check-crd-drift.sh
 └── website/       # documentation site (Astro Starlight)
 ```
 

@@ -57,3 +57,59 @@ template isRequired(alias sym)
 {
 	enum isRequired = hasUDA!(sym, Required);
 }
+
+// CRD-level metadata for a resource type — the `names` / `printerColumns` parts
+// that are not derivable from the field set.
+
+/// The CRD plural name (e.g. "agentdefinitions").
+struct Plural
+{
+	string value;
+}
+
+/// The CRD short names (e.g. ["agentdef", "ad"]).
+struct ShortNames
+{
+	string[] values;
+}
+
+/// One `kubectl get` printer column.
+struct PrinterColumn
+{
+	string name;
+	string type;
+	string jsonPath;
+}
+
+/// An OpenAPI string `format` for a field (e.g. "date-time").
+struct Format
+{
+	string value;
+}
+
+/// The `@Plural` value of a resource type.
+template pluralOf(alias T)
+{
+	enum pluralOf = getUDAs!(T, Plural)[0].value;
+}
+
+/// The `@ShortNames` values of a resource type.
+template shortNamesOf(alias T)
+{
+	enum shortNamesOf = getUDAs!(T, ShortNames)[0].values;
+}
+
+/// Every `@PrinterColumn` on a resource type, in declaration order.
+template printerColumnsOf(alias T)
+{
+	enum printerColumnsOf = [getUDAs!(T, PrinterColumn)];
+}
+
+/// The `@Format` value for `sym`, or "" when absent.
+template formatOf(alias sym)
+{
+	static if (hasUDA!(sym, Format))
+		enum formatOf = getUDAs!(sym, Format)[0].value;
+	else
+		enum formatOf = "";
+}

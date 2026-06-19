@@ -28,7 +28,7 @@ spec:
       schema:
         openAPIV3Schema:
           type: object
-          description: The runtime template that pairs a recipe with a Pod template.
+          description: "The runtime template that pairs a recipe with a Pod template."
           required:
             - spec
           properties:
@@ -40,12 +40,12 @@ spec:
               properties:
                 agentDefRef:
                   type: string
-                  description: Name of the AgentDefinition this Station runs.
+                  description: "Name of the AgentDefinition this Station runs."
                 deadlineMinutes:
                   type: integer
                   default: 30
                   minimum: 1
-                  description: Wall-clock limit per run; becomes the Job's activeDeadlineSeconds.
+                  description: "Wall-clock limit per run; becomes the Job's activeDeadlineSeconds."
                 successfulRunsHistoryLimit:
                   type: integer
                   default: 3
@@ -56,5 +56,5 @@ spec:
                   minimum: 0
                 template:
                   type: object
-                  description: Standard Kubernetes PodTemplateSpec. The container named "agent" is wired with the recipe and injected runtime.
+                  description: "Standard Kubernetes PodTemplateSpec; the container named \"agent\" is wired with the recipe."
                   x-kubernetes-preserve-unknown-fields: true

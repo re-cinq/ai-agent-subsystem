@@ -6,7 +6,8 @@
 	"targetType": "none",
 	"subPackages": [
 		"./packages/agentcore/",
-		"./controller/",
-		"./supervisor/"
+		"./packages/controller/",
+		"./packages/supervisor/",
+		"./packages/crdgen/"
 	]
 }

@@ -10,6 +10,7 @@
 # built binaries (named via dub targetName, not the source dirs)
 ai-agent-controller
 ai-agent-supervisor
+ai-agent-crdgen
 __test__*__
 *-test-*
 dub.selections.json.bak

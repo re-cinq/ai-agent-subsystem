@@ -33,7 +33,7 @@ spec:
       schema:
         openAPIV3Schema:
           type: object
-          description: One run of a recipe in a Station.
+          description: "One run of a recipe in a Station."
           required:
             - spec
           properties:
@@ -44,18 +44,18 @@ spec:
               properties:
                 stationRef:
                   type: string
-                  description: The Station to run in (which selects the recipe).
+                  description: "The Station to run in (which selects the recipe)."
                 taskId:
                   type: string
-                  description: External id for correlation.
+                  description: "External id for correlation."
                 targetRepo:
                   type: string
-                  description: GitHub repo in owner/name form.
+                  description: "GitHub repo in owner/name form."
                 branch:
                   type: string
                 parameters:
                   type: object
-                  description: Per-run values; fill the prompt {placeholder} tokens and pass to the agent.
+                  description: "Per-run values; fill the prompt {placeholder} tokens and pass to the agent."
                   additionalProperties:
                     type: string
             status:
@@ -73,9 +73,11 @@ spec:
                 startedAt:
                   type: string
                   format: date-time
+                  description: "RFC3339 timestamp when the run began."
                 completedAt:
                   type: string
                   format: date-time
+                  description: "RFC3339 timestamp when the run ended."
                 exitCode:
                   type: integer
                 output:

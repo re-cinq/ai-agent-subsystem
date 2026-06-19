@@ -1,0 +1,17 @@
+{
+	"name": "crdgen",
+	"description": "Dev/CI tool: generate the CRD manifests from the agentcore structs.",
+	"license": "AGPL-3.0",
+	"targetType": "executable",
+	"targetName": "ai-agent-crdgen",
+	"dependencies": {
+		"ai-agent-subsystem:agentcore": "*",
+		"describe-d": "~>1.0.3",
+		"open-api": "~>1.0.1"
+	},
+	"buildTypes": {
+		"static": {
+			"buildOptions": ["releaseMode", "optimize", "inline"]
+		}
+	}
+}

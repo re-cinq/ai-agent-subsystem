@@ -26,7 +26,7 @@ spec:
       schema:
         openAPIV3Schema:
           type: object
-          description: The reusable recipe for a coding agent task.
+          description: "The reusable recipe for a coding agent task."
           required:
             - spec
           properties:
@@ -35,13 +35,13 @@ spec:
               properties:
                 description:
                   type: string
-                  description: Human summary for operators.
+                  description: "Human summary for operators."
                 model:
                   type: string
-                  description: Model id (e.g. claude-sonnet-4-6). If omitted, the runtime default is used.
+                  description: "Model id (e.g. claude-sonnet-4-6). If omitted, the runtime default is used."
                 prompt:
                   type: string
-                  description: Task template; {placeholder} tokens are filled from an Agent's parameters.
+                  description: "Task template; {placeholder} tokens are filled from an Agent's parameters."
                 allowed_tools:
                   type: array
                   items:
@@ -52,10 +52,10 @@ spec:
                     type: string
                 permission_mode:
                   type: string
+                  default: bypass
                   enum:
                     - auto
                     - bypass
-                  default: bypass
                 max_turns:
                   type: integer
                   minimum: 1
@@ -84,10 +84,10 @@ spec:
                         properties:
                           name:
                             type: string
-                            description: Environment variable name to expose the secret as.
+                            description: "Environment variable name to expose the secret as."
                           ref:
                             type: string
-                            description: Allowlisted secret-store key.
+                            description: "Allowlisted secret-store key."
                     mcp_servers:
                       type: array
                       items:
@@ -143,7 +143,7 @@ spec:
                         - stream-json
                     schema:
                       type: object
-                      description: JSON Schema validating the result.
+                      description: "JSON Schema validating the result."
                       x-kubernetes-preserve-unknown-fields: true
                     select:
                       type: array
@@ -190,5 +190,5 @@ spec:
                             type: string
                 tool_config:
                   type: object
-                  description: Raw passthrough for tool-specific knobs; unknown fields are preserved.
+                  description: "Raw passthrough for tool-specific knobs."
                   x-kubernetes-preserve-unknown-fields: true

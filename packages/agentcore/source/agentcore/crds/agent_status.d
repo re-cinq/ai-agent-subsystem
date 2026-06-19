@@ -7,8 +7,8 @@ struct AgentStatus
 {
 	Phase phase;
 	string jobName;
-	@Description("RFC3339 timestamp when the run began.") string startedAt;
-	@Description("RFC3339 timestamp when the run ended.") string completedAt;
+	@Description("RFC3339 timestamp when the run began.") @Format("date-time") string startedAt;
+	@Description("RFC3339 timestamp when the run ended.") @Format("date-time") string completedAt;
 	int exitCode;
 	string output;
 	string failureReason;

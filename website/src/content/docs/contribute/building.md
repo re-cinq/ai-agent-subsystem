@@ -3,8 +3,8 @@ title: Building
 description: Build the two binaries and the shared library with dub, and statically link the D runtime.
 ---
 
-The monorepo is a single dub project with three sub-packages: the `agentcore` library and the
-`controller` and `supervisor` executables.
+The monorepo is a single dub project; every sub-package lives under `packages/`: the `agentcore`
+library and the `controller`, `supervisor`, and `crdgen` executables.
 
 ## Prerequisites
 
@@ -17,13 +17,35 @@ The monorepo is a single dub project with three sub-packages: the `agentcore` li
 From the repository root:
 
 ```sh
-dub build :controller           # -> controller/ai-agent-controller
-dub build :supervisor           # -> supervisor/ai-agent-supervisor
+dub build :controller           # -> packages/controller/ai-agent-controller
+dub build :supervisor           # -> packages/supervisor/ai-agent-supervisor
+dub build :crdgen               # -> packages/crdgen/ai-agent-crdgen
 dub build :controller --build=static --compiler=ldc2   # optimized release
 ```
 
 The executables depend on `ai-agent-subsystem:agentcore`, which dub resolves locally as a
 sub-package — no separate install step.
+
+## Generating the CRDs
+
+The CRD manifests in `deploy/crds` are **generated from the annotated structs** in
+`packages/agentcore/source/agentcore/crds` — not hand-written. The `crdgen` tool introspects the
+model (with `describe-d`) and emits the OpenAPI schemas (using `open-api`'s vocabulary):
+
+```sh
+dub build :crdgen
+./packages/crdgen/ai-agent-crdgen write-structures deploy/crds
+```
+
+To change a CRD, edit the struct and its attributes (`@Description`, `@Json`, `@Required`,
+`@Minimum`, `@PrinterColumn`, …) and regenerate. `scripts/check-crd-drift.sh` (run in CI)
+regenerates into a temp dir and diffs against `deploy/crds`, failing if the committed manifests have
+drifted from the D model.
+
+:::note
+`open-api` pulls in vibe-d, so **`ai-agent-crdgen`** links `libssl`/`libcrypto`/`libz`. It is a
+dev/CI tool only — the runtime `controller` and `supervisor` binaries stay lean.
+:::
 
 ## Static linking
 
@@ -35,7 +57,7 @@ requires) provides it.
 Verify:
 
 ```sh
-ldd controller/ai-agent-controller
+ldd packages/controller/ai-agent-controller
 # libm.so.6, libgcc_s.so.1, libc.so.6, ld-linux — and no libphobos / libdruntime
 ```
 

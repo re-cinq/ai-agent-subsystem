@@ -3,8 +3,8 @@ title: Repository layout
 description: How the D monorepo is organized — two binaries and a shared library.
 ---
 
-The repository is a single **dub** monorepo (root `dub.json` with `targetType: none` and three
-`subPackages`), following the spirit of
+The repository is a single **dub** monorepo (root `dub.json` with `targetType: none`; every
+sub-package lives under `packages/`), following the spirit of
 [ogm-server](https://gitlab.com/GISCollective/backend/ogm-server): reusable code in a local package,
 thin executables on top.
 
@@ -12,13 +12,13 @@ thin executables on top.
 ai-agent-subsystem/
 ├── dub.json                       # root: targetType none, lists the sub-packages
 ├── packages/
-│   └── agentcore/                 # shared library sub-package
-│       └── source/agentcore/      # types, schema (UDAs), crds, prompt, reconcile, jobs, env
-├── controller/                    # binary 1 sub-package: the operator
-│   └── source/app.d
-├── supervisor/                    # binary 2 sub-package: the in-pod supervisor
-│   └── source/app.d
-├── deploy/                        # CRDs, RBAC, NetworkPolicy, controller manifest, namespace
+│   ├── agentcore/                 # shared library
+│   │   └── source/agentcore/      # types, schema (UDAs), crds, prompt, reconcile, jobs, env
+│   ├── controller/                # binary: the operator
+│   ├── supervisor/                # binary: the in-pod supervisor
+│   └── crdgen/                    # dev/CI tool: generates deploy/crds from the structs
+├── deploy/                        # CRDs (generated), RBAC, NetworkPolicy, controller manifest
+├── scripts/                       # check-crd-drift.sh
 └── website/                       # this documentation site (Astro Starlight)
 ```
 
@@ -30,12 +30,14 @@ Unit tests live inline in the `agentcore` modules as D `unittest` blocks; run th
 | Artifact | Produced by | Documented in |
 | --- | --- | --- |
 | `agentcore` (lib) | `packages/agentcore/` | [Architecture](/concepts/architecture/) |
-| `ai-agent-controller` | `controller/` | [Controller lifecycle](/concepts/controller-lifecycle/) |
-| `ai-agent-supervisor` | `supervisor/` | [Agent runtime](/concepts/agent-runtime/) |
+| `ai-agent-controller` | `packages/controller/` | [Controller lifecycle](/concepts/controller-lifecycle/) |
+| `ai-agent-supervisor` | `packages/supervisor/` | [Agent runtime](/concepts/agent-runtime/) |
+| `ai-agent-crdgen` | `packages/crdgen/` | dev tool — generates `deploy/crds` |
 | CRDs / RBAC | `deploy/` | [Reference](/reference/crd-agent/) |
 
 :::note
 Bootstrapped so far: the CRD model (with attribute metadata), prompt templating, the pure reconcile
-state machine, and thin binaries that link the library. The Kubernetes client, Job builder, and the
-supervisor's process handling are next — see the [roadmap](/contribute/roadmap/).
+state machine, thin binaries that link the library, and the `crdgen` tool that generates
+`deploy/crds` from the model. The Kubernetes client, Job builder, and the supervisor's process
+handling are next — see the [roadmap](/contribute/roadmap/).
 :::
