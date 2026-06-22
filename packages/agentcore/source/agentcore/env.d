@@ -11,6 +11,8 @@ enum envSinks = "AGENT_SINKS";
 enum envParameters = "LORE_PARAMETERS";
 enum envTargetRepo = "TARGET_REPO";
 enum envBranch = "BRANCH_NAME";
+enum envRepos = "AGENT_REPOS";
+enum envWorkspace = "WORKSPACE_DIR";
 
 // Identity the controller stamps onto the run so every emitted event can be
 // traced back to its agent + pod in a workflow. `POD_*` come from the downward
@@ -23,3 +25,6 @@ enum envPodNamespace = "POD_NAMESPACE";
 
 /// Model used when a recipe does not specify one.
 enum defaultModel = "claude-sonnet-4-6";
+
+/// Workspace the init container clones repos into when none is injected.
+enum defaultWorkspace = "/workspace";

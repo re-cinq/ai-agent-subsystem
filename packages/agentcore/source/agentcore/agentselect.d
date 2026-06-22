@@ -10,7 +10,7 @@ import agentcore.codex_agent : CodexAgent;
 /// Choose the agent adapter from a model id. The GPT / o-series / codex family
 /// maps to Codex; Claude models and the empty or unrecognized case map to Claude
 /// (the system default).
-Agent agentForModel(string model)
+Agent agentForModel(string model) @safe
 {
 	const m = model.toLower;
 	if (m.canFind("codex") || m.startsWith("gpt") || m.startsWith("o1")

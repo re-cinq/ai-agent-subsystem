@@ -27,7 +27,10 @@ jobs:
           dub build :controller
           dub build :supervisor
           dub build :crdgen
+          dub build :initializer
       - name: CRD drift check
         run: ./scripts/check-crd-drift.sh
       - name: Supervisor integration tests
         run: ./scripts/itest-supervisor.sh
+      - name: Initializer integration tests
+        run: ./scripts/itest-initializer.sh

@@ -13,20 +13,25 @@ agent needs.
 flowchart TB
     subgraph POD["Agent Pod (restartPolicy: Never)"]
         direction TB
-        INIT["initContainer: inject-agent"] -->|"cp runtime + CLI + supervisor"| VOL[("emptyDir: /lore")]
+        INIT["initContainer: ai-agent-init"] -->|"clone repos + install CLI + supervisor"| VOL[("emptyDir: /lore")]
         VOL --> MAIN["main container<br/>entrypoint = supervisor"]
         MAIN --> PROC["agent process"]
         CREDS[("credentials volume")] -.-> MAIN
     end
+    INIT --> NOTIFY["init events → sinks"]
     PROC --> STDOUT["stdout → pod logs → status.output"]
     PROC --> HTTP["http sink (optional)"]
 ```
 
-1. **Init container** copies the language runtime, the agent CLI, and the supervisor binary from the
-   agent image into a shared `emptyDir` mounted at `/lore`.
+1. **Init container** (`ai-agent-init`) prepares the shared `emptyDir` mounted at `/lore`: it clones
+   the recipe's repos into the workspace, installs the agent CLI (Claude via the official installer),
+   and self-bootstraps any missing prerequisites. See [The init container](#the-init-container).
 2. **Main container** — the Station's container, with its command overridden to run the supervisor
    from `/lore`. Because the runtime is glibc-linked, the Station base image must be glibc-based.
-3. **Security context** runs as a non-root user (`runAsNonRoot`, fixed UID/GID, `fsGroup`).
+3. **Security context** — the init container runs as **root** so it can install packages; the main
+   container runs as a non-root user (`runAsNonRoot`, fixed UID/GID, `fsGroup`). Both share `HOME`
+   inside `/lore`, and `$HOME/.local/bin` (where the CLI installer drops `claude`) is on the main
+   container's `PATH`.
 
 ## What the controller injects into the container
 
@@ -37,6 +42,8 @@ environment variables:
 - `AGENT_SINKS` — the recipe's `output.sinks` as JSON (`http` + `file` destinations).
 - `LORE_NOTIFY_URL` — shorthand for a single `http` sink.
 - `LORE_PARAMETERS` — the run parameters as JSON, when present.
+- `AGENT_REPOS` — the recipe's `resources.repos` as JSON, for the init container to clone.
+- `WORKSPACE_DIR` — where the init container clones repos (defaults to `/workspace`).
 - `TARGET_REPO` / `BRANCH_NAME` — set when the Agent provides them.
 - `AGENT_NAME` / `STATION_NAME` / `TASK_ID` — the run's identity, stamped onto every event.
 - `POD_NAME` / `POD_NAMESPACE` — the pod's identity, from the downward API.
@@ -44,6 +51,29 @@ environment variables:
 
 It also sets default resource requests/limits and an `activeDeadlineSeconds` derived from the
 Station's `deadlineMinutes`.
+
+## The init container
+
+`ai-agent-init` runs before the supervisor and provisions the environment from what the recipe
+declares — never from hardcoded policy. It runs a list of **tools** in order; each tool decides for
+itself whether the run needs it:
+
+| Tool | Active when | Does |
+| --- | --- | --- |
+| `git` | `resources.repos` is non-empty | clones each repo (full history) into `WORKSPACE_DIR`, checking out its `ref` (branch, tag, or SHA). Re-entrant across init retries. |
+| `claude` | the recipe's `model` resolves to Claude (same routing as [pluggable agents](#pluggable-agents)) | installs the Claude CLI via the official installer (`curl -fsSL https://claude.ai/install.sh \| bash`). |
+
+Before running the tools it **self-bootstraps prerequisites**: any executable a tool needs (`git`,
+`bash`, `curl`, `sha256sum`) that isn't on `PATH` is installed using the package manager detected
+from the distro (`apt`/`dnf`/`apk`). On a base image that already ships these, nothing is installed.
+
+Throughout, the init reports its own lifecycle — `started`, per-tool `running`, `succeeded`,
+`failed` — to the **same `output.sinks`** as the agent (`AGENT_SINKS` + `LORE_NOTIFY_URL`), using the
+same `{"source": {…}, "event": …}` envelope, so init progress is observable on the same channel and
+correlates with the agent's events. A non-zero exit fails the Pod before the supervisor starts.
+
+Adding a tool is one new `Tool` implementation plus a registry entry; adding a distro is one new
+`PackageManager` — nothing else changes.
 
 ## The supervisor
 

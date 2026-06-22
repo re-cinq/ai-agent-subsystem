@@ -1,0 +1,8 @@
+{
+	"fileVersion": 1,
+	"versions": {
+		"fluent-asserts": "2.0.4",
+		"libdparse": "0.25.1",
+		"silly": "1.2.0-dev.2"
+	}
+}
