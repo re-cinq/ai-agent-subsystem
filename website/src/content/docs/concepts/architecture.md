@@ -1,10 +1,10 @@
 ---
 title: Architecture
-description: The D monorepo — two binaries and a shared library, statically linked with no runtime dependencies.
+description: The D monorepo — three binaries and a shared library, statically linked with no runtime dependencies.
 ---
 
 ai-agent-subsystem is built as a single **dub** monorepo: reusable code lives in a shared library and
-the executables are thin layers on top, all under `packages/`. It produces **two binaries** and
+the executables are thin layers on top, all under `packages/`. It produces **three binaries** and
 **one shared library**.
 
 ```mermaid
@@ -13,14 +13,18 @@ flowchart TB
         direction TB
         CORE[["agentcore<br/>shared library"]]
         CTRL["controller<br/>binary"]
+        INIT["initializer<br/>binary"]
         SUP["supervisor<br/>binary"]
         CORE --> CTRL
+        CORE --> INIT
         CORE --> SUP
     end
 
     CTRL <-->|watch / create / patch| K8S[("Kubernetes API")]
-    SUP -->|runs as PID 1 inside| POD["Agent Pod"]
+    INIT -->|init container, prepares| POD["Agent Pod"]
+    SUP -->|runs as PID 1 inside| POD
     STATIC["statically linked with LDC, no runtime deps"] -.-> CTRL
+    STATIC -.-> INIT
     STATIC -.-> SUP
 ```
 
@@ -45,7 +49,16 @@ prunes old runs beyond the Station's history limits and exposes a `/healthz` end
 It uses a **watch + poll** loop: a long-lived watch for low latency, plus a periodic poll (every
 ~15s) as a safety net for missed events.
 
-### `supervisor` — binary 2
+### `initializer` — binary 2
+
+Runs as the Pod's **init container**, before the supervisor. It provisions the agent's environment
+from what the recipe declares — cloning the `resources.repos` into the workspace and installing the
+agent CLI (e.g. Claude via the official installer) — self-bootstrapping any missing prerequisites
+(git, curl, sha256sum) through the distro's package manager first, and reporting its lifecycle to the
+same output sinks as the agent. New provisioning tools and distros are added behind the `Tool` and
+`PackageManager` interfaces. See [Agent runtime](/concepts/agent-runtime/) for the full model.
+
+### `supervisor` — binary 3
 
 Runs inside the Job Pod as the entrypoint. It launches the agent process, streams its `stream-json`
 output line by line to the configured sinks, forwards termination signals for graceful shutdown,
@@ -53,10 +66,11 @@ and exits with the agent's exit code. It replaces the previous Node-based `run.m
 
 ## Static linking
 
-Both binaries are compiled with **LDC** and statically linked so they ship as self-contained
-executables with no runtime dependencies — no language runtime to install in the controller image,
-and a supervisor that can be injected into any glibc-based Station image. See
-[Building](/contribute/building/) for the dub configuration and link flags.
+All three binaries are compiled with **LDC** with the D runtime linked statically, so they ship as
+self-contained executables with no language runtime to install — the initializer and supervisor can
+be injected into any glibc-based Station image, and run unchanged across the common Kubernetes base
+distros (Debian, Ubuntu, RHEL-family, Amazon Linux, Alpine). See [Building](/contribute/building/)
+for the dub configuration and link flags.
 
 ## Kubernetes as the control plane
 

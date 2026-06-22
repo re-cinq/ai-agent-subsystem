@@ -1,10 +1,10 @@
 ---
 title: Building
-description: Build the two binaries and the shared library with dub, and statically link the D runtime.
+description: Build the three binaries and the shared library with dub, and statically link the D runtime.
 ---
 
 The monorepo is a single dub project; every sub-package lives under `packages/`: the `agentcore`
-library and the `controller`, `supervisor`, and `crdgen` executables.
+library and the `controller`, `initializer`, `supervisor`, and `crdgen` executables.
 
 ## Prerequisites
 
@@ -18,6 +18,7 @@ From the repository root:
 
 ```sh
 dub build :controller           # -> packages/controller/ai-agent-controller
+dub build :initializer          # -> packages/initializer/ai-agent-init
 dub build :supervisor           # -> packages/supervisor/ai-agent-supervisor
 dub build :crdgen               # -> packages/crdgen/ai-agent-crdgen
 dub build :controller --build=static --compiler=ldc2   # optimized release
@@ -44,8 +45,9 @@ drifted from the D model.
 
 :::note
 vibe-d brings `libssl`/`libcrypto`/`libz`. The `ai-agent-crdgen` tool (via `open-api`) and the
-`supervisor` (which uses vibe's HTTP client to post to output sinks) link them; only the
-`controller` stays lean.
+`supervisor` (which uses vibe's HTTP client to post to output sinks) link them; the `controller` and
+`initializer` stay lean (the initializer posts notifications via the `curl` CLI, so it needs no HTTP
+library).
 :::
 
 ## Static linking
@@ -62,15 +64,19 @@ ldd packages/controller/ai-agent-controller
 # libm.so.6, libgcc_s.so.1, libc.so.6, ld-linux — and no libphobos / libdruntime
 ```
 
-For a **fully static** binary with no libc dependency at all, build with LDC against **musl** (the
-release/CI target):
+This static-D-runtime, dynamic-glibc build is the **portable artifact**: built on an *old* glibc base
+(e.g. `debian:bullseye`, glibc 2.31) with
 
 ```sh
-dub build :controller --build=static --compiler=ldc2 --d-version=... # musl toolchain
+DFLAGS="-link-defaultlib-shared=false -L-lz" dub build :initializer --compiler=ldc2
 ```
 
-This requires a musl-enabled LDC (or installed static glibc archives) and is wired up in CI rather
-than assumed on every dev machine.
+the binary runs unchanged on every glibc-based Kubernetes distro — Debian, Ubuntu, the RHEL family,
+Amazon Linux — because it only needs a baseline glibc (and `libz`/`libgcc_s`, present everywhere).
+**Alpine** is musl, not glibc, so a glibc binary can't run there; it is built natively on Alpine
+instead. A fully-static musl binary is *not* used: LDC's musl static link drags in `libunwind` →
+`liblzma` and is brittle, so the portable-glibc + native-Alpine split is the CI strategy (see
+[Cross-distro init-container tests](#cross-distro-init-container-tests)).
 
 ## Tests
 
@@ -90,3 +96,26 @@ integration suite that runs the real binary against a configurable **mock agent*
 ```sh
 ./scripts/itest-supervisor.sh
 ```
+
+The **initializer**'s host suite runs the real `ai-agent-init` against a local repo, covering the
+clone, idempotent re-runs, lifecycle notifications, and private-repo token auth (asserting the token
+never leaks to a sink):
+
+```sh
+./scripts/itest-initializer.sh
+```
+
+### Cross-distro init-container tests
+
+The init container self-bootstraps its prerequisites through the distro package manager, so it is
+also exercised inside real **minimal images where `git` is absent** — proving it installs git via the
+detected package manager and clones for real:
+
+```sh
+./scripts/ctest-initializer.sh                                                  # Debian/apt (default)
+BUILDER_IMAGE=fedora:40 RUNTIME_IMAGE=fedora:40 ./scripts/ctest-initializer.sh  # dnf
+```
+
+CI runs this across the top Kubernetes base distros — Debian, Ubuntu, Rocky, and Amazon Linux (one
+shared glibc build) plus Alpine (built natively on musl) — in the **Init container** workflow
+(`.github/workflows/init-container.yml`).

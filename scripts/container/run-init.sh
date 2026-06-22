@@ -1,12 +1,19 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # Runs INSIDE a minimal container where git/curl are absent, proving ai-agent-init
 # self-bootstraps its prerequisites through the distro package manager and then
 # provisions for real. Test A (git clone) always runs; Test B (the real Claude
 # install) is opt-in via CTEST_CLAUDE=1 and skips itself when claude.ai is
-# unreachable.
-set -uo pipefail
+# unreachable. POSIX sh (no bashisms) so it runs on Alpine's busybox shell too.
+set -u
 fail=0
 chk() { if [ "$2" -eq 0 ]; then echo "  PASS  $1"; else echo "  FAIL  $1"; fail=1; fi; }
+
+# We clone from a host-mounted repo owned by a different uid than this container,
+# so git's dubious-ownership guard would block the clone. git only honours
+# safe.directory from its system/global config (not from env or -c), so write it
+# to the system config now — it's just a file, no git needed yet. (Real runs clone
+# from a remote url, so this is purely a bind-mount test concession.)
+printf '[safe]\n\tdirectory = *\n' > /etc/gitconfig 2>/dev/null || true
 
 # shellcheck disable=SC1091
 echo "distro: $( . /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-unknown}" )"
@@ -27,7 +34,7 @@ else
 	chk "init exits 0 after self-bootstrap" "$([ $rc -eq 0 ] && echo 0 || echo 1)"
 	chk "git was installed by the init" "$(command -v git >/dev/null 2>&1 && echo 0 || echo 1)"
 	chk "repo cloned into workspace" "$([ -f /workspace/app/README.md ] && echo 0 || echo 1)"
-	chk "checked out the pinned tag" "$( h="$(git -C /workspace/app rev-parse HEAD 2>/dev/null)"; [ -n "$h" ] && [ "$h" = "$(git -C /origin rev-parse v1 2>/dev/null)" ] && echo 0 || echo 1 )"
+	chk "checked out the pinned tag" "$( [ "$(git -C /workspace/app describe --tags --exact-match HEAD 2>/dev/null)" = "v1" ] && echo 0 || echo 1 )"
 	chk "succeeded event on the sink" "$(grep -q '"status":"succeeded"' "$sink" && echo 0 || echo 1)"
 fi
 
@@ -37,6 +44,7 @@ if [ "${CTEST_CLAUDE:-0}" = "1" ]; then
 	if ! command -v curl >/dev/null 2>&1; then
 		{ command -v apt-get >/dev/null 2>&1 && apt-get update && apt-get install -y --no-install-recommends curl ca-certificates; } >/dev/null 2>&1 || true
 		{ command -v dnf >/dev/null 2>&1 && dnf install -y curl; } >/dev/null 2>&1 || true
+		{ command -v apk >/dev/null 2>&1 && apk add --no-cache curl ca-certificates; } >/dev/null 2>&1 || true
 	fi
 	if curl -fsSI https://downloads.claude.ai/ >/dev/null 2>&1; then
 		export HOME=/root

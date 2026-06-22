@@ -1,6 +1,6 @@
 ---
 title: Repository layout
-description: How the D monorepo is organized — two binaries and a shared library.
+description: How the D monorepo is organized — three binaries and a shared library.
 ---
 
 The repository is a single **dub** monorepo (root `dub.json` with `targetType: none`; every
@@ -13,12 +13,14 @@ ai-agent-subsystem/
 │   ├── agentcore/                 # shared library
 │   │   └── source/agentcore/      # types, schema (UDAs), crds, prompt, reconcile, jobs, env
 │   ├── controller/                # binary: the operator
+│   ├── initializer/               # binary: the in-pod init container (ai-agent-init)
 │   ├── supervisor/                # binary: the in-pod supervisor
 │   ├── crdgen/                    # dev/CI tool: generates deploy/crds from the structs
 │   ├── mockagent/                 # test-only: configurable mock agent (ai-agent-mock)
 │   └── itest/                     # test-only: supervisor integration suite (ai-agent-itest)
 ├── deploy/                        # CRDs (generated), RBAC, NetworkPolicy, controller manifest
-├── scripts/                       # check-crd-drift.sh, itest-supervisor.sh
+├── scripts/                       # drift check + supervisor/initializer integration tests
+│   └── container/                 # init-container test image + cross-distro runner
 └── website/                       # this documentation site (Astro Starlight)
 ```
 
@@ -32,6 +34,7 @@ supervisor's end-to-end behaviour is covered by an integration suite
 | --- | --- | --- |
 | `agentcore` (lib) | `packages/agentcore/` | [Architecture](/concepts/architecture/) |
 | `ai-agent-controller` | `packages/controller/` | [Controller lifecycle](/concepts/controller-lifecycle/) |
+| `ai-agent-init` | `packages/initializer/` | [Agent runtime](/concepts/agent-runtime/) |
 | `ai-agent-supervisor` | `packages/supervisor/` | [Agent runtime](/concepts/agent-runtime/) |
 | `ai-agent-crdgen` | `packages/crdgen/` | dev tool — generates `deploy/crds` |
 | CRDs / RBAC | `deploy/` | [Reference](/reference/crd-agent/) |
