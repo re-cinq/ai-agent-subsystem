@@ -3,6 +3,7 @@ module agentcore.reconcile_driver;
 import agentcore.crds.agent : Agent;
 import agentcore.crds.agent_definition : AgentDefinition;
 import agentcore.crds.station : Station;
+import agentcore.concurrency : stationAtCapacity;
 import agentcore.jobs : jobNameFor;
 import agentcore.jobspec : buildJob;
 import agentcore.jsonbody : statusPatch;
@@ -28,8 +29,14 @@ void reconcileAgent(KubeClient client, string ns, Agent agent, string agentImage
 	Station station;
 	AgentDefinition definition;
 	bool refsResolved = true;
+	bool atCapacity = false;
 	if (phase == Phase.pending)
+	{
 		refsResolved = resolveRefs(client, ns, agent, station, definition);
+		if (refsResolved)
+			atCapacity = stationAtCapacity(client.listAgents(ns), agent.spec.stationRef,
+				station.spec.maxConcurrentRuns);
+	}
 
 	JobOutcome outcome;
 	bool hasOutcome = false;
@@ -41,7 +48,7 @@ void reconcileAgent(KubeClient client, string ns, Agent agent, string agentImage
 			enrichFromPod(client, ns, agent.status.jobName, outcome);
 	}
 
-	const decision = decide(phase, refsResolved, hasOutcome, outcome);
+	const decision = decide(phase, refsResolved, hasOutcome, outcome, atCapacity);
 
 	final switch (decision.kind)
 	{
@@ -217,6 +224,27 @@ unittest
 	client.statusPatches[0]["status"]["phase"].str.should.equal("Failed");
 	client.statusPatches[0]["status"]["failureReason"].str.should
 		.equal("Station or AgentDefinition not found");
+}
+
+unittest
+{
+	// Pending + Station already at maxConcurrentRuns -> wait: no Job, no patch.
+	auto client = new FakeKubeClient;
+	client.station.metadata.name = "stn";
+	client.station.spec.agentDefRef = "def";
+	client.station.spec.maxConcurrentRuns = 1;
+	client.station.spec.template_ = parseJSON(`{"spec":{"containers":[{"name":"agent"}]}}`);
+
+	Agent active; // one run already in flight for this Station
+	active.metadata.name = "run-active";
+	active.spec.stationRef = "stn";
+	active.status.phase = Phase.running;
+	client.agents = [active];
+
+	reconcileAgent(client, "ai-agents", pendingAgent("run-waiting", "stn"), "img", "now");
+
+	client.createdJobs.length.should.equal(0);
+	client.statusPatches.length.should.equal(0);
 }
 
 unittest

@@ -38,10 +38,13 @@ struct Decision
 
 /**
  * The pure reconcile state machine. All I/O — resolving refs, creating Jobs,
- * patching status, pruning history — is performed by the caller based on the
- * returned Decision.
+ * patching status, pruning history, counting the Station's active runs — is
+ * performed by the caller based on the returned Decision. `atCapacity` is true
+ * when the Station is already at its `maxConcurrentRuns`, in which case a Pending
+ * Agent waits rather than starting.
  */
-Decision decide(Phase current, bool refsResolved, bool hasOutcome, JobOutcome outcome) @safe pure
+Decision decide(Phase current, bool refsResolved, bool hasOutcome, JobOutcome outcome,
+	bool atCapacity = false) @safe pure
 {
 	final switch (current)
 	{
@@ -49,6 +52,8 @@ Decision decide(Phase current, bool refsResolved, bool hasOutcome, JobOutcome ou
 		if (!refsResolved)
 			return Decision(ActionKind.failMissingRef, Phase.failed, 0,
 				"Station or AgentDefinition not found");
+		if (atCapacity)
+			return Decision(ActionKind.none, Phase.pending);
 		return Decision(ActionKind.startRun, Phase.running);
 	case Phase.running:
 		if (!hasOutcome || outcome.state == JobState.running)
@@ -79,6 +84,11 @@ version (unittest) import fluent.asserts;
 	missing.kind.should.equal(ActionKind.failMissingRef);
 	missing.phase.should.equal(Phase.failed);
 	missing.failureReason.length.should.be.greaterThan(0);
+
+	// Pending + refs resolved but the Station is at capacity -> wait (stay Pending).
+	const waiting = decide(Phase.pending, true, false, no, true);
+	waiting.kind.should.equal(ActionKind.none);
+	waiting.phase.should.equal(Phase.pending);
 }
 
 @safe unittest

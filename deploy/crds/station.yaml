@@ -54,6 +54,10 @@ spec:
                   type: integer
                   default: 3
                   minimum: 0
+                maxConcurrentRuns:
+                  type: integer
+                  minimum: 0
+                  description: "Max Agents of this Station running at once; 0 is unlimited. A Pending Agent waits while at the limit."
                 template:
                   type: object
                   description: "Standard Kubernetes PodTemplateSpec; the container named \"agent\" is wired with the recipe."

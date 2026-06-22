@@ -55,6 +55,7 @@ export default defineConfig({
 						{ label: 'Define a recipe', slug: 'tasks/define-a-recipe' },
 						{ label: 'Create a station', slug: 'tasks/create-a-station' },
 						{ label: 'Launch an agent', slug: 'tasks/launch-an-agent' },
+						{ label: 'Setting limits', slug: 'tasks/set-limits' },
 						{ label: 'Collect output', slug: 'tasks/collect-output' },
 						{ label: 'Examples', slug: 'tasks/examples' },
 					],

@@ -7,6 +7,7 @@ public import agentcore.prompt;
 public import agentcore.reconcile;
 public import agentcore.jobs;
 public import agentcore.prune;
+public import agentcore.concurrency;
 public import agentcore.jsonbody;
 public import agentcore.jobspec;
 public import agentcore.kubeclient;

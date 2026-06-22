@@ -15,6 +15,7 @@ The runtime template. It has a `spec` and no `status`.
 | `agentDefRef` | string | *required* | Name of the `AgentDefinition` this Station runs. |
 | `template` | PodTemplateSpec | *required* | Standard Pod template. The container named `agent` is wired with the recipe and injected runtime. |
 | `deadlineMinutes` | int | `30` | Wall-clock limit; becomes the Job's `activeDeadlineSeconds` (× 60). |
+| `maxConcurrentRuns` | int | `0` | Max Agents of this Station `Running` at once; `0` is unlimited. A new Agent waits in `Pending` while at the limit. See [Setting limits](/tasks/set-limits/). |
 | `successfulRunsHistoryLimit` | int | `3` | Succeeded Agents to keep before pruning the oldest. |
 | `failedRunsHistoryLimit` | int | `3` | Failed Agents to keep before pruning the oldest. |
 
