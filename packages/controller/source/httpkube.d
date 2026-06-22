@@ -1,0 +1,175 @@
+module httpkube;
+
+import std.algorithm.searching : canFind;
+import std.conv : to;
+import std.exception : enforce;
+import std.json : JSONType, JSONValue, parseJSON;
+
+import vibe.http.client : HTTPClientRequest, HTTPClientResponse, HTTPClientSettings, requestHTTP;
+import vibe.http.common : HTTPMethod;
+import vibe.stream.operations : readAllUTF8, readLine;
+import vibe.stream.tls : TLSContext;
+
+import agentcore.crds.agent : Agent;
+import agentcore.crds.agent_definition : AgentDefinition;
+import agentcore.crds.station : Station;
+import agentcore.jsonbody : parseAgent, parseAgentDefinition, parseAgentList, parseJobOutcome, parseStation;
+import agentcore.kubeclient : KubeClient, NotFound;
+import agentcore.reconcile : JobOutcome;
+
+import incluster : ClusterConfig;
+
+enum crGroup = "agents.re-cinq.com";
+enum crVersion = "v1alpha1";
+
+/// `KubeClient` over the Kubernetes API server, spoken with vibe's HTTP client:
+/// bearer-token auth, the cluster CA added to the TLS trust store, and
+/// merge-patch for the status subresource. The long-lived watch stream
+/// (`watchAgents`) is controller-only and sits beside the interface.
+final class HttpKubeClient : KubeClient
+{
+	private ClusterConfig config;
+	private HTTPClientSettings settings;
+
+	this(ClusterConfig config)
+	{
+		this.config = config;
+		this.settings = new HTTPClientSettings;
+		const ca = config.caFile;
+		this.settings.tlsContextSetup = (TLSContext ctx) @safe nothrow {
+			try
+				() @trusted { ctx.useTrustedCertificateFile(ca); }();
+			catch (Exception)
+			{
+			}
+		};
+	}
+
+	override Station getStation(string ns, string name)
+	{
+		return parseStation(getJson(crUrl(ns, "stations", name), "Station " ~ name));
+	}
+
+	override AgentDefinition getAgentDefinition(string ns, string name)
+	{
+		return parseAgentDefinition(getJson(crUrl(ns, "agentdefinitions", name), "AgentDefinition " ~ name));
+	}
+
+	override void createJob(string ns, JSONValue job)
+	{
+		send(HTTPMethod.POST, jobsUrl(ns), job, "application/json", [201, 409]);
+	}
+
+	override JobOutcome jobOutcome(string ns, string jobName)
+	{
+		return parseJobOutcome(getJson(jobUrl(ns, jobName), "Job " ~ jobName));
+	}
+
+	override void patchAgentStatus(string ns, string name, JSONValue statusPatch)
+	{
+		send(HTTPMethod.PATCH, crUrl(ns, "agents", name) ~ "/status", statusPatch,
+			"application/merge-patch+json", [200]);
+	}
+
+	override Agent[] listAgents(string ns)
+	{
+		return parseAgentList(getJson(crCollectionUrl(ns, "agents"), "agents"));
+	}
+
+	override void deleteAgent(string ns, string name)
+	{
+		send(HTTPMethod.DELETE, crUrl(ns, "agents", name), JSONValue.init, "", [200, 202, 404]);
+	}
+
+	/// Stream Agent watch events (one newline-delimited JSON object per line) to
+	/// `onLine` until the connection ends. `resourceVersion` "0" replays the
+	/// current state then follows changes.
+	void watchAgents(string ns, string resourceVersion, scope void delegate(string line) onLine)
+	{
+		const url = crCollectionUrl(ns, "agents") ~ "?watch=1&resourceVersion=" ~ resourceVersion;
+		requestHTTP(url,
+			(scope HTTPClientRequest req) { authorize(req); },
+			(scope HTTPClientResponse res) {
+				while (!res.bodyReader.empty)
+				{
+					auto line = cast(string) res.bodyReader.readLine(size_t.max, "\n");
+					if (line.length)
+						onLine(line);
+				}
+			}, settings);
+	}
+
+	private JSONValue getJson(string url, string what)
+	{
+		JSONValue document;
+		int status;
+		requestHTTP(url,
+			(scope HTTPClientRequest req) { authorize(req); },
+			(scope HTTPClientResponse res) {
+				status = res.statusCode;
+				const body = res.bodyReader.readAllUTF8();
+				if (status == 200)
+					document = parseJSON(body);
+			}, settings);
+		if (status == 404)
+			throw new NotFound(what ~ " not found");
+		enforce(status == 200, what ~ ": unexpected status " ~ status.to!string);
+		return document;
+	}
+
+	private void send(HTTPMethod method, string url, JSONValue body, string contentType, int[] okCodes)
+	{
+		int status;
+		requestHTTP(url,
+			(scope HTTPClientRequest req) {
+				req.method = method;
+				authorize(req);
+				if (body.type != JSONType.null_)
+					req.writeBody(cast(const(ubyte)[]) body.toString(), contentType);
+			},
+			(scope HTTPClientResponse res) { status = res.statusCode; res.dropBody(); },
+			settings);
+		enforce(okCodes.canFind(status), url ~ ": unexpected status " ~ status.to!string);
+	}
+
+	private void authorize(scope HTTPClientRequest req)
+	{
+		if (config.token.length)
+			req.headers["Authorization"] = "Bearer " ~ config.token;
+	}
+
+	private string crUrl(string ns, string plural, string name)
+	{
+		return crCollectionUrl(ns, plural) ~ "/" ~ name;
+	}
+
+	private string crCollectionUrl(string ns, string plural)
+	{
+		return config.apiBase ~ "/apis/" ~ crGroup ~ "/" ~ crVersion ~ "/namespaces/" ~ ns ~ "/" ~ plural;
+	}
+
+	private string jobsUrl(string ns)
+	{
+		return config.apiBase ~ "/apis/batch/v1/namespaces/" ~ ns ~ "/jobs";
+	}
+
+	private string jobUrl(string ns, string name)
+	{
+		return jobsUrl(ns) ~ "/" ~ name;
+	}
+}
+
+version (unittest) import fluent.asserts;
+
+unittest
+{
+	// URL construction is pure and worth pinning; building the client opens no
+	// connection.
+	auto client = new HttpKubeClient(ClusterConfig("https://api:443", "tok", "/ca", "ai-agents"));
+	client.crUrl("ai-agents", "agents", "run-1").should.equal(
+		"https://api:443/apis/agents.re-cinq.com/v1alpha1/namespaces/ai-agents/agents/run-1");
+	client.crCollectionUrl("ai-agents", "stations").should.equal(
+		"https://api:443/apis/agents.re-cinq.com/v1alpha1/namespaces/ai-agents/stations");
+	client.jobUrl("ai-agents", "agent-job-run-1").should.equal(
+		"https://api:443/apis/batch/v1/namespaces/ai-agents/jobs/agent-job-run-1");
+}

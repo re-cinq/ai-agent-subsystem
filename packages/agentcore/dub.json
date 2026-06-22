@@ -10,7 +10,7 @@
 		{
 			"name": "unittest",
 			"dependencies": {
-				"fluent-asserts": "~>2.0.4"
+				"fluent-asserts": "~>2.0.5"
 			}
 		}
 	]

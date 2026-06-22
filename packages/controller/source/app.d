@@ -1,23 +1,40 @@
 module app;
 
-import std.stdio : writeln, writefln;
+import std.conv : to;
 import std.process : environment;
 
-import agentcore;
+import vibe.core.core : runEventLoop, runTask;
+import vibe.core.log : logInfo;
 
-int main()
+import httpkube : HttpKubeClient;
+import health : startHealthServer;
+import incluster : loadClusterConfig;
+import watchpoll : runControlLoop;
+
+version (unittest)
 {
-	const ns = environment.get("NAMESPACE", "ai-agents");
-	const healthPort = environment.get("HEALTH_PORT", "8081");
-	const agentImage = environment.get("AGENT_IMAGE", "ghcr.io/re-cinq/ai-agent:latest");
+	// `dub test` builds this executable with -unittest; the module unittests run
+	// automatically and this empty main lets the test binary exit afterwards
+	// instead of starting the reconcile loop.
+	void main()
+	{
+	}
+}
+else
+{
+	int main()
+	{
+		const healthPort = environment.get("HEALTH_PORT", "8081").to!ushort;
+		const agentImage = environment.get("AGENT_IMAGE", "ghcr.io/re-cinq/ai-agent:latest");
 
-	writefln("ai-agent-controller: namespace=%s health=:%s agentImage=%s",
-		ns, healthPort, agentImage);
+		auto config = loadClusterConfig();
+		auto client = new HttpKubeClient(config);
 
-	// Smoke-exercise the shared reconcile core so the link is real.
-	const d = decide(Phase.pending, true, false, JobOutcome.init);
-	writefln("reconcile self-check: pending -> %s (%s)", cast(string) d.phase, d.kind);
+		logInfo("ai-agent-controller: namespace=%s health=:%s agentImage=%s",
+			config.namespace, healthPort, agentImage);
 
-	writeln("watch + poll loop not yet implemented (bootstrap)");
-	return 0;
+		startHealthServer(healthPort);
+		runTask(() nothrow { runControlLoop(client, config.namespace, agentImage); });
+		return runEventLoop();
+	}
 }

@@ -5,11 +5,23 @@
 	"targetType": "executable",
 	"targetName": "ai-agent-controller",
 	"dependencies": {
-		"ai-agent-subsystem:agentcore": "*"
+		"ai-agent-subsystem:agentcore": "*",
+		"vibe-d": "~>0.10.3"
 	},
 	"buildTypes": {
 		"static": {
 			"buildOptions": ["releaseMode", "optimize", "inline"]
 		}
-	}
+	},
+	"configurations": [
+		{
+			"name": "application"
+		},
+		{
+			"name": "unittest",
+			"dependencies": {
+				"fluent-asserts": "~>2.0.5"
+			}
+		}
+	]
 }
