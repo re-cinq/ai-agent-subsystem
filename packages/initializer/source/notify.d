@@ -1,25 +1,11 @@
 module notify;
 
-import std.process : environment, execute;
+import std.process : execute;
 import std.stdio : stdout;
 
-import agentcore.crds.enums : SinkType;
-import agentcore.env : envNotifyUrl, envSinks;
 import agentcore.event : EventSource, wrapEvent;
 import agentcore.log : logError;
-import agentcore.output : SinkSpec, deliverSinks, parseSinks;
-
-/// The run's configured sinks: the recipe's `AGENT_SINKS`, plus a single http sink
-/// from the `LORE_NOTIFY_URL` shorthand when set — the same set the supervisor
-/// delivers to, so init events land on the same channel as the agent's.
-SinkSpec[] sinksFromEnv()
-{
-	auto sinks = parseSinks(environment.get(envSinks, ""));
-	const url = environment.get(envNotifyUrl, "");
-	if (url.length)
-		sinks ~= SinkSpec(SinkType.http, url);
-	return sinks;
-}
+import agentcore.output : SinkSpec, deliverSinks;
 
 /// Wrap `payload` in the run's event envelope and fan it out: always to stdout
 /// (pod logs → status.output), plus every configured http/file sink. Fire-and-

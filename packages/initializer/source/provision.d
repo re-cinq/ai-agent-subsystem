@@ -15,14 +15,14 @@ import agentcore.event : EventSource, sourceFromEnv;
 import agentcore.exec : findExecutable;
 import agentcore.initcontext : InitContext;
 import agentcore.log : logError;
-import agentcore.output : SinkSpec;
+import agentcore.output : SinkSpec, sinksFromEnv;
 import agentcore.packagemanager : packageFor;
 import agentcore.packagemanagerselect : packageManagerByName;
 import agentcore.repos : parseRepos;
 import agentcore.tool : Tool;
 import agentcore.toolselect : allTools;
 
-import notify : notify, sinksFromEnv;
+import notify : notify;
 
 /// Build the provisioning context from the env the controller injects.
 InitContext contextFromEnv()
@@ -43,7 +43,7 @@ int provision(InitContext ctx)
 	const source = sourceFromEnv();
 	auto active = activeTools(ctx);
 
-	notify(sinks, source, `{"phase":"init","status":"started"}`);
+	notify(sinks, source, initEvent("started"));
 
 	// The Claude installer writes into $HOME; it must be set and writable.
 	if (active.canFind!(t => t.name == "claude") && !homeWritable())
@@ -56,7 +56,7 @@ int provision(InitContext ctx)
 
 	foreach (tool; active)
 	{
-		notify(sinks, source, `{"phase":"init","tool":"` ~ tool.name ~ `","status":"running"}`);
+		notify(sinks, source, initEvent("running", tool.name));
 		foreach (step; tool.steps(ctx))
 		{
 			const code = runStep(step);
@@ -67,8 +67,18 @@ int provision(InitContext ctx)
 		}
 	}
 
-	notify(sinks, source, `{"phase":"init","status":"succeeded"}`);
+	notify(sinks, source, initEvent("succeeded"));
 	return 0;
+}
+
+/// Build an init lifecycle event payload, centralising the `{"phase":"init",…}`
+/// envelope so its shape lives in one place. The `failed` event is built by `fail`,
+/// which appends a per-failure detail.
+private string initEvent(string status, string tool = "")
+{
+	return tool.length
+		? `{"phase":"init","tool":"` ~ tool ~ `","status":"` ~ status ~ `"}`
+		: `{"phase":"init","status":"` ~ status ~ `"}`;
 }
 
 /// The tools this run needs, in execution order — those whose `steps` are non-empty.
@@ -96,7 +106,7 @@ private int ensurePrerequisites(Tool[] active, const SinkSpec[] sinks, in EventS
 			"[init] missing prerequisites and no supported package manager: " ~ missing.join(", "),
 			`"reason":"no-package-manager"`, 2);
 
-	notify(sinks, source, `{"phase":"init","tool":"` ~ pmName ~ `","status":"installing"}`);
+	notify(sinks, source, initEvent("installing", pmName));
 	auto pkgs = missing.map!packageFor.array;
 	foreach (step; packageManagerByName(pmName).installSteps(pkgs))
 	{

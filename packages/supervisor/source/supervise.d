@@ -1,6 +1,5 @@
 module supervise;
 
-import std.process : environment;
 import std.stdio : stdout;
 
 import core.stdc.signal : signal, SIG_IGN, SIGINT, SIGTERM;
@@ -12,12 +11,10 @@ import vibe.core.core : disableDefaultSignalHandlers, runTask, sleep;
 import vibe.core.process : pipeProcess, Redirect, ProcessPipes;
 import vibe.stream.operations : readLine;
 
-import agentcore.crds.enums : SinkType;
-import agentcore.env : envNotifyUrl, envSinks;
 import agentcore.event : sourceFromEnv, wrapEvent;
 import agentcore.exec : findExecutable;
 import agentcore.log : logError;
-import agentcore.output : SinkSpec, parseSinks;
+import agentcore.output : sinksFromEnv;
 import sink : deliver;
 
 /// PID of the spawned agent, shared with the signal handler.
@@ -54,7 +51,7 @@ int supervise(string[] agentArgv)
 		return 1;
 	}
 
-	const sinks = buildSinks();
+	const sinks = sinksFromEnv();
 	const source = sourceFromEnv();
 
 	ProcessPipes pipes;
@@ -106,15 +103,4 @@ int supervise(string[] agentArgv)
 	pipes.stdout.close();
 
 	return code;
-}
-
-/// The sinks to deliver to: the recipe's `AGENT_SINKS`, plus a single http sink
-/// from the `LORE_NOTIFY_URL` shorthand when set.
-private SinkSpec[] buildSinks()
-{
-	auto sinks = parseSinks(environment.get(envSinks, ""));
-	const notify = environment.get(envNotifyUrl, "");
-	if (notify.length)
-		sinks ~= SinkSpec(SinkType.http, notify);
-	return sinks;
 }

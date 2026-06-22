@@ -1,9 +1,11 @@
 module agentcore.output;
 
 import std.json : parseJSON;
+import std.process : environment;
 import std.stdio : File;
 
 import agentcore.crds.enums : SinkType;
+import agentcore.env : envNotifyUrl, envSinks;
 import agentcore.log : logError;
 
 /// A resolved output sink: where the supervisor sends each emitted line. The
@@ -43,6 +45,19 @@ SinkSpec[] parseSinks(string json)
 	}
 	catch (Exception)
 		return null;
+	return sinks;
+}
+
+/// The run's configured sinks, read from the env the controller injects: the
+/// recipe's `AGENT_SINKS`, plus a single http sink from the `LORE_NOTIFY_URL`
+/// shorthand when set. Shared by the supervisor and the initializer so init and
+/// agent output land on the same channel.
+SinkSpec[] sinksFromEnv()
+{
+	auto sinks = parseSinks(environment.get(envSinks, ""));
+	const url = environment.get(envNotifyUrl, "");
+	if (url.length)
+		sinks ~= SinkSpec(SinkType.http, url);
 	return sinks;
 }
 
@@ -115,6 +130,23 @@ unittest
 	parseSinks("[]").length.should.equal(0);
 	// entries without a type are skipped
 	parseSinks(`[{"url":"http://x"}]`).length.should.equal(0);
+}
+
+unittest
+{
+	environment["AGENT_SINKS"] = `[{"type":"file","path":"/tmp/out"}]`;
+	environment["LORE_NOTIFY_URL"] = "http://collector/n";
+	scope (exit)
+	{
+		environment.remove("AGENT_SINKS");
+		environment.remove("LORE_NOTIFY_URL");
+	}
+	// the LORE_NOTIFY_URL shorthand is appended as an http sink after AGENT_SINKS
+	auto sinks = sinksFromEnv();
+	sinks.length.should.equal(2);
+	sinks[0].type.should.equal(SinkType.file);
+	sinks[1].type.should.equal(SinkType.http);
+	sinks[1].url.should.equal("http://collector/n");
 }
 
 version (unittest) private __gshared string g_posted;
