@@ -119,3 +119,19 @@ BUILDER_IMAGE=fedora:40 RUNTIME_IMAGE=fedora:40 ./scripts/ctest-initializer.sh  
 CI runs this across the top Kubernetes base distros — Debian, Ubuntu, Rocky, and Amazon Linux (one
 shared glibc build) plus Alpine (built natively on musl) — in the **Init container** workflow
 (`.github/workflows/init-container.yml`).
+
+### Cross-distro supervisor tests
+
+The supervisor runs inside the Station's (glibc) image, so its integration suite is also run inside
+each glibc base distro. Because the supervisor links vibe-d (and so `libssl.so.3`), the stack is
+built once on **Rocky 9** — the oldest glibc (2.34) and openssl 3 common to every glibc distro — and
+fanned out, carrying the ldc runtime libs and installing `libssl3` where a base image lacks it.
+Alpine is **not** a target: the supervisor requires glibc.
+
+```sh
+./scripts/ctest-supervisor.sh                          # all four glibc distros
+TARGETS="debian:bookworm-slim" ./scripts/ctest-supervisor.sh   # a subset
+```
+
+CI runs this on Rocky, Amazon Linux, Debian, and Ubuntu in the **Supervisor container** workflow
+(`.github/workflows/supervisor-container.yml`).

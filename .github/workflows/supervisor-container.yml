@@ -1,0 +1,75 @@
+name: Supervisor container
+
+# Builds the supervisor stack once and runs its integration suite on the glibc
+# distros used as Kubernetes base images, proving the supervisor (which links
+# vibe-d / openssl) runs there: streaming, file/http sinks, signal forwarding, and
+# exit-code passthrough against a real mock agent.
+#
+# The supervisor requires glibc (Alpine/musl is excluded by design). It is built
+# on rockylinux:9 — the oldest glibc (2.34) and openssl 3 (libssl.so.3) common to
+# every glibc distro in the matrix — so the one build runs on all of them; the ldc
+# runtime libs ride along and libssl3 is installed per distro when missing.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/**'
+      - 'dub.json'
+      - 'scripts/container/run-itest.sh'
+      - '.github/workflows/supervisor-container.yml'
+  pull_request:
+    paths:
+      - 'packages/**'
+      - 'dub.json'
+      - 'scripts/container/run-itest.sh'
+      - '.github/workflows/supervisor-container.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build supervisor stack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build supervisor + mock + itest on Rocky 9
+        run: |
+          mkdir stage
+          docker run --rm -v "$PWD:/src" -w /src -v "$PWD/stage:/out" rockylinux:9 sh -euc '
+            dnf install -y epel-release
+            dnf install -y ldc dub gcc git openssl-devel zlib-devel
+            for pkg in supervisor mockagent itest; do dub build :$pkg --compiler=ldc2; done
+            cp packages/supervisor/ai-agent-supervisor packages/mockagent/ai-agent-mock packages/itest/ai-agent-itest /out/
+            cp /usr/lib64/libphobos2-ldc-shared.so.* /usr/lib64/libdruntime-ldc-shared.so.* /out/
+          '
+      - uses: actions/upload-artifact@v4
+        with:
+          name: supervisor-stack
+          path: stage
+          if-no-files-found: error
+
+  test:
+    name: ${{ matrix.image }}
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - rockylinux:9
+          - amazonlinux:2023
+          - debian:bookworm-slim
+          - ubuntu:24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: supervisor-stack
+          path: stage
+      - name: Run supervisor itest on ${{ matrix.image }}
+        run: |
+          chmod +x stage/ai-agent-supervisor stage/ai-agent-mock stage/ai-agent-itest scripts/container/run-itest.sh
+          docker run --rm \
+            -v "$PWD/stage:/opt/sup:ro" \
+            -v "$PWD/scripts/container/run-itest.sh:/run-itest.sh:ro" \
+            "${{ matrix.image }}" /run-itest.sh
