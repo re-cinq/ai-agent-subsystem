@@ -12,7 +12,7 @@ module app;
 //
 //   usage: ai-agent-itest <supervisor-bin> <mock-bin>
 
-import std.algorithm.searching : any, canFind, startsWith;
+import std.algorithm.searching : any, canFind, count, startsWith;
 import std.conv : to;
 import std.file : exists, readText, remove, tempDir;
 import std.path : buildPath;
@@ -80,7 +80,9 @@ private Result signalRun(int[] signals)
 	foreach (line; pipes.stdout.byLine)
 	{
 		lines ~= line.idup;
-		if (line.canFind("started"))
+		// Wait for the mock's own readiness marker, not the supervisor's `started`
+		// lifecycle event (which precedes the agent) — else we'd signal too early.
+		if (line.canFind(`"started":1`))
 			break;
 	}
 	foreach (s; signals)
@@ -95,6 +97,13 @@ private bool emitted(string[] lines, string needle)
 	return lines.any!(l => l.canFind(needle));
 }
 
+/// The agent's own output lines (each mock event carries an `"i":` counter),
+/// excluding the supervisor's lifecycle events that now bracket the stream.
+private size_t payloadCount(string[] lines)
+{
+	return lines.count!(l => l.canFind(`"i":`));
+}
+
 int main(string[] args)
 {
 	if (args.length < 3)
@@ -106,6 +115,7 @@ int main(string[] args)
 	mock = args[2];
 
 	streaming();
+	lifecycleEvents();
 	exitPassthrough();
 	eventIds();
 	fileSink();
@@ -126,9 +136,22 @@ private void streaming()
 {
 	writeln("streaming + exit code");
 	auto r = run(["MOCK_LINES": "3", "MOCK_EXIT": "0"]);
-	check("three events streamed", r.lines.length == 3);
+	check("three events streamed", payloadCount(r.lines) == 3);
 	check("payloads intact", emitted(r.lines, `"i":0`) && emitted(r.lines, `"i":2`));
 	check("exit 0", r.code == 0);
+}
+
+/// The supervisor's lifecycle events mirror the init container's: a typed,
+/// `kind`-tagged `agent`-phase stream a developer can hook the same way.
+private void lifecycleEvents()
+{
+	writeln("supervisor raises agent lifecycle events");
+	auto r = run(["MOCK_LINES": "1", "MOCK_EXIT": "0"]);
+	check("lifecycle events tagged kind + agent phase",
+		emitted(r.lines, `"kind":"lifecycle"`) && emitted(r.lines, `"phase":"agent"`));
+	check("agent started event raised", emitted(r.lines, `"status":"started"`));
+	check("agent succeeded event carries exit code",
+		emitted(r.lines, `"status":"succeeded"`) && emitted(r.lines, `"exitCode":0`));
 }
 
 private void exitPassthrough()
@@ -136,17 +159,18 @@ private void exitPassthrough()
 	writeln("exit-code passthrough");
 	auto r = run(["MOCK_LINES": "1", "MOCK_EXIT": "7"]);
 	check("exit 7", r.code == 7);
+	check("non-zero exit raises a failed lifecycle event with the code",
+		emitted(r.lines, `"status":"failed"`) && emitted(r.lines, `"exitCode":7`));
 }
 
 private void eventIds()
 {
 	writeln("events carry source ids");
 	auto r = run(["MOCK_LINES": "1"]);
-	const ok = r.lines.length > 0;
-	check("event stamped with agent id", ok && r.lines[0].canFind(`"agent":"test-agent"`));
-	check("event stamped with pod id", ok && r.lines[0].canFind(`"pod":"test-pod"`));
-	check("event stamped with station id", ok && r.lines[0].canFind(`"station":"test-station"`));
-	check("original payload nested under event", ok && r.lines[0].canFind(`"i":0`));
+	check("event stamped with agent id", emitted(r.lines, `"agent":"test-agent"`));
+	check("event stamped with pod id", emitted(r.lines, `"pod":"test-pod"`));
+	check("event stamped with station id", emitted(r.lines, `"station":"test-station"`));
+	check("original payload nested under event", emitted(r.lines, `"i":0`));
 }
 
 private void fileSink()
@@ -175,8 +199,10 @@ private void httpSink()
 	auto pipes = pipeProcess([supervisor, "--", mock], Redirect.stdout,
 		withSource(["MOCK_LINES": "3", "LORE_NOTIFY_URL": "http://127.0.0.1:18099/notify"]));
 
+	// 5 posts: the `agent started` lifecycle event, the 3 agent outputs, then the
+	// `agent succeeded` lifecycle event — the same stream the init container produces.
 	string[] posts;
-	foreach (_; 0 .. 3)
+	foreach (_; 0 .. 5)
 	{
 		auto conn = listener.accept();
 		posts ~= readBody(conn);
@@ -189,9 +215,11 @@ private void httpSink()
 	const code = wait(pipes.pid);
 	listener.close();
 
-	check("three notifications raised", posts.length == 3);
-	check("notification payload intact", posts.length > 0 && posts[0].canFind(`"i":0`));
-	check("notification carries agent id", posts.length > 0 && posts[0].canFind(`"agent":"test-agent"`));
+	check("agent outputs and lifecycle events all notified", posts.length == 5);
+	check("notification payloads intact", emitted(posts, `"i":0`) && emitted(posts, `"i":2`));
+	check("lifecycle start + succeeded notified",
+		emitted(posts, `"status":"started"`) && emitted(posts, `"exitCode":0`));
+	check("notification carries agent id", emitted(posts, `"agent":"test-agent"`));
 	check("exit 0", code == 0);
 }
 
@@ -225,6 +253,7 @@ private void agentCrash()
 	auto r = run(["MOCK_MODE": "crash"]);
 	check("start event captured before the crash", emitted(r.lines, `"started":1`));
 	check("crash surfaced as a non-zero exit", r.code != 0);
+	check("crash raised a failed lifecycle event", emitted(r.lines, `"status":"failed"`));
 }
 
 private void deadSinkLogs()
@@ -240,7 +269,7 @@ private void orphanRobustness()
 {
 	writeln("orphan robustness (must not hang)");
 	auto r = run(["MOCK_MODE": "orphan", "MOCK_LINES": "2", "MOCK_EXIT": "0"]);
-	check("both events streamed", r.lines.length == 2);
+	check("both events streamed", payloadCount(r.lines) == 2);
 	check("exit 0 without hanging", r.code == 0);
 }
 
@@ -249,14 +278,15 @@ private void badArgv()
 	writeln("missing agent binary");
 	auto pipes = pipeProcess([supervisor, "--", "/no-such-agent-binary-xyz"],
 		Redirect.stdout | Redirect.stderr, withSource(null));
+	string[] lines;
 	foreach (line; pipes.stdout.byLine)
-	{
-	}
+		lines ~= line.idup;
 	string err;
 	foreach (line; pipes.stderr.byLine)
 		err ~= line.idup ~ "\n";
 	check("exit 1", wait(pipes.pid) == 1);
 	check("not-found logged to stderr", err.canFind("agent not found"));
+	check("not-found raised as a lifecycle event", emitted(lines, `"reason":"not-found"`));
 }
 
 /// Read one HTTP request from `conn` and return its body (Content-Length bytes).
