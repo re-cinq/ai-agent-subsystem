@@ -27,7 +27,7 @@ One run. It has a `spec` (your desired run) and a `status` (owned by the control
 | `startedAt` | date-time | When the run began. |
 | `completedAt` | date-time | When the run ended. |
 | `exitCode` | int | Process exit code (`0` = success). |
-| `output` | string | Captured summary (tail of pod logs). |
+| `output` | string | Captured summary: the truncated tail of pod logs, capped at `MAX_OUTPUT_BYTES` (default 256 KiB) to stay under etcd's per-object limit. |
 | `failureReason` | string | Human-readable reason on failure. |
 | `prUrl` | string | Pull-request URL when applicable. |
 

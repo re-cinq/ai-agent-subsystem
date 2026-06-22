@@ -13,8 +13,8 @@ The controller records a summary on the Agent once the run finishes:
 kubectl get agent <name> -o yaml
 ```
 
-Useful fields under `status`: `phase`, `exitCode`, `output` (a tail of the pod logs),
-`failureReason`, `startedAt`, and `completedAt`.
+Useful fields under `status`: `phase`, `exitCode`, `output` (a truncated tail of the pod logs,
+capped at 256 KiB by default), `failureReason`, `startedAt`, and `completedAt`.
 
 ## From the pod logs
 
