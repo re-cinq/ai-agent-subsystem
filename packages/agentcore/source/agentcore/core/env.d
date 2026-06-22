@@ -29,3 +29,8 @@ enum defaultModel = "claude-sonnet-4-6";
 
 /// Workspace the init container clones repos into when none is injected.
 enum defaultWorkspace = "/workspace";
+
+/// Cap on bytes of run-pod log copied into status.output, keeping the tail, so
+/// the Agent object stays well under etcd's ~1.5 MB per-object limit.
+enum envMaxOutputBytes = "MAX_OUTPUT_BYTES";
+enum defaultMaxOutputBytes = 256 * 1024;

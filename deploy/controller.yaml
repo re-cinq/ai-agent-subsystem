@@ -34,6 +34,10 @@ spec:
             # into each run pod. Override with ai-agent:dev for local clusters.
             - name: AGENT_IMAGE
               value: ghcr.io/re-cinq/ai-agent:latest
+            # Bytes of run-pod log kept in status.output (the tail). Bounds the
+            # Agent object under etcd's ~1.5 MB per-object limit. Default 256 KiB.
+            - name: MAX_OUTPUT_BYTES
+              value: "262144"
           ports:
             - name: health
               containerPort: 8081

@@ -1,6 +1,9 @@
 module incluster;
 
+import std.conv : to;
 import std.process : environment;
+
+import agentcore.core.env : envMaxOutputBytes, defaultMaxOutputBytes;
 
 /// Connection parameters for the in-cluster Kubernetes API server, assembled from
 /// the service-account files and the well-known env vars Kubernetes injects into
@@ -11,6 +14,7 @@ struct ClusterConfig
 	string token; /// service-account bearer token
 	string caFile; /// path to the CA bundle the API server's cert is signed by
 	string namespace; /// the Pod's own namespace
+	size_t maxOutputBytes = defaultMaxOutputBytes; /// tail of a run pod's log kept in status.output
 }
 
 enum tokenPath = "/var/run/secrets/kubernetes.io/serviceaccount/token";
@@ -47,6 +51,8 @@ ClusterConfig loadClusterConfig()
 	config.caFile = caPath;
 	config.namespace = exists(namespacePath) ? readText(namespacePath)
 		.strip : environment.get("NAMESPACE", "ai-agents");
+	config.maxOutputBytes = environment.get(envMaxOutputBytes, defaultMaxOutputBytes.to!string)
+		.to!size_t;
 	return config;
 }
 

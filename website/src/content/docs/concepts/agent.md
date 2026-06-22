@@ -32,7 +32,7 @@ The controller owns `status`:
 - **`jobName`** — the Job the controller created.
 - **`startedAt`** / **`completedAt`** — run timestamps.
 - **`exitCode`** — the process exit code (`0` = success).
-- **`output`** — captured summary output (tail of the pod logs).
+- **`output`** — captured summary output (the truncated tail of the pod logs).
 - **`failureReason`** — a human-readable reason when the run fails.
 - **`prUrl`** — a pull-request URL when applicable.
 

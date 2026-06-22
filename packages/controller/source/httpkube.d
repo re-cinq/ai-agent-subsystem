@@ -15,12 +15,17 @@ import agentcore.crds.agent_definition : AgentDefinition;
 import agentcore.crds.station : Station;
 import agentcore.kube.jsonbody : parseAgent, parseAgentDefinition, parseAgentList, parseJobOutcome, parseStation;
 import agentcore.kube.kubeclient : KubeClient, NotFound, PodResult;
+import agentcore.kube.outputcap : capOutput;
 import agentcore.reconcile.reconcile : JobOutcome;
 
 import incluster : ClusterConfig;
 
 enum crGroup = "agents.re-cinq.com";
 enum crVersion = "v1alpha1";
+
+/// Last lines requested from a pod's log: a coarse cap on what crosses the wire.
+/// The byte-accurate tail kept in status.output is enforced by `capOutput`.
+enum logTailLines = 10_000;
 
 /// `KubeClient` over the Kubernetes API server, spoken with vibe's HTTP client:
 /// bearer-token auth, the cluster CA added to the TLS trust store, and
@@ -94,7 +99,8 @@ final class HttpKubeClient : KubeClient
 	override PodResult podResult(string ns, string podName)
 	{
 		const code = agentExitCode(getJson(podUrl(ns, podName), "pod " ~ podName));
-		const log = getText(podLogUrl(ns, podName), "logs for " ~ podName);
+		const log = capOutput(getText(podLogUrl(ns, podName), "logs for " ~ podName),
+			config.maxOutputBytes);
 		return PodResult(code, log);
 	}
 
@@ -233,7 +239,7 @@ final class HttpKubeClient : KubeClient
 
 	private string podLogUrl(string ns, string name)
 	{
-		return podUrl(ns, name) ~ "/log";
+		return podUrl(ns, name) ~ "/log?tailLines=" ~ logTailLines.to!string;
 	}
 }
 
@@ -251,5 +257,5 @@ unittest
 	client.jobUrl("ai-agents", "agent-job-run-1").should.equal(
 		"https://api:443/apis/batch/v1/namespaces/ai-agents/jobs/agent-job-run-1");
 	client.podLogUrl("ai-agents", "p1").should.equal(
-		"https://api:443/api/v1/namespaces/ai-agents/pods/p1/log");
+		"https://api:443/api/v1/namespaces/ai-agents/pods/p1/log?tailLines=10000");
 }

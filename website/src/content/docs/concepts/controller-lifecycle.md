@@ -35,8 +35,8 @@ stateDiagram-v2
 **Running → Succeeded | Failed**
 
 1. Read the Job outcome. While it is still running, do nothing.
-2. On success, patch `phase = Succeeded` with `exitCode` and `output`.
-3. On failure, patch `phase = Failed` with `exitCode`, `failureReason`, and `output`.
+2. On success, patch `phase = Succeeded` with `exitCode` and `output` (the truncated tail of the pod log).
+3. On failure, patch `phase = Failed` with `exitCode`, `failureReason`, and `output` (the truncated tail).
 4. After any terminal transition, prune history.
 
 **Terminal → terminal** is a no-op; reconciling a finished Agent does nothing.
