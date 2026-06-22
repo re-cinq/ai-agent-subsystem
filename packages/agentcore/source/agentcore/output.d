@@ -1,8 +1,10 @@
 module agentcore.output;
 
 import std.json : parseJSON;
+import std.stdio : File;
 
 import agentcore.crds.enums : SinkType;
+import agentcore.log : logError;
 
 /// A resolved output sink: where the supervisor sends each emitted line. The
 /// controller builds these from the recipe's `output.sinks` and injects them as
@@ -44,6 +46,46 @@ SinkSpec[] parseSinks(string json)
 	return sinks;
 }
 
+/// How an http sink is delivered — supplied by the caller because it varies by
+/// package: the initializer shells out to `curl` (no event loop), the supervisor
+/// uses vibe's HTTP client. Must not throw.
+alias HttpSink = void function(string url, string line) nothrow;
+
+/// Dispatch `line` to every configured sink: http via the caller's `postHttp`, file
+/// by appending, stdout a no-op (callers already echo to their own stdout). Fire-
+/// and-forget — a failing file sink is logged with `tag` and never disrupts the run.
+void deliverSinks(const SinkSpec[] sinks, string line, HttpSink postHttp, string tag) nothrow
+{
+	foreach (s; sinks)
+	{
+		final switch (s.type)
+		{
+		case SinkType.http:
+			postHttp(s.url, line);
+			break;
+		case SinkType.file:
+			appendFile(s.path, line, tag);
+			break;
+		case SinkType.stdout:
+			break;
+		}
+	}
+}
+
+/// Append `line` (with a trailing newline) to a file sink.
+private void appendFile(string path, string line, string tag) nothrow
+{
+	try
+	{
+		auto file = File(path, "a");
+		scope (exit)
+			file.close();
+		file.writeln(line);
+	}
+	catch (Exception e)
+		logError(tag ~ " file sink failed: " ~ e.msg);
+}
+
 private SinkType toSinkType(string s)
 {
 	switch (s)
@@ -73,4 +115,35 @@ unittest
 	parseSinks("[]").length.should.equal(0);
 	// entries without a type are skipped
 	parseSinks(`[{"url":"http://x"}]`).length.should.equal(0);
+}
+
+version (unittest) private __gshared string g_posted;
+
+version (unittest) private void recordPost(string url, string line) nothrow
+{
+	g_posted = url ~ " " ~ line;
+}
+
+unittest
+{
+	import std.file : readText, exists, remove, tempDir;
+	import std.path : buildPath;
+
+	const path = buildPath(tempDir, "agentcore-sink-test.log");
+	if (exists(path))
+		remove(path);
+	scope (exit)
+		if (exists(path))
+			remove(path);
+
+	g_posted = "";
+	SinkSpec[] sinks = [
+		SinkSpec(SinkType.http, "http://x", ""),
+		SinkSpec(SinkType.file, "", path),
+		SinkSpec(SinkType.stdout, "", ""),
+	];
+	deliverSinks(sinks, "hello", &recordPost, "[test]");
+
+	g_posted.should.equal("http://x hello");
+	readText(path).should.equal("hello\n");
 }

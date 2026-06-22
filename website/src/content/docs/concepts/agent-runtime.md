@@ -60,8 +60,15 @@ itself whether the run needs it:
 
 | Tool | Active when | Does |
 | --- | --- | --- |
-| `git` | `resources.repos` is non-empty | clones each repo (full history) into `WORKSPACE_DIR`, checking out its `ref` (branch, tag, or SHA). Re-entrant across init retries. |
+| `git` | `resources.repos` is non-empty | clones each repo (full history) into `WORKSPACE_DIR`, checking out its `ref` (branch, tag, or SHA). Re-entrant across init retries. Private repos authenticate with `token_secret` (below). |
 | `claude` | the recipe's `model` resolves to Claude (same routing as [pluggable agents](#pluggable-agents)) | installs the Claude CLI via the official installer (`curl -fsSL https://claude.ai/install.sh \| bash`). |
+
+A repo's `token_secret` names the **environment variable** holding its access token (the controller
+populates it from the secret store, the same way [secrets](/concepts/agentdefinition/) become env
+vars). The clone authenticates through a git credential helper that reads that variable **by name**
+at clone time, so the token value never appears in an argv or a log line — only the git child that
+inherits the environment ever sees it. The env-var name is validated before use, and the repo url is
+never passed through a shell.
 
 Before running the tools it **self-bootstraps prerequisites**: any executable a tool needs (`git`,
 `bash`, `curl`, `sha256sum`) that isn't on `PATH` is installed using the package manager detected

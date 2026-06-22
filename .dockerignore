@@ -1,0 +1,19 @@
+# The container test only needs the D sources + dub recipes. Keep the build
+# context small: drop history, build artifacts, the docs site, and node_modules.
+.git
+.dub
+**/.dub
+**/node_modules
+website
+deploy
+*.o
+*.a
+*.so
+dist
+# built binaries (rebuilt inside the container)
+ai-agent-controller
+ai-agent-supervisor
+ai-agent-crdgen
+ai-agent-init
+ai-agent-mock
+ai-agent-itest

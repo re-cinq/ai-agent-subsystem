@@ -4,16 +4,15 @@ import std.algorithm.iteration : filter, map;
 import std.algorithm.searching : canFind;
 import std.array : array, join;
 import std.conv : to;
-import std.file : exists, isFile;
-import std.path : buildPath;
 import std.process : environment, spawnProcess, wait;
-import std.string : split, toStringz;
+import std.string : toStringz;
 
 import core.sys.posix.unistd : access, W_OK;
 
 import agentcore.crds.enums : SinkType;
 import agentcore.env : defaultWorkspace, envModel, envRepos, envWorkspace;
-import agentcore.event : EventSource;
+import agentcore.event : EventSource, sourceFromEnv;
+import agentcore.exec : findExecutable;
 import agentcore.initcontext : InitContext;
 import agentcore.log : logError;
 import agentcore.output : SinkSpec;
@@ -23,7 +22,7 @@ import agentcore.repos : parseRepos;
 import agentcore.tool : Tool;
 import agentcore.toolselect : allTools;
 
-import notify : notify, sinksFromEnv, sourceFromEnv;
+import notify : notify, sinksFromEnv;
 
 /// Build the provisioning context from the env the controller injects.
 InitContext contextFromEnv()
@@ -173,22 +172,4 @@ private bool homeWritable()
 {
 	const home = environment.get("HOME", "");
 	return home.length > 0 && access(home.toStringz, W_OK) == 0;
-}
-
-/// Resolve `cmd` to an existing file: the path itself when it contains a `/`, else
-/// the first match on `PATH`. Returns "" when not found.
-string findExecutable(string cmd)
-{
-	if (cmd.canFind('/'))
-		return (exists(cmd) && isFile(cmd)) ? cmd : "";
-
-	foreach (dir; environment.get("PATH", "").split(':'))
-	{
-		if (dir.length == 0)
-			continue;
-		const candidate = buildPath(dir, cmd);
-		if (exists(candidate) && isFile(candidate))
-			return candidate;
-	}
-	return "";
 }

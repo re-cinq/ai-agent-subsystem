@@ -1,11 +1,7 @@
 module supervise;
 
-import std.algorithm.searching : canFind;
-import std.file : exists, isFile;
-import std.path : buildPath;
 import std.process : environment;
 import std.stdio : stdout;
-import std.string : split;
 
 import core.stdc.signal : signal, SIG_IGN, SIGINT, SIGTERM;
 import core.sys.posix.signal : kill, SIGPIPE;
@@ -17,14 +13,12 @@ import vibe.core.process : pipeProcess, Redirect, ProcessPipes;
 import vibe.stream.operations : readLine;
 
 import agentcore.crds.enums : SinkType;
-import agentcore.env : envAgentName, envNotifyUrl, envPodName, envPodNamespace,
-	envSinks, envStationName, envTaskId;
-import agentcore.event : EventSource, wrapEvent;
+import agentcore.env : envNotifyUrl, envSinks;
+import agentcore.event : sourceFromEnv, wrapEvent;
+import agentcore.exec : findExecutable;
 import agentcore.log : logError;
 import agentcore.output : SinkSpec, parseSinks;
 import sink : deliver;
-
-version (unittest) import fluent.asserts;
 
 /// PID of the spawned agent, shared with the signal handler.
 private __gshared pid_t g_childPid = 0;
@@ -61,7 +55,7 @@ int supervise(string[] agentArgv)
 	}
 
 	const sinks = buildSinks();
-	const source = buildSource();
+	const source = sourceFromEnv();
 
 	ProcessPipes pipes;
 	try
@@ -123,43 +117,4 @@ private SinkSpec[] buildSinks()
 	if (notify.length)
 		sinks ~= SinkSpec(SinkType.http, notify);
 	return sinks;
-}
-
-/// The run's identity, read from the env the controller injects, stamped onto
-/// every event so a workflow can correlate it back to its agent + pod.
-private EventSource buildSource()
-{
-	EventSource s;
-	s.agent = environment.get(envAgentName, "");
-	s.station = environment.get(envStationName, "");
-	s.task = environment.get(envTaskId, "");
-	s.pod = environment.get(envPodName, "");
-	s.namespace_ = environment.get(envPodNamespace, "");
-	return s;
-}
-
-/// Resolve `cmd` to an existing file: the path itself when it contains a `/`,
-/// else the first match on `PATH`. Returns "" when not found. Used to fail a bad
-/// agent argv cleanly instead of leaking the half-spawned process's pipes.
-string findExecutable(string cmd)
-{
-	if (cmd.canFind('/'))
-		return (exists(cmd) && isFile(cmd)) ? cmd : "";
-
-	foreach (dir; environment.get("PATH", "").split(':'))
-	{
-		if (dir.length == 0)
-			continue;
-		const candidate = buildPath(dir, cmd);
-		if (exists(candidate) && isFile(candidate))
-			return candidate;
-	}
-	return "";
-}
-
-unittest
-{
-	findExecutable("sh").length.should.be.greaterThan(0);
-	findExecutable("this-binary-should-not-exist-zzz").should.equal("");
-	findExecutable("/bin/no-such-file").should.equal("");
 }

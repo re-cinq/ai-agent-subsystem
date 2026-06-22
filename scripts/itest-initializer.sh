@@ -54,6 +54,25 @@ check "started event on the file sink" "$(grep -q '"status":"started"' "$sink" &
 check "succeeded event on the file sink" "$(grep -q '"status":"succeeded"' "$sink" && echo 0 || echo 1)"
 check "events carry the run id" "$(grep -q '"agent":"itest-agent"' "$sink" && echo 0 || echo 1)"
 
+# 1b. Private-repo auth: the token is read from its env var via a git credential
+# helper. file:// ignores the helper, so this checks the auth flags don't break a
+# clone and — the security property — that the token value never leaks to a sink.
+ws_auth="$work/ws-auth"
+sink_auth="$work/sink-auth.jsonl"
+: >"$sink_auth"
+secret="s3cr3t-token-abc123"
+GH_TOKEN="$secret" \
+	LORE_MODEL=gpt-5-codex \
+	WORKSPACE_DIR="$ws_auth" \
+	AGENT_SINKS="[{\"type\":\"file\",\"path\":\"$sink_auth\"}]" \
+	AGENT_NAME=itest-agent POD_NAME=itest-pod \
+	AGENT_REPOS="[{\"name\":\"app\",\"url\":\"file://$origin\",\"token_secret\":\"GH_TOKEN\"}]" \
+	"$init" >/dev/null
+rc=$?
+check "private-repo clone exits 0" "$([ "$rc" -eq 0 ] && echo 0 || echo 1)"
+check "private-repo cloned into workspace" "$([ -f "$ws_auth/app/README.md" ] && echo 0 || echo 1)"
+check "token value never leaks to the sink" "$(! grep -q "$secret" "$sink_auth" && echo 0 || echo 1)"
+
 # 2. Re-entrant: a second run over the same (non-empty) workspace still succeeds.
 : >"$sink"
 run "$ws" "$sink" "[{\"name\":\"app\",\"url\":\"file://$origin\",\"ref\":\"v1\"}]"

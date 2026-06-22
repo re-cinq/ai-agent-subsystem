@@ -1,14 +1,13 @@
 module notify;
 
 import std.process : environment, execute;
-import std.stdio : File, stdout;
+import std.stdio : stdout;
 
 import agentcore.crds.enums : SinkType;
-import agentcore.env : envAgentName, envNotifyUrl, envPodName, envPodNamespace,
-	envSinks, envStationName, envTaskId;
+import agentcore.env : envNotifyUrl, envSinks;
 import agentcore.event : EventSource, wrapEvent;
 import agentcore.log : logError;
-import agentcore.output : SinkSpec, parseSinks;
+import agentcore.output : SinkSpec, deliverSinks, parseSinks;
 
 /// The run's configured sinks: the recipe's `AGENT_SINKS`, plus a single http sink
 /// from the `LORE_NOTIFY_URL` shorthand when set — the same set the supervisor
@@ -20,19 +19,6 @@ SinkSpec[] sinksFromEnv()
 	if (url.length)
 		sinks ~= SinkSpec(SinkType.http, url);
 	return sinks;
-}
-
-/// The run identity the controller injects, stamped onto every init event so it
-/// correlates with the agent's events downstream.
-EventSource sourceFromEnv()
-{
-	EventSource s;
-	s.agent = environment.get(envAgentName, "");
-	s.station = environment.get(envStationName, "");
-	s.task = environment.get(envTaskId, "");
-	s.pod = environment.get(envPodName, "");
-	s.namespace_ = environment.get(envPodNamespace, "");
-	return s;
 }
 
 /// Wrap `payload` in the run's event envelope and fan it out: always to stdout
@@ -51,20 +37,7 @@ void notify(const SinkSpec[] sinks, in EventSource src, string payload) nothrow
 	{
 	}
 
-	foreach (s; sinks)
-	{
-		final switch (s.type)
-		{
-		case SinkType.http:
-			postHttp(s.url, line);
-			break;
-		case SinkType.file:
-			appendFile(s.path, line);
-			break;
-		case SinkType.stdout:
-			break;
-		}
-	}
+	deliverSinks(sinks, line, &postHttp, "[init]");
 }
 
 /// POST `line` to an http sink with the `curl` CLI — already a guaranteed
@@ -84,20 +57,6 @@ private void postHttp(string url, string line) nothrow
 	}
 	catch (Exception e)
 		logError("[init] http sink failed: " ~ e.msg);
-}
-
-/// Append `line` (with a trailing newline) to a file sink.
-private void appendFile(string path, string line) nothrow
-{
-	try
-	{
-		auto file = File(path, "a");
-		scope (exit)
-			file.close();
-		file.writeln(line);
-	}
-	catch (Exception e)
-		logError("[init] file sink failed: " ~ e.msg);
 }
 
 private string itoa(int n) nothrow

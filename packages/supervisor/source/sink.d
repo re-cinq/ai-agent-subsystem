@@ -1,10 +1,7 @@
 module sink;
 
-import std.stdio : File;
-
-import agentcore.crds.enums : SinkType;
 import agentcore.log : logError;
-import agentcore.output : SinkSpec;
+import agentcore.output : SinkSpec, deliverSinks;
 
 import vibe.http.client : requestHTTP, HTTPClientRequest, HTTPClientResponse;
 import vibe.http.common : HTTPMethod;
@@ -14,20 +11,7 @@ import vibe.http.common : HTTPMethod;
 /// is a no-op here — the supervisor always echoes to its own stdout (pod logs).
 void deliver(const SinkSpec[] sinks, string line) nothrow
 {
-	foreach (s; sinks)
-	{
-		final switch (s.type)
-		{
-		case SinkType.http:
-			postHttp(s.url, line);
-			break;
-		case SinkType.file:
-			appendFile(s.path, line);
-			break;
-		case SinkType.stdout:
-			break;
-		}
-	}
+	deliverSinks(sinks, line, &postHttp, "[supervisor]");
 }
 
 /// POST `line` to an http(s) sink with vibe's HTTP client.
@@ -42,18 +26,4 @@ private void postHttp(string url, string line) nothrow
 			(scope HTTPClientResponse res) { res.dropBody(); });
 	catch (Exception e)
 		logError("[supervisor] http sink failed: " ~ e.msg);
-}
-
-/// Append `line` (with a trailing newline) to a file sink.
-private void appendFile(string path, string line) nothrow
-{
-	try
-	{
-		auto file = File(path, "a");
-		scope (exit)
-			file.close();
-		file.writeln(line);
-	}
-	catch (Exception e)
-		logError("[supervisor] file sink failed: " ~ e.msg);
 }

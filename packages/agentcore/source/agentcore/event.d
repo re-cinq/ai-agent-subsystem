@@ -1,6 +1,10 @@
 module agentcore.event;
 
 import std.json : parseJSON, JSONValue;
+import std.process : environment;
+
+import agentcore.env : envAgentName, envPodName, envPodNamespace, envStationName,
+	envTaskId;
 
 version (unittest) import fluent.asserts;
 
@@ -13,6 +17,19 @@ struct EventSource
 	string task;
 	string pod;
 	string namespace_;
+}
+
+/// The run identity the controller injects, read from the environment and stamped
+/// onto every emitted event so it correlates with the run's other events downstream.
+EventSource sourceFromEnv()
+{
+	EventSource s;
+	s.agent = environment.get(envAgentName, "");
+	s.station = environment.get(envStationName, "");
+	s.task = environment.get(envTaskId, "");
+	s.pod = environment.get(envPodName, "");
+	s.namespace_ = environment.get(envPodNamespace, "");
+	return s;
 }
 
 /// Wrap one agent output line in an envelope carrying the run's source ids:

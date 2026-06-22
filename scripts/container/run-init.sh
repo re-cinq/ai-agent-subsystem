@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Runs INSIDE a minimal container where git/curl are absent, proving ai-agent-init
+# self-bootstraps its prerequisites through the distro package manager and then
+# provisions for real. Test A (git clone) always runs; Test B (the real Claude
+# install) is opt-in via CTEST_CLAUDE=1 and skips itself when claude.ai is
+# unreachable.
+set -uo pipefail
+fail=0
+chk() { if [ "$2" -eq 0 ]; then echo "  PASS  $1"; else echo "  FAIL  $1"; fail=1; fi; }
+
+# shellcheck disable=SC1091
+echo "distro: $( . /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-unknown}" )"
+
+# --- Test A: git self-bootstrap + real clone --------------------------------
+if command -v git >/dev/null 2>&1; then
+	echo "  SKIP  git self-bootstrap (git already present in base image)"
+else
+	sink=/tmp/sink-git.jsonl
+	: >"$sink"
+	LORE_MODEL=gpt-5-codex \
+		WORKSPACE_DIR=/workspace \
+		AGENT_SINKS="[{\"type\":\"file\",\"path\":\"$sink\"}]" \
+		AGENT_NAME=ctest POD_NAME=ctest-pod \
+		AGENT_REPOS='[{"name":"app","url":"file:///origin","ref":"v1"}]' \
+		ai-agent-init
+	rc=$?
+	chk "init exits 0 after self-bootstrap" "$([ $rc -eq 0 ] && echo 0 || echo 1)"
+	chk "git was installed by the init" "$(command -v git >/dev/null 2>&1 && echo 0 || echo 1)"
+	chk "repo cloned into workspace" "$([ -f /workspace/app/README.md ] && echo 0 || echo 1)"
+	chk "checked out the pinned tag" "$( h="$(git -C /workspace/app rev-parse HEAD 2>/dev/null)"; [ -n "$h" ] && [ "$h" = "$(git -C /origin rev-parse v1 2>/dev/null)" ] && echo 0 || echo 1 )"
+	chk "succeeded event on the sink" "$(grep -q '"status":"succeeded"' "$sink" && echo 0 || echo 1)"
+fi
+
+# --- Test B (opt-in): real Claude CLI install -------------------------------
+if [ "${CTEST_CLAUDE:-0}" = "1" ]; then
+	# curl is needed even to probe reachability; install it if the base lacks it.
+	if ! command -v curl >/dev/null 2>&1; then
+		{ command -v apt-get >/dev/null 2>&1 && apt-get update && apt-get install -y --no-install-recommends curl ca-certificates; } >/dev/null 2>&1 || true
+		{ command -v dnf >/dev/null 2>&1 && dnf install -y curl; } >/dev/null 2>&1 || true
+	fi
+	if curl -fsSI https://downloads.claude.ai/ >/dev/null 2>&1; then
+		export HOME=/root
+		LORE_MODEL=claude-sonnet-4-6 WORKSPACE_DIR=/workspace ai-agent-init
+		rc=$?
+		chk "claude install exits 0" "$([ $rc -eq 0 ] && echo 0 || echo 1)"
+		chk "claude binary installed to ~/.local/bin" "$([ -x "$HOME/.local/bin/claude" ] && echo 0 || echo 1)"
+	else
+		echo "  SKIP  claude install (downloads.claude.ai unreachable)"
+	fi
+fi
+
+if [ "$fail" -eq 0 ]; then echo "CONTAINER TESTS PASSED"; else echo "CONTAINER TESTS FAILED"; fi
+exit "$fail"
