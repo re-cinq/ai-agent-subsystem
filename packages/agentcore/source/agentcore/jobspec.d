@@ -21,6 +21,13 @@ enum bundleVolume = "lore";
 enum bundleMount = "/lore";
 enum jobTtlSeconds = 300;
 
+/// The non-root identity the agent container runs as. A concrete UID/GID (not
+/// just `runAsNonRoot`) is required or the kubelet rejects a root-by-default base
+/// image; `fsGroup` makes the shared bundle writable across the root init
+/// container and the non-root main container.
+enum agentUid = 1000;
+enum agentGid = 1000;
+
 /// Where the init container drops the supervisor in the shared bundle; the main
 /// container runs it as PID 1. Must match the path `ai-agent-init` installs to.
 enum supervisorPath = "/lore/bin/ai-agent-supervisor";
@@ -115,6 +122,7 @@ private JSONValue wirePodTemplate(JSONValue template_, JSONValue[] command, JSON
 	spec["initContainers"] = JSONValue([initContainer(agentImage, env)]);
 	spec["volumes"] = withBundleVolume(spec);
 	spec["restartPolicy"] = JSONValue("Never");
+	spec["securityContext"] = podSecurity();
 
 	pod["spec"] = spec;
 	return pod;
@@ -172,6 +180,16 @@ private JSONValue nonRootSecurity()
 {
 	JSONValue[string] security;
 	security["runAsNonRoot"] = JSONValue(true);
+	security["runAsUser"] = JSONValue(agentUid);
+	security["runAsGroup"] = JSONValue(agentGid);
+	security["allowPrivilegeEscalation"] = JSONValue(false);
+	return JSONValue(security);
+}
+
+private JSONValue podSecurity()
+{
+	JSONValue[string] security;
+	security["fsGroup"] = JSONValue(agentGid);
 	return JSONValue(security);
 }
 
@@ -363,6 +381,9 @@ unittest
 	command[2].str.should.equal("claude");
 	command[$ - 1].str.should.equal("Fix ENG-1"); // rendered prompt baked in
 	container["securityContext"]["runAsNonRoot"].boolean.should.equal(true);
+	// A concrete non-root UID/GID is required, else the kubelet rejects a root image.
+	container["securityContext"]["runAsUser"].integer.should.equal(1000);
+	pod["securityContext"]["fsGroup"].integer.should.equal(1000);
 }
 
 unittest

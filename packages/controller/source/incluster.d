@@ -23,6 +23,14 @@ string apiBase(string host, string port) @safe pure
 	return "https://" ~ host ~ ":" ~ port;
 }
 
+/// The effective API base: an explicit `KUBE_API_URL` override (used to run the
+/// controller out-of-cluster against a `kubectl proxy`) wins; otherwise the
+/// in-cluster host/port. Lets the same binary run locally for integration tests.
+string resolveApiBase(string overrideUrl, string host, string port) @safe pure
+{
+	return overrideUrl.length ? overrideUrl : apiBase(host, port);
+}
+
 /// Load the in-cluster config from the service-account files + env. Falls back to
 /// the `NAMESPACE` env var when the namespace file is absent (e.g. out of cluster).
 ClusterConfig loadClusterConfig()
@@ -34,8 +42,8 @@ ClusterConfig loadClusterConfig()
 	const port = environment.get("KUBERNETES_SERVICE_PORT", "443");
 
 	ClusterConfig config;
-	config.apiBase = apiBase(host, port);
-	config.token = exists(tokenPath) ? readText(tokenPath).strip : "";
+	config.apiBase = resolveApiBase(environment.get("KUBE_API_URL", ""), host, port);
+	config.token = exists(tokenPath) ? readText(tokenPath).strip : environment.get("KUBE_API_TOKEN", "");
 	config.caFile = caPath;
 	config.namespace = exists(namespacePath) ? readText(namespacePath)
 		.strip : environment.get("NAMESPACE", "ai-agents");
@@ -47,4 +55,11 @@ version (unittest) import fluent.asserts;
 @safe unittest
 {
 	apiBase("10.0.0.1", "443").should.equal("https://10.0.0.1:443");
+}
+
+@safe unittest
+{
+	// No override -> in-cluster host/port; an override URL wins (out-of-cluster).
+	resolveApiBase("", "10.0.0.1", "443").should.equal("https://10.0.0.1:443");
+	resolveApiBase("http://127.0.0.1:8001", "10.0.0.1", "443").should.equal("http://127.0.0.1:8001");
 }

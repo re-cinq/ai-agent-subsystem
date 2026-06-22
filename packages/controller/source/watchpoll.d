@@ -5,8 +5,8 @@ import std.datetime.systime : Clock;
 import std.datetime.timezone : UTC;
 import std.json : JSONType, JSONValue, parseJSON;
 
-import vibe.core.core : sleep;
-import vibe.core.log : logError;
+import vibe.core.core : runTask, sleep;
+import vibe.core.log : logError, logInfo;
 
 import agentcore.crds.agent : Agent;
 import agentcore.jsonbody : parseAgent;
@@ -58,32 +58,67 @@ private string resourceVersionOf(JSONValue object)
 	return "";
 }
 
-/// The controller's main loop: a periodic full reconcile (the safety-net poll)
-/// followed by a low-latency watch, reconnecting on any error after a short
-/// backoff. Runs forever on vibe's event loop.
+/// The controller's reconcile engine: a low-latency watch and an independent
+/// ~15s safety-net poll, running as two concurrent vibe tasks so a long-lived
+/// watch never starves the periodic poll. Both reconnect on error.
 void runControlLoop(HttpKubeClient client, string ns, string agentImage) nothrow
+{
+	runTask(() nothrow { pollLoop(client, ns, agentImage); });
+	watchLoop(client, ns, agentImage);
+}
+
+private void pollLoop(HttpKubeClient client, string ns, string agentImage) nothrow
 {
 	for (;;)
 	{
 		try
 		{
-			foreach (agent; client.listAgents(ns))
-				reconcileAgent(client, ns, agent, agentImage, nowRfc3339());
+			auto agents = client.listAgents(ns);
+			logInfo("poll: %s agent(s)", agents.length);
+			foreach (agent; agents)
+				reconcileOne(client, ns, agent, agentImage);
+		}
+		catch (Exception error)
+			logError("poll: %s", error.msg);
 
+		backoff(15);
+	}
+}
+
+private void watchLoop(HttpKubeClient client, string ns, string agentImage) nothrow
+{
+	for (;;)
+	{
+		try
 			client.watchAgents(ns, "0", (string line) {
 				auto event = parseWatchLine(line);
 				if (event.type == "ADDED" || event.type == "MODIFIED")
-					reconcileAgent(client, ns, event.agent, agentImage, nowRfc3339());
+					reconcileOne(client, ns, event.agent, agentImage);
 			});
-		}
 		catch (Exception error)
-			logError("control loop: " ~ error.msg);
+			logError("watch: %s", error.msg);
 
-		try
-			sleep(15.seconds);
-		catch (Exception)
-		{
-		}
+		backoff(2);
+	}
+}
+
+private void reconcileOne(HttpKubeClient client, string ns, Agent agent, string agentImage) nothrow
+{
+	try
+	{
+		logInfo("reconcile %s (phase=%s)", agent.metadata.name, cast(string) agent.status.phase);
+		reconcileAgent(client, ns, agent, agentImage, nowRfc3339());
+	}
+	catch (Exception error)
+		logError("reconcile %s: %s", agent.metadata.name, error.msg);
+}
+
+private void backoff(int secs) nothrow
+{
+	try
+		sleep(secs.seconds);
+	catch (Exception)
+	{
 	}
 }
 
