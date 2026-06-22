@@ -2,5 +2,16 @@
 	"name": "agentcore",
 	"description": "Shared core: CR types, prompt templating, and the pure reconcile state machine.",
 	"license": "AGPL-3.0",
-	"targetType": "library"
+	"targetType": "library",
+	"configurations": [
+		{
+			"name": "library"
+		},
+		{
+			"name": "unittest",
+			"dependencies": {
+				"fluent-asserts": "~>2.0.4"
+			}
+		}
+	]
 }

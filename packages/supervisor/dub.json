@@ -12,5 +12,16 @@
 		"static": {
 			"buildOptions": ["releaseMode", "optimize", "inline"]
 		}
-	}
+	},
+	"configurations": [
+		{
+			"name": "application"
+		},
+		{
+			"name": "unittest",
+			"dependencies": {
+				"fluent-asserts": "~>2.0.4"
+			}
+		}
+	]
 }

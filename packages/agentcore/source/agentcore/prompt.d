@@ -47,26 +47,28 @@ private bool isKeyChar(char c) @safe @nogc nothrow pure
 		|| c == '_' || c == '.' || c == '-';
 }
 
+version (unittest) import fluent.asserts;
+
 @safe unittest
 {
-	assert(renderPrompt("Fix {ticket}.", ["ticket": "ENG-1"]) == "Fix ENG-1.");
-	assert(renderPrompt("Repo {repo} branch {repo}", ["repo": "main"]) == "Repo main branch main");
+	renderPrompt("Fix {ticket}.", ["ticket": "ENG-1"]).should.equal("Fix ENG-1.");
+	renderPrompt("Repo {repo} branch {repo}", ["repo": "main"]).should.equal("Repo main branch main");
 }
 
 @safe unittest
 {
 	// Unknown placeholders are left intact.
-	assert(renderPrompt("Fix {ticket}.", null) == "Fix {ticket}.");
+	renderPrompt("Fix {ticket}.", null).should.equal("Fix {ticket}.");
 	string[string] empty;
-	assert(renderPrompt("Fix {ticket}.", empty) == "Fix {ticket}.");
-	assert(renderPrompt("Unknown {missing} stays", ["x": "y"]) == "Unknown {missing} stays");
+	renderPrompt("Fix {ticket}.", empty).should.equal("Fix {ticket}.");
+	renderPrompt("Unknown {missing} stays", ["x": "y"]).should.equal("Unknown {missing} stays");
 }
 
 @safe unittest
 {
 	// Empty template and literal braces.
-	assert(renderPrompt("", ["a": "b"]) == "");
-	assert(renderPrompt("No placeholders here", null) == "No placeholders here");
-	assert(renderPrompt("brace { not closed", ["a": "b"]) == "brace { not closed");
-	assert(renderPrompt("empty {} braces", ["a": "b"]) == "empty {} braces");
+	renderPrompt("", ["a": "b"]).should.equal("");
+	renderPrompt("No placeholders here", null).should.equal("No placeholders here");
+	renderPrompt("brace { not closed", ["a": "b"]).should.equal("brace { not closed");
+	renderPrompt("empty {} braces", ["a": "b"]).should.equal("empty {} braces");
 }

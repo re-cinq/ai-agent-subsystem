@@ -26,15 +26,17 @@ final class CodexAgent : Agent
 	}
 }
 
+version (unittest) import fluent.asserts;
+
 @safe unittest
 {
-	import std.algorithm.searching : canFind;
-
 	AgentDefinitionSpec recipe;
 	recipe.model = "gpt-5-codex";
 	const cmd = (new CodexAgent).command(recipe, "Refactor");
-	assert(cmd[0] == "codex" && cmd[1] == "exec");
-	assert(cmd.canFind("--json") && cmd.canFind("gpt-5-codex"));
-	assert(cmd.canFind("--dangerously-bypass-approvals-and-sandbox")); // bypass is the default
-	assert(cmd[$ - 1] == "Refactor");
+	cmd[0].should.equal("codex");
+	cmd[1].should.equal("exec");
+	cmd.should.contain("--json");
+	cmd.should.contain("gpt-5-codex");
+	cmd.should.contain("--dangerously-bypass-approvals-and-sandbox"); // bypass is the default
+	cmd[$ - 1].should.equal("Refactor");
 }

@@ -64,42 +64,50 @@ Decision decide(Phase current, bool refsResolved, bool hasOutcome, JobOutcome ou
 	}
 }
 
+version (unittest) import fluent.asserts;
+
 @safe unittest
 {
 	JobOutcome no;
 	// Pending + refs resolved -> start the run.
 	const start = decide(Phase.pending, true, false, no);
-	assert(start.kind == ActionKind.startRun && start.phase == Phase.running);
+	start.kind.should.equal(ActionKind.startRun);
+	start.phase.should.equal(Phase.running);
 
 	// Pending + missing refs -> fail with a reason.
 	const missing = decide(Phase.pending, false, false, no);
-	assert(missing.kind == ActionKind.failMissingRef && missing.phase == Phase.failed);
-	assert(missing.failureReason.length > 0);
+	missing.kind.should.equal(ActionKind.failMissingRef);
+	missing.phase.should.equal(Phase.failed);
+	missing.failureReason.length.should.be.greaterThan(0);
 }
 
 @safe unittest
 {
 	// Running with no outcome yet, or a still-running Job -> do nothing.
 	JobOutcome none;
-	assert(decide(Phase.running, true, false, none).kind == ActionKind.none);
-	assert(decide(Phase.running, true, true, JobOutcome(JobState.running)).kind == ActionKind.none);
+	decide(Phase.running, true, false, none).kind.should.equal(ActionKind.none);
+	decide(Phase.running, true, true, JobOutcome(JobState.running)).kind.should.equal(ActionKind.none);
 }
 
 @safe unittest
 {
 	// Running + succeeded / failed -> complete with the carried details.
 	const ok = decide(Phase.running, true, true, JobOutcome(JobState.succeeded, 0, "", "all good"));
-	assert(ok.kind == ActionKind.complete && ok.phase == Phase.succeeded && ok.output == "all good");
+	ok.kind.should.equal(ActionKind.complete);
+	ok.phase.should.equal(Phase.succeeded);
+	ok.output.should.equal("all good");
 
 	const bad = decide(Phase.running, true, true, JobOutcome(JobState.failed, 1, "boom", ""));
-	assert(bad.kind == ActionKind.complete && bad.phase == Phase.failed);
-	assert(bad.exitCode == 1 && bad.failureReason == "boom");
+	bad.kind.should.equal(ActionKind.complete);
+	bad.phase.should.equal(Phase.failed);
+	bad.exitCode.should.equal(1);
+	bad.failureReason.should.equal("boom");
 }
 
 @safe unittest
 {
 	// Terminal phases are no-ops.
 	JobOutcome no;
-	assert(decide(Phase.succeeded, true, true, no).kind == ActionKind.none);
-	assert(decide(Phase.failed, true, true, no).kind == ActionKind.none);
+	decide(Phase.succeeded, true, true, no).kind.should.equal(ActionKind.none);
+	decide(Phase.failed, true, true, no).kind.should.equal(ActionKind.none);
 }

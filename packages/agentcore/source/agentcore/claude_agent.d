@@ -45,10 +45,10 @@ final class ClaudeAgent : Agent
 	}
 }
 
+version (unittest) import fluent.asserts;
+
 @safe unittest
 {
-	import std.algorithm.searching : canFind;
-
 	AgentDefinitionSpec recipe;
 	recipe.model = "claude-sonnet-4-6";
 	recipe.permissionMode = PermissionMode.auto_;
@@ -57,23 +57,26 @@ final class ClaudeAgent : Agent
 	recipe.maxTurns = 40;
 
 	const cmd = (new ClaudeAgent).command(recipe, "Fix it");
-	assert(cmd[0] == "claude");
-	assert(cmd.canFind("claude-sonnet-4-6"));
-	assert(cmd.canFind("--allowedTools") && cmd.canFind("Read") && cmd.canFind("Edit"));
-	assert(cmd.canFind("--disallowedTools") && cmd.canFind("Bash(rm *)"));
-	assert(cmd.canFind("--max-turns") && cmd.canFind("40"));
-	assert(!cmd.canFind("--dangerously-skip-permissions"));
-	assert(cmd[$ - 2] == "--" && cmd[$ - 1] == "Fix it");
+	cmd[0].should.equal("claude");
+	cmd.should.contain("claude-sonnet-4-6");
+	cmd.should.contain("--allowedTools");
+	cmd.should.contain("Read");
+	cmd.should.contain("Edit");
+	cmd.should.contain("--disallowedTools");
+	cmd.should.contain("Bash(rm *)");
+	cmd.should.contain("--max-turns");
+	cmd.should.contain("40");
+	cmd.should.not.contain("--dangerously-skip-permissions");
+	cmd[$ - 2].should.equal("--");
+	cmd[$ - 1].should.equal("Fix it");
 }
 
 @safe unittest
 {
-	import std.algorithm.searching : canFind;
-
 	// Defaults: permissionMode is bypass, empty model -> default.
 	AgentDefinitionSpec recipe;
 	const cmd = (new ClaudeAgent).command(recipe, "p");
-	assert(cmd.canFind("--dangerously-skip-permissions"));
-	assert(cmd.canFind(defaultModel));
-	assert(!cmd.canFind("--allowedTools"));
+	cmd.should.contain("--dangerously-skip-permissions");
+	cmd.should.contain(defaultModel);
+	cmd.should.not.contain("--allowedTools");
 }

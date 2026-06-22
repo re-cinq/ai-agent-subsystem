@@ -6,7 +6,9 @@ string jobNameFor(string agentName) @safe pure
 	return "agent-job-" ~ agentName;
 }
 
+version (unittest) import fluent.asserts;
+
 @safe unittest
 {
-	assert(jobNameFor("bug-fixer-run-6ltzm") == "agent-job-bug-fixer-run-6ltzm");
+	jobNameFor("bug-fixer-run-6ltzm").should.equal("agent-job-bug-fixer-run-6ltzm");
 }

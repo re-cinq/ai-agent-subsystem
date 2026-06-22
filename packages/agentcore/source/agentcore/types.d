@@ -9,8 +9,10 @@ enum Phase : string
 	failed = "Failed",
 }
 
+version (unittest) import fluent.asserts;
+
 @safe unittest
 {
-	assert(cast(string) Phase.pending == "Pending");
-	assert(cast(string) Phase.succeeded == "Succeeded");
+	(cast(string) Phase.pending).should.equal("Pending");
+	(cast(string) Phase.succeeded).should.equal("Succeeded");
 }

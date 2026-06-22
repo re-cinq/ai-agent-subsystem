@@ -75,7 +75,9 @@ than assumed on every dev machine.
 ## Tests
 
 The pure logic in `agentcore` (prompt rendering, the reconcile state machine, the CRD model and its
-attribute metadata) is unit-tested with D's built-in `unittest` blocks:
+attribute metadata) is unit-tested with D's built-in `unittest` blocks, asserting via
+[fluent-asserts](https://code.dlang.org/packages/fluent-asserts) (`value.should.equal(…)`). It is
+scoped to a `unittest` dub configuration, so the shipped binaries link none of it:
 
 ```sh
 dub test :agentcore

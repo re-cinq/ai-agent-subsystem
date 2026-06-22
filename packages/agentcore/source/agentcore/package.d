@@ -13,3 +13,4 @@ public import agentcore.codex_agent;
 public import agentcore.agentselect;
 public import agentcore.log;
 public import agentcore.output;
+public import agentcore.event;

@@ -17,10 +17,14 @@ import vibe.core.process : pipeProcess, Redirect, ProcessPipes;
 import vibe.stream.operations : readLine;
 
 import agentcore.crds.enums : SinkType;
-import agentcore.env : envNotifyUrl, envSinks;
+import agentcore.env : envAgentName, envNotifyUrl, envPodName, envPodNamespace,
+	envSinks, envStationName, envTaskId;
+import agentcore.event : EventSource, wrapEvent;
 import agentcore.log : logError;
 import agentcore.output : SinkSpec, parseSinks;
 import sink : deliver;
+
+version (unittest) import fluent.asserts;
 
 /// PID of the spawned agent, shared with the signal handler.
 private __gshared pid_t g_childPid = 0;
@@ -57,6 +61,7 @@ int supervise(string[] agentArgv)
 	}
 
 	const sinks = buildSinks();
+	const source = buildSource();
 
 	ProcessPipes pipes;
 	try
@@ -80,10 +85,10 @@ int supervise(string[] agentArgv)
 				auto raw = pipes.stdout.readLine(size_t.max, "\n");
 				if (raw.length == 0)
 					continue;
-				const line = cast(string) raw.idup;
-				stdout.writeln(line);
+				const event = wrapEvent(source, cast(string) raw.idup);
+				stdout.writeln(event);
 				stdout.flush();
-				deliver(sinks, line);
+				deliver(sinks, event);
 			}
 		}
 		catch (Exception)
@@ -120,6 +125,19 @@ private SinkSpec[] buildSinks()
 	return sinks;
 }
 
+/// The run's identity, read from the env the controller injects, stamped onto
+/// every event so a workflow can correlate it back to its agent + pod.
+private EventSource buildSource()
+{
+	EventSource s;
+	s.agent = environment.get(envAgentName, "");
+	s.station = environment.get(envStationName, "");
+	s.task = environment.get(envTaskId, "");
+	s.pod = environment.get(envPodName, "");
+	s.namespace_ = environment.get(envPodNamespace, "");
+	return s;
+}
+
 /// Resolve `cmd` to an existing file: the path itself when it contains a `/`,
 /// else the first match on `PATH`. Returns "" when not found. Used to fail a bad
 /// agent argv cleanly instead of leaking the half-spawned process's pipes.
@@ -141,7 +159,7 @@ string findExecutable(string cmd)
 
 unittest
 {
-	assert(findExecutable("sh").length > 0);
-	assert(findExecutable("this-binary-should-not-exist-zzz") == "");
-	assert(findExecutable("/bin/no-such-file") == "");
+	findExecutable("sh").length.should.be.greaterThan(0);
+	findExecutable("this-binary-should-not-exist-zzz").should.equal("");
+	findExecutable("/bin/no-such-file").should.equal("");
 }

@@ -19,12 +19,14 @@ Agent agentForModel(string model)
 	return new ClaudeAgent;
 }
 
+version (unittest) import fluent.asserts;
+
 unittest
 {
-	assert(agentForModel("claude-sonnet-4-6").name == "claude");
-	assert(agentForModel("").name == "claude");
-	assert(agentForModel("something-weird").name == "claude");
-	assert(agentForModel("gpt-5-codex").name == "codex");
-	assert(agentForModel("gpt-4.1").name == "codex");
-	assert(agentForModel("o3-mini").name == "codex");
+	agentForModel("claude-sonnet-4-6").name.should.equal("claude");
+	agentForModel("").name.should.equal("claude");
+	agentForModel("something-weird").name.should.equal("claude");
+	agentForModel("gpt-5-codex").name.should.equal("codex");
+	agentForModel("gpt-4.1").name.should.equal("codex");
+	agentForModel("o3-mini").name.should.equal("codex");
 }

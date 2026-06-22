@@ -5,25 +5,27 @@ module app;
 //
 //   MOCK_LINES  number of `{"i":N}` lines to emit on stdout (default 0)
 //   MOCK_EXIT   process exit code (default 0)
-//   MOCK_MODE   "emit" (default) | "signal" | "orphan"
-//                 signal: emit `{"started":1}`, wait for SIGTERM, then emit
-//                         `{"sigterm":1}` and exit MOCK_EXIT
+//   MOCK_MODE   "emit" (default) | "signal" | "crash" | "orphan"
+//                 signal: emit `{"started":1}`, wait for SIGTERM/SIGINT, then
+//                         emit `{"signal":N}` and exit MOCK_EXIT
+//                 crash:  emit `{"started":1}`, then die from SIGKILL
 //                 orphan: spawn a child that inherits stdout and outlives us
-//                         (to exercise the supervisor's process-exit handling)
 
 import std.conv : to;
 import std.process : Config, environment, spawnProcess;
 import std.stdio : stderr, stdin, stdout;
 
-import core.stdc.signal : signal, SIGTERM;
+import core.stdc.signal : signal;
+import core.sys.posix.signal : kill, SIGINT, SIGKILL, SIGTERM;
+import core.sys.posix.unistd : getpid;
 import core.thread : Thread;
 import core.time : msecs;
 
-private __gshared bool g_terminated = false;
+private __gshared int g_signal = 0;
 
-extern (C) private void onTerm(int) nothrow @nogc @system
+extern (C) private void onSignal(int sig) nothrow @nogc @system
 {
-	g_terminated = true;
+	g_signal = sig;
 }
 
 void emit(string line)
@@ -44,11 +46,16 @@ int main()
 	switch (mode)
 	{
 	case "signal":
-		signal(SIGTERM, &onTerm);
+		signal(SIGINT, &onSignal);
+		signal(SIGTERM, &onSignal);
 		emit(`{"started":1}`);
-		while (!g_terminated)
+		while (g_signal == 0)
 			Thread.sleep(20.msecs);
-		emit(`{"sigterm":1}`);
+		emit(`{"signal":` ~ g_signal.to!string ~ `}`);
+		break;
+	case "crash":
+		emit(`{"started":1}`);
+		kill(getpid(), SIGKILL);
 		break;
 	case "orphan":
 		// inherits our stdout and keeps running after we exit, so the pipe

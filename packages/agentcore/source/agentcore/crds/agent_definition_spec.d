@@ -31,9 +31,11 @@ struct AgentDefinitionSpec
 	JSONValue toolConfig;
 }
 
+version (unittest) import fluent.asserts;
+
 @safe unittest
 {
-	assert(AgentDefinitionSpec.init.permissionMode == PermissionMode.bypass);
+	AgentDefinitionSpec.init.permissionMode.should.equal(PermissionMode.bypass);
 	static assert(jsonNameOf!(AgentDefinitionSpec.allowedTools) == "allowed_tools");
 	static assert(jsonNameOf!(AgentDefinitionSpec.permissionMode) == "permission_mode");
 	static assert(descriptionOf!(AgentDefinitionSpec.model).length > 0);

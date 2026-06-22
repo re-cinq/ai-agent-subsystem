@@ -21,10 +21,13 @@ struct StationSpec
 	JSONValue template_;
 }
 
+version (unittest) import fluent.asserts;
+
 @safe unittest
 {
 	StationSpec s;
-	assert(s.deadlineMinutes == 30 && s.successfulRunsHistoryLimit == 3);
+	s.deadlineMinutes.should.equal(30);
+	s.successfulRunsHistoryLimit.should.equal(3);
 	static assert(jsonNameOf!(StationSpec.template_) == "template");
 	static assert(jsonNameOf!(StationSpec.agentDefRef) == "agentDefRef");
 	static assert(isRequired!(StationSpec.agentDefRef));

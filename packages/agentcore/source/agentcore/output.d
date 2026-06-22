@@ -57,16 +57,20 @@ private SinkType toSinkType(string s)
 	}
 }
 
+version (unittest) import fluent.asserts;
+
 unittest
 {
 	auto sinks = parseSinks(`[{"type":"http","url":"http://collector/x"},{"type":"file","path":"/tmp/out"}]`);
-	assert(sinks.length == 2);
-	assert(sinks[0].type == SinkType.http && sinks[0].url == "http://collector/x");
-	assert(sinks[1].type == SinkType.file && sinks[1].path == "/tmp/out");
+	sinks.length.should.equal(2);
+	sinks[0].type.should.equal(SinkType.http);
+	sinks[0].url.should.equal("http://collector/x");
+	sinks[1].type.should.equal(SinkType.file);
+	sinks[1].path.should.equal("/tmp/out");
 
-	assert(parseSinks("") is null);
-	assert(parseSinks("not json") is null);
-	assert(parseSinks("[]").length == 0);
+	parseSinks("").should.beNull;
+	parseSinks("not json").should.beNull;
+	parseSinks("[]").length.should.equal(0);
 	// entries without a type are skipped
-	assert(parseSinks(`[{"url":"http://x"}]`).length == 0);
+	parseSinks(`[{"url":"http://x"}]`).length.should.equal(0);
 }

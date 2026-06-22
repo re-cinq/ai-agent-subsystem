@@ -42,9 +42,11 @@ enum SinkType : string
 	file = "file",
 }
 
+version (unittest) import fluent.asserts;
+
 @safe unittest
 {
-	assert(cast(string) PermissionMode.auto_ == "auto");
-	assert(cast(string) OutputFormat.streamJson == "stream-json");
-	assert(cast(string) SelectEvent.toolResult == "tool_result");
+	(cast(string) PermissionMode.auto_).should.equal("auto");
+	(cast(string) OutputFormat.streamJson).should.equal("stream-json");
+	(cast(string) SelectEvent.toolResult).should.equal("tool_result");
 }

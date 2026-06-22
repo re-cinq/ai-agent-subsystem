@@ -12,5 +12,14 @@ enum envParameters = "LORE_PARAMETERS";
 enum envTargetRepo = "TARGET_REPO";
 enum envBranch = "BRANCH_NAME";
 
+// Identity the controller stamps onto the run so every emitted event can be
+// traced back to its agent + pod in a workflow. `POD_*` come from the downward
+// API; the rest from the resolved Station / AgentDefinition / Agent.
+enum envAgentName = "AGENT_NAME";
+enum envStationName = "STATION_NAME";
+enum envTaskId = "TASK_ID";
+enum envPodName = "POD_NAME";
+enum envPodNamespace = "POD_NAMESPACE";
+
 /// Model used when a recipe does not specify one.
 enum defaultModel = "claude-sonnet-4-6";

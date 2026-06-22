@@ -38,6 +38,8 @@ environment variables:
 - `LORE_NOTIFY_URL` — shorthand for a single `http` sink.
 - `LORE_PARAMETERS` — the run parameters as JSON, when present.
 - `TARGET_REPO` / `BRANCH_NAME` — set when the Agent provides them.
+- `AGENT_NAME` / `STATION_NAME` / `TASK_ID` — the run's identity, stamped onto every event.
+- `POD_NAME` / `POD_NAMESPACE` — the pod's identity, from the downward API.
 - `PATH` / `HOME` — pointed at the injected bundle and home directory.
 
 It also sets default resource requests/limits and an `activeDeadlineSeconds` derived from the
@@ -48,7 +50,9 @@ Station's `deadlineMinutes`.
 The supervisor is the Pod's entrypoint (PID 1). It:
 
 - Spawns the agent argv it was handed (built by the controller from the recipe).
-- Reads the agent's stdout line by line, echoes each line to its own stdout (captured in the pod
+- Reads the agent's stdout line by line, **wraps each event in a `{"source": {…}, "event": …}`
+  envelope** stamped with the run's identity (agent, station, task, pod, namespace) so it stays
+  traceable through a workflow, echoes the enriched event to its own stdout (captured in the pod
   logs, and therefore in `status.output`), and **fans it out to every configured sink** — `http`
   (POST) and `file` (append).
 - Forwards `SIGTERM`/`SIGINT` to the agent for graceful shutdown, and ignores `SIGPIPE` so a broken
@@ -75,9 +79,12 @@ one new `Agent` implementation plus a `model` match — nothing else changes.
 
 ## Output and credentials
 
-- **Output** always goes to stdout (pod logs → `status.output`), and to every sink the recipe
-  declares: `http` (POST per line) and `file` (append per line). `output.select` event-filtering is
-  not yet applied — it needs per-provider event normalization, planned alongside the adapters.
+- **Output** is emitted as one self-identifying JSON event per line —
+  `{"source": {"agent","station","task","pod","namespace"}, "event": <the agent's JSON>}` — so any
+  consumer in a workflow / assembly line can correlate it back to its run. It always goes to stdout
+  (pod logs → `status.output`) and to every sink the recipe declares: `http` (POST per event) and
+  `file` (append per event). `output.select` event-filtering is not yet applied — it needs
+  per-provider event normalization, planned alongside the adapters.
 - **Credentials** are the agent's own concern: the controller injects the provider's API key
   (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …) as an environment variable from a Kubernetes Secret
   (`AgentDefinition.spec.resources.secrets`). The supervisor stages nothing.
