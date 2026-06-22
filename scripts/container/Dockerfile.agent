@@ -1,0 +1,52 @@
+# syntax=docker/dockerfile:1
+#
+# The ai-agent runtime image (AGENT_IMAGE). Its init container — ai-agent-init,
+# the ENTRYPOINT — provisions each run pod's shared /lore bundle: it stages the
+# supervisor binary into the bundle, clones the recipe's repos, and installs the
+# Claude CLI. The supervisor is baked in at a fixed path (matching
+# agentcore.bundle.supervisorStageSource) and copied into the emptyDir at run
+# start by SupervisorTool, then exec'd by the Station's OWN base image — so both
+# binaries are built static-druntime (only glibc + libssl.so.3 needed at run time)
+# on the same glibc family as a typical Station image (debian/node:22-bookworm).
+#
+#   build args: BUILDER_IMAGE (gets a D toolchain), RUNTIME_IMAGE
+#
+# Builder: debian:bookworm + the OFFICIAL ldc release (current enough for vibe-d
+# 0.10.3 and, unlike the distro/EPEL packages, ships the STATIC druntime/phobos
+# libs that `-link-defaultlib-shared=false` needs). Bookworm's glibc (2.36) matches
+# the runtime and a typical Station base image (node:22-bookworm), so the binaries
+# run there directly.
+ARG BUILDER_IMAGE=debian:bookworm
+ARG RUNTIME_IMAGE=debian:bookworm-slim
+ARG LDC_VERSION=1.40.0
+
+FROM ${BUILDER_IMAGE} AS builder
+ARG LDC_VERSION
+RUN set -eu; \
+	export DEBIAN_FRONTEND=noninteractive; \
+	apt-get update; \
+	apt-get install -y --no-install-recommends \
+		curl xz-utils gcc libc6-dev zlib1g-dev libssl-dev libxml2 git ca-certificates; \
+	rm -rf /var/lib/apt/lists/*
+RUN curl -fsS https://dlang.org/install.sh | bash -s "ldc-${LDC_VERSION}" -p /opt/dlang
+ENV PATH="/opt/dlang/ldc-${LDC_VERSION}/bin:${PATH}"
+WORKDIR /src
+COPY . .
+# Static druntime/phobos so each binary is self-contained on a minimal base and,
+# for the supervisor, on the Station's arbitrary base image. `-L-lz` resolves
+# std.zlib that static phobos drags in; openssl stays dynamic (libssl.so.3 lives
+# in the Station base image), so no ldc shared libs need staging.
+RUN DFLAGS="-link-defaultlib-shared=false -L-lz" dub build :initializer --compiler=ldc2
+RUN DFLAGS="-link-defaultlib-shared=false -L-lz" dub build :supervisor  --compiler=ldc2
+
+FROM ${RUNTIME_IMAGE} AS runtime
+RUN set -eu; \
+	export DEBIAN_FRONTEND=noninteractive; \
+	apt-get update; \
+	apt-get install -y --no-install-recommends \
+		ca-certificates git curl coreutils libssl3; \
+	rm -rf /var/lib/apt/lists/*
+COPY --from=builder /src/packages/initializer/ai-agent-init /usr/local/bin/ai-agent-init
+COPY --from=builder /src/packages/supervisor/ai-agent-supervisor /usr/local/lib/ai-agent/ai-agent-supervisor
+RUN chmod +x /usr/local/bin/ai-agent-init /usr/local/lib/ai-agent/ai-agent-supervisor
+ENTRYPOINT ["/usr/local/bin/ai-agent-init"]

@@ -60,6 +60,7 @@ itself whether the run needs it:
 
 | Tool | Active when | Does |
 | --- | --- | --- |
+| `supervisor` | always | copies the supervisor binary baked into the agent image into `/lore/bin`, so the main container can exec it as PID 1. Idempotent across init retries. |
 | `git` | `resources.repos` is non-empty | clones each repo (full history) into `WORKSPACE_DIR`, checking out its `ref` (branch, tag, or SHA). Re-entrant across init retries. Private repos authenticate with `token_secret` (below). |
 | `claude` | the recipe's `model` resolves to Claude (same routing as [pluggable agents](#pluggable-agents)) | installs the Claude CLI via the official installer (`curl -fsSL https://claude.ai/install.sh \| bash`). |
 
@@ -124,4 +125,8 @@ one new `Agent` implementation plus a `model` match — nothing else changes.
   per-provider event normalization, planned alongside the adapters.
 - **Credentials** are the agent's own concern: the controller injects the provider's API key
   (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …) as an environment variable from a Kubernetes Secret
-  (`AgentDefinition.spec.resources.secrets`). The supervisor stages nothing.
+  (`AgentDefinition.spec.resources.secrets`). Each `secrets` entry `{name, ref}` becomes a container
+  env var `name` sourced via `secretKeyRef` from a single namespace Secret named **`agent-secrets`**,
+  with `ref` as the key inside it (the operator creates that Secret out of band). Plain
+  `resources.env` entries are injected as literal env vars. The supervisor inherits this environment
+  and passes it to the agent CLI; it stages nothing itself.

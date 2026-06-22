@@ -21,6 +21,8 @@ public import agentcore.output;
 public import agentcore.event;
 public import agentcore.initcontext;
 public import agentcore.tool;
+public import agentcore.supervisor_tool;
+public import agentcore.bundle;
 public import agentcore.repos;
 public import agentcore.git_tool;
 public import agentcore.claude_tool;

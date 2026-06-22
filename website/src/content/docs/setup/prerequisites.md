@@ -25,6 +25,11 @@ See [Building](/contribute/building/).
 
 ## Credentials
 
-Agents call a model provider, so the agent process needs credentials available in the Pod. During
-local development these are mounted from a host path; production secret wiring is tracked on the
-[roadmap](/contribute/roadmap/).
+Agents call a model provider, so the agent process needs credentials available in the Pod. Two ways
+to provide them:
+
+- **API key (any cluster):** create a namespace Secret named `agent-secrets`, then reference it from
+  the recipe's `resources.secrets` (e.g. `{name: ANTHROPIC_API_KEY, ref: ANTHROPIC_API_KEY}`); the
+  controller injects it as an env var via `secretKeyRef`.
+- **Subscription auth (local dev):** mount your host `~/.claude` into the run container at
+  `/lore/.claude` (the agent's `HOME` is `/lore`) via the Station template — no API key needed.

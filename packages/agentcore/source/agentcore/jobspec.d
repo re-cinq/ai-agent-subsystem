@@ -10,6 +10,7 @@ import agentcore.crds.output_sink : OutputSink;
 import agentcore.crds.repo_ref : RepoRef;
 import agentcore.crds.station : Station;
 import agentcore.agentselect : agentForModel;
+import agentcore.bundle : bundleRoot, supervisorPath;
 import agentcore.env;
 import agentcore.jobs : jobNameFor;
 import agentcore.prompt : renderPrompt;
@@ -18,7 +19,6 @@ enum crApiVersion = "agents.re-cinq.com/v1alpha1";
 enum agentContainerName = "agent";
 enum initContainerName = "init";
 enum bundleVolume = "lore";
-enum bundleMount = "/lore";
 enum jobTtlSeconds = 300;
 
 /// The non-root identity the agent container runs as. A concrete UID/GID (not
@@ -28,9 +28,11 @@ enum jobTtlSeconds = 300;
 enum agentUid = 1000;
 enum agentGid = 1000;
 
-/// Where the init container drops the supervisor in the shared bundle; the main
-/// container runs it as PID 1. Must match the path `ai-agent-init` installs to.
-enum supervisorPath = "/lore/bin/ai-agent-supervisor";
+/// The single namespace Secret the controller reads run credentials from. Each
+/// `resources.secrets[].ref` is a key inside it (e.g. ANTHROPIC_API_KEY); the
+/// operator creates the Secret out-of-band and kubelet resolves the keyRef at pod
+/// start, so the controller needs no Secret read permission.
+enum agentSecretName = "agent-secrets";
 
 /**
  * Build the `batch/v1` Job the controller creates for one Agent run. Pure: the
@@ -141,7 +143,7 @@ private JSONValue withBundleMount(JSONValue container)
 		mounts = (*existing).array.dup;
 	JSONValue[string] mount;
 	mount["name"] = JSONValue(bundleVolume);
-	mount["mountPath"] = JSONValue(bundleMount);
+	mount["mountPath"] = JSONValue(bundleRoot);
 	mounts ~= JSONValue(mount);
 	return JSONValue(mounts);
 }
@@ -162,7 +164,7 @@ private JSONValue initContainer(string agentImage, JSONValue env)
 {
 	JSONValue[string] mount;
 	mount["name"] = JSONValue(bundleVolume);
-	mount["mountPath"] = JSONValue(bundleMount);
+	mount["mountPath"] = JSONValue(bundleRoot);
 
 	JSONValue[string] security;
 	security["runAsUser"] = JSONValue(0);
@@ -217,6 +219,20 @@ private JSONValue runEnv(Agent agent, Station station, AgentDefinitionSpec recip
 		env ~= JSONValue(entry);
 	}
 
+	void secretVar(string name, string key)
+	{
+		JSONValue[string] keyRef;
+		keyRef["name"] = JSONValue(agentSecretName);
+		keyRef["key"] = JSONValue(key);
+		keyRef["optional"] = JSONValue(false);
+		JSONValue[string] from;
+		from["secretKeyRef"] = JSONValue(keyRef);
+		JSONValue[string] entry;
+		entry["name"] = JSONValue(name);
+		entry["valueFrom"] = JSONValue(from);
+		env ~= JSONValue(entry);
+	}
+
 	strVar(envSinks, sinksJson(recipe.output.sinks));
 	strVar(envRepos, reposJson(recipe.resources.repos));
 	strVar(envWorkspace, defaultWorkspace);
@@ -231,7 +247,11 @@ private JSONValue runEnv(Agent agent, Station station, AgentDefinitionSpec recip
 	strVar(envTaskId, agent.spec.taskId);
 	fieldVar(envPodName, "metadata.name");
 	fieldVar(envPodNamespace, "metadata.namespace");
-	strVar("HOME", bundleMount);
+	foreach (variable; recipe.resources.env)
+		strVar(variable.name, variable.value);
+	foreach (secret; recipe.resources.secrets)
+		secretVar(secret.name, secret.ref_);
+	strVar("HOME", bundleRoot);
 	strVar("PATH", "/lore/.local/bin:/usr/local/bin:/usr/bin:/bin");
 	return JSONValue(env);
 }
@@ -283,6 +303,8 @@ version (unittest)
 {
 	import fluent.asserts;
 	import agentcore.crds.enums : SinkType;
+	import agentcore.crds.env_var : EnvVar;
+	import agentcore.crds.secret_ref : SecretRef;
 	import agentcore.output : parseSinks;
 
 	private JSONValue agentContainer(JSONValue job)
@@ -309,6 +331,15 @@ version (unittest)
 		return "";
 	}
 
+	private string envSecretKey(JSONValue container, string name)
+	{
+		foreach (entry; container["env"].array)
+			if (entry["name"].str == name && ("valueFrom" in entry.object)
+				&& ("secretKeyRef" in entry["valueFrom"].object))
+				return entry["valueFrom"]["secretKeyRef"]["key"].str;
+		return "";
+	}
+
 	private void fixtures(out Agent agent, out Station station, out AgentDefinition definition)
 	{
 		agent.metadata.name = "bug-fixer-run-1";
@@ -328,6 +359,8 @@ version (unittest)
 		definition.spec.model = "claude-sonnet-4-6";
 		definition.spec.prompt = "Fix {ticket}";
 		definition.spec.output.sinks = [OutputSink(SinkType.http, "http://collector")];
+		definition.spec.resources.env = [EnvVar("LOG_LEVEL", "debug")];
+		definition.spec.resources.secrets = [SecretRef("ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY")];
 	}
 }
 
@@ -410,4 +443,19 @@ unittest
 	sinks.length.should.equal(1);
 	sinks[0].type.should.equal(SinkType.http);
 	sinks[0].url.should.equal("http://collector");
+}
+
+unittest
+{
+	// The recipe's resources.env land as literal env; resources.secrets land as a
+	// secretKeyRef into the namespace `agent-secrets` Secret (key = the ref).
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img"));
+
+	envValue(container, "LOG_LEVEL").should.equal("debug");
+	envSecretKey(container, "ANTHROPIC_API_KEY").should.equal("ANTHROPIC_API_KEY");
 }
