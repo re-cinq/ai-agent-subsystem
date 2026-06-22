@@ -14,6 +14,7 @@ import agentcore.env : defaultWorkspace, envModel, envRepos, envWorkspace;
 import agentcore.event : EventSource, sourceFromEnv;
 import agentcore.exec : findExecutable;
 import agentcore.initcontext : InitContext;
+import agentcore.lifecycle : LifecycleEvent, Phase, Status, toJson;
 import agentcore.log : logError;
 import agentcore.output : SinkSpec, sinksFromEnv;
 import agentcore.packagemanager : packageFor;
@@ -43,42 +44,32 @@ int provision(InitContext ctx)
 	const source = sourceFromEnv();
 	auto active = activeTools(ctx);
 
-	notify(sinks, source, initEvent("started"));
+	notify(sinks, source, LifecycleEvent(Phase.init_, Status.started).toJson);
 
 	// The Claude installer writes into $HOME; it must be set and writable.
 	if (active.canFind!(t => t.name == "claude") && !homeWritable())
 		return fail(sinks, source,
 			"[init] HOME is unset or not writable; the Claude installer needs it",
-			`"reason":"home"`, 2);
+			failedReason("home"), 2);
 
 	if (const code = ensurePrerequisites(active, sinks, source))
 		return code;
 
 	foreach (tool; active)
 	{
-		notify(sinks, source, initEvent("running", tool.name));
+		notify(sinks, source, LifecycleEvent(Phase.init_, Status.running, tool.name).toJson);
 		foreach (step; tool.steps(ctx))
 		{
 			const code = runStep(step);
 			if (code != 0)
 				return fail(sinks, source,
 					"[init] " ~ tool.name ~ " step failed (exit " ~ code.to!string ~ "): " ~ step.join(" "),
-					`"tool":"` ~ tool.name ~ `","exitCode":` ~ code.to!string, code);
+					failedStep(tool.name, code), code);
 		}
 	}
 
-	notify(sinks, source, initEvent("succeeded"));
+	notify(sinks, source, LifecycleEvent(Phase.init_, Status.succeeded).toJson);
 	return 0;
-}
-
-/// Build an init lifecycle event payload, centralising the `{"phase":"init",…}`
-/// envelope so its shape lives in one place. The `failed` event is built by `fail`,
-/// which appends a per-failure detail.
-private string initEvent(string status, string tool = "")
-{
-	return tool.length
-		? `{"phase":"init","tool":"` ~ tool ~ `","status":"` ~ status ~ `"}`
-		: `{"phase":"init","status":"` ~ status ~ `"}`;
 }
 
 /// The tools this run needs, in execution order — those whose `steps` are non-empty.
@@ -104,9 +95,9 @@ private int ensurePrerequisites(Tool[] active, const SinkSpec[] sinks, in EventS
 	if (pmName.length == 0)
 		return fail(sinks, source,
 			"[init] missing prerequisites and no supported package manager: " ~ missing.join(", "),
-			`"reason":"no-package-manager"`, 2);
+			failedReason("no-package-manager"), 2);
 
-	notify(sinks, source, initEvent("installing", pmName));
+	notify(sinks, source, LifecycleEvent(Phase.init_, Status.installing, pmName).toJson);
 	auto pkgs = missing.map!packageFor.array;
 	foreach (step; packageManagerByName(pmName).installSteps(pkgs))
 	{
@@ -114,14 +105,14 @@ private int ensurePrerequisites(Tool[] active, const SinkSpec[] sinks, in EventS
 		if (code != 0)
 			return fail(sinks, source,
 				"[init] prerequisite install failed (exit " ~ code.to!string ~ "): " ~ step.join(" "),
-				`"reason":"install"`, code);
+				failedReason("install"), code);
 	}
 
 	auto still = missing.filter!(e => findExecutable(e).length == 0).array;
 	if (still.length)
 		return fail(sinks, source,
 			"[init] prerequisites still missing after install: " ~ still.join(", "),
-			`"reason":"prerequisites"`, 2);
+			failedReason("prerequisites"), 2);
 	return 0;
 }
 
@@ -169,12 +160,28 @@ private int runStep(string[] step)
 	}
 }
 
-/// Report a failure: log it, emit a `failed` event carrying `detail`, return `code`.
-private int fail(const SinkSpec[] sinks, in EventSource src, string logMsg, string detail, int code)
+/// Report a failure: log it, emit `ev` (a `failed` lifecycle event), return `code`.
+private int fail(const SinkSpec[] sinks, in EventSource src, string logMsg, LifecycleEvent ev, int code)
 {
 	logError(logMsg);
-	notify(sinks, src, `{"phase":"init","status":"failed",` ~ detail ~ `}`);
+	notify(sinks, src, ev.toJson);
 	return code;
+}
+
+/// A `failed` init event explained by a short reason slug ("home", "install", …).
+private LifecycleEvent failedReason(string reason)
+{
+	LifecycleEvent ev = {phase: Phase.init_, status: Status.failed};
+	ev.reason = reason;
+	return ev;
+}
+
+/// A `failed` init event for a tool step that exited non-zero.
+private LifecycleEvent failedStep(string tool, int exitCode)
+{
+	LifecycleEvent ev = {phase: Phase.init_, status: Status.failed, tool: tool};
+	ev.exitCode = exitCode;
+	return ev;
 }
 
 /// True when $HOME is set and writable — the installer's home for `~/.local/bin`.

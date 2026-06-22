@@ -1,29 +1,17 @@
 module notify;
 
 import std.process : execute;
-import std.stdio : stdout;
 
-import agentcore.event : EventSource, wrapEvent;
+import agentcore.event : EventSource;
 import agentcore.log : logError;
-import agentcore.output : SinkSpec, deliverSinks;
+import agentcore.output : SinkSpec, emitEvent;
 
-/// Wrap `payload` in the run's event envelope and fan it out: always to stdout
-/// (pod logs → status.output), plus every configured http/file sink. Fire-and-
-/// forget — a failing sink is logged, never fatal (mirrors the supervisor's sink
-/// semantics).
+/// Emit `payload` as an init event through the shared path (stdout pod logs plus every
+/// configured http/file sink), using `curl` for http sinks. Fire-and-forget — a failing
+/// sink is logged, never fatal (the supervisor emits identically with vibe's client).
 void notify(const SinkSpec[] sinks, in EventSource src, string payload) nothrow
 {
-	const line = wrapEvent(src, payload);
-	try
-	{
-		stdout.writeln(line);
-		stdout.flush();
-	}
-	catch (Exception)
-	{
-	}
-
-	deliverSinks(sinks, line, &postHttp, "[init]");
+	emitEvent(sinks, src, payload, &postHttp, "[init]");
 }
 
 /// POST `line` to an http sink with the `curl` CLI — already a guaranteed

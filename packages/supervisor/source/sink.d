@@ -1,17 +1,20 @@
 module sink;
 
+import agentcore.event : EventSource;
 import agentcore.log : logError;
-import agentcore.output : SinkSpec, deliverSinks;
+import agentcore.output : SinkSpec, emitEvent;
 
 import vibe.http.client : requestHTTP, HTTPClientRequest, HTTPClientResponse;
 import vibe.http.common : HTTPMethod;
 
-/// Deliver `line` to every configured sink. Each delivery is fire-and-forget: a
-/// failing sink is reported to stderr but never disrupts the run. A `stdout` sink
-/// is a no-op here — the supervisor always echoes to its own stdout (pod logs).
-void deliver(const SinkSpec[] sinks, string line) nothrow
+/// Emit one event: wrap `payload` in the run's envelope, echo it to stdout (pod logs),
+/// and fan it out to every configured sink with vibe's HTTP client. Fire-and-forget — a
+/// failing sink is logged to stderr but never disrupts the run. A `stdout` sink is a
+/// no-op here — the supervisor always echoes to its own stdout. Mirrors the init
+/// container's `notify`, so both containers' events land identically.
+void emit(const SinkSpec[] sinks, in EventSource src, string payload) nothrow
 {
-	deliverSinks(sinks, line, &postHttp, "[supervisor]");
+	emitEvent(sinks, src, payload, &postHttp, "[supervisor]");
 }
 
 /// POST `line` to an http(s) sink with vibe's HTTP client.

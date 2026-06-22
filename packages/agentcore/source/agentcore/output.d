@@ -2,10 +2,11 @@ module agentcore.output;
 
 import std.json : parseJSON;
 import std.process : environment;
-import std.stdio : File;
+import std.stdio : File, stdout;
 
 import agentcore.crds.enums : SinkType;
 import agentcore.env : envNotifyUrl, envSinks;
+import agentcore.event : EventSource, wrapEvent;
 import agentcore.log : logError;
 
 /// A resolved output sink: where the supervisor sends each emitted line. The
@@ -85,6 +86,26 @@ void deliverSinks(const SinkSpec[] sinks, string line, HttpSink postHttp, string
 			break;
 		}
 	}
+}
+
+/// Emit one event: wrap `payload` in the run's envelope, echo it to stdout (pod logs),
+/// then fan it out to every configured sink. The single path the initializer and the
+/// supervisor both emit through — parameterised by the package's http poster, which
+/// varies (the initializer shells out to `curl`, the supervisor uses vibe). Fire-and-
+/// forget; never throws.
+void emitEvent(const SinkSpec[] sinks, in EventSource src, string payload,
+	HttpSink postHttp, string tag) nothrow
+{
+	const line = wrapEvent(src, payload);
+	try
+	{
+		stdout.writeln(line);
+		stdout.flush();
+	}
+	catch (Exception)
+	{
+	}
+	deliverSinks(sinks, line, postHttp, tag);
 }
 
 /// Append `line` (with a trailing newline) to a file sink.
