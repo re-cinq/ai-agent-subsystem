@@ -17,8 +17,10 @@ import std.json : JSONValue;
 import described : describe;
 import openapi.definitions : SchemaType;
 
-import agentcore.schema;
-import agentcore.crds;
+import agentcore.crds.schema;
+import agentcore.crds.agent : Agent;
+import agentcore.crds.agent_definition : AgentDefinition;
+import agentcore.crds.station : Station;
 
 /// Renders an open-api `SchemaType` to its wire string (e.g. `object` -> "object").
 private enum st(SchemaType t) = cast(string) t;

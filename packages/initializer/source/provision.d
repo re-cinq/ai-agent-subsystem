@@ -10,18 +10,18 @@ import std.string : toStringz;
 import core.sys.posix.unistd : access, W_OK;
 
 import agentcore.crds.enums : SinkType;
-import agentcore.env : defaultWorkspace, envModel, envRepos, envWorkspace;
-import agentcore.event : EventSource, sourceFromEnv;
-import agentcore.exec : findExecutable;
-import agentcore.initcontext : InitContext;
-import agentcore.lifecycle : LifecycleEvent, Phase, Status, toJson;
-import agentcore.log : logError;
-import agentcore.output : SinkSpec, sinksFromEnv;
-import agentcore.packagemanager : packageFor;
-import agentcore.packagemanagerselect : packageManagerByName;
-import agentcore.repos : parseRepos;
-import agentcore.tool : Tool;
-import agentcore.toolselect : allTools;
+import agentcore.core.env : defaultWorkspace, envModel, envRepos, envWorkspace;
+import agentcore.output.event : EventSource, sourceFromEnv;
+import agentcore.core.exec : findExecutable;
+import agentcore.tools.initcontext : InitContext;
+import agentcore.output.lifecycle : LifecycleEvent, Phase, Status, toJson;
+import agentcore.core.log : logError;
+import agentcore.output.output : SinkSpec, sinksFromEnv;
+import agentcore.pkgmanager.packagemanager : packageFor;
+import agentcore.pkgmanager.packagemanagerselect : packageManagerByName;
+import agentcore.tools.repos : parseRepos;
+import agentcore.tools.tool : Tool;
+import agentcore.tools.toolselect : allTools;
 
 import notify : notify;
 

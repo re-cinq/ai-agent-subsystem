@@ -2,7 +2,7 @@ module agentcore.crds.station;
 
 import agentcore.crds.object_meta : ObjectMeta;
 import agentcore.crds.station_spec : StationSpec;
-import agentcore.schema;
+import agentcore.crds.schema;
 
 @Plural("stations")
 @ShortNames(["stn"])

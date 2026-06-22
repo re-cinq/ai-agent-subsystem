@@ -2,9 +2,9 @@ module notify;
 
 import std.process : execute;
 
-import agentcore.event : EventSource;
-import agentcore.log : logError;
-import agentcore.output : SinkSpec, emitEvent;
+import agentcore.output.event : EventSource;
+import agentcore.core.log : logError;
+import agentcore.output.output : SinkSpec, emitEvent;
 
 /// Emit `payload` as an init event through the shared path (stdout pod logs plus every
 /// configured http/file sink), using `curl` for http sinks. Fire-and-forget — a failing

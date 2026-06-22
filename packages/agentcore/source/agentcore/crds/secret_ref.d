@@ -1,6 +1,6 @@
 module agentcore.crds.secret_ref;
 
-import agentcore.schema;
+import agentcore.crds.schema;
 
 struct SecretRef
 {

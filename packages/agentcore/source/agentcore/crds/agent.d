@@ -3,7 +3,7 @@ module agentcore.crds.agent;
 import agentcore.crds.object_meta : ObjectMeta;
 import agentcore.crds.agent_spec : AgentSpec;
 import agentcore.crds.agent_status : AgentStatus;
-import agentcore.schema;
+import agentcore.crds.schema;
 
 @Plural("agents")
 @ShortNames(["agt"])

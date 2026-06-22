@@ -13,9 +13,9 @@ import vibe.stream.tls : TLSContext;
 import agentcore.crds.agent : Agent;
 import agentcore.crds.agent_definition : AgentDefinition;
 import agentcore.crds.station : Station;
-import agentcore.jsonbody : parseAgent, parseAgentDefinition, parseAgentList, parseJobOutcome, parseStation;
-import agentcore.kubeclient : KubeClient, NotFound, PodResult;
-import agentcore.reconcile : JobOutcome;
+import agentcore.kube.jsonbody : parseAgent, parseAgentDefinition, parseAgentList, parseJobOutcome, parseStation;
+import agentcore.kube.kubeclient : KubeClient, NotFound, PodResult;
+import agentcore.reconcile.reconcile : JobOutcome;
 
 import incluster : ClusterConfig;
 

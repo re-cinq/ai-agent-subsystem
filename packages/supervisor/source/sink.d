@@ -1,8 +1,8 @@
 module sink;
 
-import agentcore.event : EventSource;
-import agentcore.log : logError;
-import agentcore.output : SinkSpec, emitEvent;
+import agentcore.output.event : EventSource;
+import agentcore.core.log : logError;
+import agentcore.output.output : SinkSpec, emitEvent;
 
 import vibe.http.client : requestHTTP, HTTPClientRequest, HTTPClientResponse;
 import vibe.http.common : HTTPMethod;

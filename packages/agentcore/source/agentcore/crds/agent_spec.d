@@ -1,6 +1,6 @@
 module agentcore.crds.agent_spec;
 
-import agentcore.schema;
+import agentcore.crds.schema;
 
 @Description("One run of a recipe in a Station.")
 struct AgentSpec

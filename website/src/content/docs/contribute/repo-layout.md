@@ -11,7 +11,15 @@ ai-agent-subsystem/
 ├── dub.json                       # root: targetType none, lists the sub-packages
 ├── packages/
 │   ├── agentcore/                 # shared library
-│   │   └── source/agentcore/      # types, schema (UDAs), crds, prompt, reconcile, jobs, env
+│   │   └── source/agentcore/      # one folder per domain (no package.d):
+│   │       ├── crds/              #   CR types + schema (UDAs)
+│   │       ├── reconcile/         #   decide() state machine, driver, pruning, concurrency
+│   │       ├── kube/              #   KubeClient, Job builder, JSON bodies, bundle paths
+│   │       ├── agents/            #   pluggable agent adapters (claude/codex) + prompt
+│   │       ├── tools/             #   init-container tools (supervisor/git/claude) + repos
+│   │       ├── pkgmanager/        #   apt/dnf/apk detection + bootstrap
+│   │       ├── output/            #   event wrapping, sinks, lifecycle, output.select
+│   │       └── core/              #   types, env names, exec, log
 │   ├── controller/                # binary: the operator
 │   ├── initializer/               # binary: the in-pod init container (ai-agent-init)
 │   ├── supervisor/                # binary: the in-pod supervisor

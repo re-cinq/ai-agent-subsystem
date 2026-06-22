@@ -9,8 +9,8 @@ import vibe.core.core : runTask, sleep;
 import vibe.core.log : logError, logInfo;
 
 import agentcore.crds.agent : Agent;
-import agentcore.jsonbody : parseAgent;
-import agentcore.reconcile_driver : reconcileAgent;
+import agentcore.kube.jsonbody : parseAgent;
+import agentcore.reconcile.reconcile_driver : reconcileAgent;
 
 import httpkube : HttpKubeClient;
 

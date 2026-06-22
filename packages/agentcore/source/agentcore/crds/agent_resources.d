@@ -1,6 +1,6 @@
 module agentcore.crds.agent_resources;
 
-import agentcore.schema;
+import agentcore.crds.schema;
 import agentcore.crds.env_var : EnvVar;
 import agentcore.crds.secret_ref : SecretRef;
 import agentcore.crds.mcp_server : McpServer;

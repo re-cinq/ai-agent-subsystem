@@ -2,7 +2,7 @@ module agentcore.crds.agent_definition;
 
 import agentcore.crds.object_meta : ObjectMeta;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
-import agentcore.schema;
+import agentcore.crds.schema;
 
 @Plural("agentdefinitions")
 @ShortNames(["agentdef", "ad"])

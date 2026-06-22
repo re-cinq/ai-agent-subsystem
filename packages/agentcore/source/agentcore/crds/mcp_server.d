@@ -1,6 +1,6 @@
 module agentcore.crds.mcp_server;
 
-import agentcore.schema;
+import agentcore.crds.schema;
 import agentcore.crds.enums : McpTransport;
 
 struct McpServer

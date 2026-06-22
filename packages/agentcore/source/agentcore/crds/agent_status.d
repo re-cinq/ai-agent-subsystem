@@ -1,7 +1,7 @@
 module agentcore.crds.agent_status;
 
-import agentcore.types : Phase;
-import agentcore.schema;
+import agentcore.core.types : Phase;
+import agentcore.crds.schema;
 
 struct AgentStatus
 {

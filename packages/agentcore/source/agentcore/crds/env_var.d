@@ -1,6 +1,6 @@
 module agentcore.crds.env_var;
 
-import agentcore.schema;
+import agentcore.crds.schema;
 
 struct EnvVar
 {

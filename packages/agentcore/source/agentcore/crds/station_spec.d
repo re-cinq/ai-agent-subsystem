@@ -2,7 +2,7 @@ module agentcore.crds.station_spec;
 
 import std.json : JSONValue;
 
-import agentcore.schema;
+import agentcore.crds.schema;
 
 @Description("The runtime template that pairs a recipe with a Pod template.")
 struct StationSpec

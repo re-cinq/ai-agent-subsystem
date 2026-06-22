@@ -4,7 +4,7 @@ import std.algorithm.searching : countUntil;
 
 import vibe.core.core : runEventLoop, runTask, exitEventLoop;
 
-import agentcore.log : logError;
+import agentcore.core.log : logError;
 import supervise : supervise, installSignalForwarding;
 
 private __gshared int g_exitCode = 1;

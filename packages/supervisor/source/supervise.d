@@ -11,14 +11,14 @@ import vibe.stream.operations : readLine;
 
 import std.process : environment;
 
-import agentcore.agentselect : agentForModel;
-import agentcore.env : envModel, envSelect;
-import agentcore.event : sourceFromEnv;
-import agentcore.exec : findExecutable;
-import agentcore.lifecycle : LifecycleEvent, Phase, Status, toJson;
-import agentcore.log : logError;
-import agentcore.output : sinksFromEnv;
-import agentcore.selectmatcher : parseSelectors, selected;
+import agentcore.agents.agentselect : agentForModel;
+import agentcore.core.env : envModel, envSelect;
+import agentcore.output.event : sourceFromEnv;
+import agentcore.core.exec : findExecutable;
+import agentcore.output.lifecycle : LifecycleEvent, Phase, Status, toJson;
+import agentcore.core.log : logError;
+import agentcore.output.output : sinksFromEnv;
+import agentcore.output.selectmatcher : parseSelectors, selected;
 import sink : emit;
 
 /// PID of the spawned agent, shared with the signal handler.
