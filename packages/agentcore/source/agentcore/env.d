@@ -13,6 +13,7 @@ enum envTargetRepo = "TARGET_REPO";
 enum envBranch = "BRANCH_NAME";
 enum envRepos = "AGENT_REPOS";
 enum envWorkspace = "WORKSPACE_DIR";
+enum envSelect = "AGENT_SELECT";
 
 // Identity the controller stamps onto the run so every emitted event can be
 // traced back to its agent + pod in a workflow. `POD_*` come from the downward

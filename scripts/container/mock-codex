@@ -1,0 +1,9 @@
+#!/bin/sh
+# Deterministic stand-in for the Codex CLI, baked into the ai-agent:itest image so
+# the controller integration test runs hermetically — no network, no API key. The
+# supervisor execs this as the agent; it emits a few newline-delimited JSON events
+# and exits 0, which drives the run to Succeeded. POSIX sh (Alpine-safe).
+printf '%s\n' '{"type":"item.started"}'
+printf '%s\n' '{"type":"item.completed","text":"hello from the mock agent"}'
+printf '%s\n' '{"type":"result","text":"done","is_error":false}'
+exit 0

@@ -1,0 +1,49 @@
+name: Publish images
+
+# Build and push the controller and agent runtime images to GHCR. Runs after a
+# merge to main (the CI + controller-container workflows gate the PR) and on
+# version tags. The agent image is the AGENT_IMAGE the controller injects as each
+# run pod's init container; the controller image backs deploy/controller.yaml.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - image: ghcr.io/re-cinq/ai-agent-controller
+            file: deploy/Dockerfile.controller
+          - image: ghcr.io/re-cinq/ai-agent
+            file: scripts/container/Dockerfile.agent
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ matrix.image }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=tag
+            type=sha
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

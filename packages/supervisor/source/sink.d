@@ -12,9 +12,9 @@ import vibe.http.common : HTTPMethod;
 /// failing sink is logged to stderr but never disrupts the run. A `stdout` sink is a
 /// no-op here — the supervisor always echoes to its own stdout. Mirrors the init
 /// container's `notify`, so both containers' events land identically.
-void emit(const SinkSpec[] sinks, in EventSource src, string payload) nothrow
+void emit(const SinkSpec[] sinks, in EventSource src, string payload, bool toSinks = true) nothrow
 {
-	emitEvent(sinks, src, payload, &postHttp, "[supervisor]");
+	emitEvent(sinks, src, payload, &postHttp, "[supervisor]", toSinks);
 }
 
 /// POST `line` to an http(s) sink with vibe's HTTP client.

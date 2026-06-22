@@ -1,0 +1,44 @@
+name: Controller container
+
+# Proves the controller end to end on a real (kind) cluster: it builds the
+# controller + agent images, swaps the agent CLI for a deterministic mock (no API
+# key, no network in the run pod), then drives one Agent through
+# Pending -> Running -> Succeeded and asserts Job creation/ownership, the
+# status.output/exitCode enrichment, and owner-reference garbage collection.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/**'
+      - 'deploy/**'
+      - 'dub.json'
+      - 'scripts/itest-controller.sh'
+      - 'scripts/container/Dockerfile.agent'
+      - 'scripts/container/Dockerfile.agent-itest'
+      - 'scripts/container/mock-codex'
+      - '.github/workflows/controller.yml'
+  pull_request:
+    paths:
+      - 'packages/**'
+      - 'deploy/**'
+      - 'scripts/itest-controller.sh'
+      - 'scripts/container/Dockerfile.agent*'
+      - 'scripts/container/mock-codex'
+      - '.github/workflows/controller.yml'
+  workflow_dispatch:
+
+jobs:
+  itest:
+    name: Controller integration test (kind)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: lore-itest
+      - name: Controller integration test
+        env:
+          CLUSTER: lore-itest
+          KEEP: '1' # the kind cluster is managed by kind-action
+        run: ./scripts/itest-controller.sh

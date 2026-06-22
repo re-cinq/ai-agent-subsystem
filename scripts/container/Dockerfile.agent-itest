@@ -1,0 +1,11 @@
+# syntax=docker/dockerfile:1
+#
+# The agent runtime image with the Codex CLI replaced by a deterministic mock, for
+# the controller integration test (hermetic: no network, no API key). Built FROM
+# the real agent image so the init container, supervisor staging, and security
+# model are identical to production — only the agent CLI is swapped.
+#
+ARG AGENT_IMAGE=ai-agent:dev
+FROM ${AGENT_IMAGE}
+COPY mock-codex /usr/local/bin/codex
+RUN chmod +x /usr/local/bin/codex

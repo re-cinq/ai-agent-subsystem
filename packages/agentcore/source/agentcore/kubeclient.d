@@ -18,6 +18,16 @@ class NotFound : Exception
 	}
 }
 
+/// The terminal result of a run pod: the agent container's real exit code and the
+/// stdout it captured (the wrapped event stream the supervisor echoed). Used to
+/// enrich an Agent's `status.exitCode` / `status.output` beyond what the Job's
+/// conditions alone carry.
+struct PodResult
+{
+	int exitCode;
+	string log;
+}
+
 /// The Kubernetes operations the reconcile driver needs, behind an interface so
 /// the driver, Job builder, and pruning stay pure and fake-testable — the same
 /// posture as `decide()`. The data crossing the seam is the existing CRD model
@@ -46,4 +56,12 @@ interface KubeClient
 
 	/// Delete a pruned Agent by name.
 	void deleteAgent(string ns, string name);
+
+	/// Name of the pod backing a Job (label `job-name=<jobName>`), or "" if none
+	/// has been scheduled yet.
+	string podNameForJob(string ns, string jobName);
+
+	/// The run pod's terminal result — the `agent` container's exit code and its
+	/// captured stdout — used to enrich the Agent status on a terminal transition.
+	PodResult podResult(string ns, string podName);
 }

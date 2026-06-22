@@ -22,6 +22,8 @@ jobs:
           compiler: dmd-latest
       - name: Unit tests (agentcore)
         run: dub test :agentcore
+      - name: Unit tests (controller)
+        run: dub test :controller
       - name: Build binaries
         run: |
           dub build :controller

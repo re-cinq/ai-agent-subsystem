@@ -6,6 +6,7 @@ import std.json : JSONType, JSONValue, parseJSON;
 import agentcore.crds.agent : Agent;
 import agentcore.crds.agent_definition : AgentDefinition;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
+import agentcore.crds.output_selector : OutputSelector;
 import agentcore.crds.output_sink : OutputSink;
 import agentcore.crds.repo_ref : RepoRef;
 import agentcore.crds.station : Station;
@@ -175,6 +176,7 @@ private JSONValue initContainer(string agentImage, JSONValue env)
 	container["env"] = env;
 	container["volumeMounts"] = JSONValue([JSONValue(mount)]);
 	container["securityContext"] = JSONValue(security);
+	container["resources"] = initResources();
 	return JSONValue(container);
 }
 
@@ -193,6 +195,22 @@ private JSONValue podSecurity()
 	JSONValue[string] security;
 	security["fsGroup"] = JSONValue(agentGid);
 	return JSONValue(security);
+}
+
+/// Modest requests/limits for the init container so it is Burstable, not
+/// BestEffort — a BestEffort init is the kernel OOM-killer's first target under
+/// node memory pressure. It only stages files and installs prerequisites.
+private JSONValue initResources()
+{
+	JSONValue[string] requests;
+	requests["cpu"] = JSONValue("50m");
+	requests["memory"] = JSONValue("64Mi");
+	JSONValue[string] limits;
+	limits["memory"] = JSONValue("256Mi");
+	JSONValue[string] resources;
+	resources["requests"] = JSONValue(requests);
+	resources["limits"] = JSONValue(limits);
+	return JSONValue(resources);
 }
 
 private JSONValue runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
@@ -235,6 +253,8 @@ private JSONValue runEnv(Agent agent, Station station, AgentDefinitionSpec recip
 
 	strVar(envSinks, sinksJson(recipe.output.sinks));
 	strVar(envRepos, reposJson(recipe.resources.repos));
+	if (recipe.output.select.length)
+		strVar(envSelect, selectJson(recipe.output.select));
 	strVar(envWorkspace, defaultWorkspace);
 	if (agent.spec.parameters.length)
 		strVar(envParameters, parametersJson(agent.spec.parameters));
@@ -242,6 +262,7 @@ private JSONValue runEnv(Agent agent, Station station, AgentDefinitionSpec recip
 		strVar(envTargetRepo, agent.spec.targetRepo);
 	if (agent.spec.branch.length)
 		strVar(envBranch, agent.spec.branch);
+	strVar(envModel, recipe.model);
 	strVar(envAgentName, agent.metadata.name);
 	strVar(envStationName, station.metadata.name);
 	strVar(envTaskId, agent.spec.taskId);
@@ -267,6 +288,22 @@ private string sinksJson(const OutputSink[] sinks)
 			object["url"] = JSONValue(sink.url);
 		if (sink.path.length)
 			object["path"] = JSONValue(sink.path);
+		array ~= JSONValue(object);
+	}
+	return JSONValue(array).toString();
+}
+
+private string selectJson(const OutputSelector[] selectors)
+{
+	JSONValue[] array;
+	foreach (selector; selectors)
+	{
+		JSONValue[string] object;
+		object["event"] = JSONValue(cast(string) selector.event);
+		if (selector.tool.length)
+			object["tool"] = JSONValue(selector.tool);
+		if (selector.contains.length)
+			object["contains"] = JSONValue(selector.contains);
 		array ~= JSONValue(object);
 	}
 	return JSONValue(array).toString();
@@ -302,10 +339,12 @@ private string parametersJson(const string[string] parameters)
 version (unittest)
 {
 	import fluent.asserts;
-	import agentcore.crds.enums : SinkType;
+	import agentcore.crds.enums : SinkType, SelectEvent;
 	import agentcore.crds.env_var : EnvVar;
+	import agentcore.crds.output_selector : OutputSelector;
 	import agentcore.crds.secret_ref : SecretRef;
 	import agentcore.output : parseSinks;
+	import agentcore.selectmatcher : parseSelectors;
 
 	private JSONValue agentContainer(JSONValue job)
 	{
@@ -361,6 +400,7 @@ version (unittest)
 		definition.spec.output.sinks = [OutputSink(SinkType.http, "http://collector")];
 		definition.spec.resources.env = [EnvVar("LOG_LEVEL", "debug")];
 		definition.spec.resources.secrets = [SecretRef("ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY")];
+		definition.spec.output.select = [OutputSelector(SelectEvent.result)];
 	}
 }
 
@@ -405,6 +445,8 @@ unittest
 	pod["containers"].array.length.should.equal(2);
 	pod["initContainers"][0]["image"].str.should.equal("ghcr.io/re-cinq/ai-agent:latest");
 	pod["initContainers"][0]["securityContext"]["runAsUser"].integer.should.equal(0);
+	// The init must not be BestEffort, or the kernel OOM-kills it first under pressure.
+	pod["initContainers"][0]["resources"]["requests"]["memory"].str.should.equal("64Mi");
 	pod["volumes"][0]["name"].str.should.equal(bundleVolume);
 
 	auto container = agentContainer(job);
@@ -432,6 +474,7 @@ unittest
 
 	envValue(container, "AGENT_NAME").should.equal("bug-fixer-run-1");
 	envValue(container, "STATION_NAME").should.equal("bug-fixer-station");
+	envValue(container, "LORE_MODEL").should.equal("claude-sonnet-4-6"); // init routes the agent CLI off this
 	envValue(container, "TASK_ID").should.equal("T-1");
 	envValue(container, "TARGET_REPO").should.equal("octo/app");
 	envValue(container, "BRANCH_NAME").should.equal("fix/eng-1");
@@ -458,4 +501,9 @@ unittest
 
 	envValue(container, "LOG_LEVEL").should.equal("debug");
 	envSecretKey(container, "ANTHROPIC_API_KEY").should.equal("ANTHROPIC_API_KEY");
+
+	// output.select is injected as AGENT_SELECT and round-trips for the supervisor.
+	auto selectors = parseSelectors(envValue(container, "AGENT_SELECT"));
+	selectors.length.should.equal(1);
+	selectors[0].event.should.equal(SelectEvent.result);
 }

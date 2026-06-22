@@ -120,9 +120,13 @@ one new `Agent` implementation plus a `model` match — nothing else changes.
 - **Output** is emitted as one self-identifying JSON event per line —
   `{"source": {"agent","station","task","pod","namespace"}, "event": <the agent's JSON>}` — so any
   consumer in a workflow / assembly line can correlate it back to its run. It always goes to stdout
-  (pod logs → `status.output`) and to every sink the recipe declares: `http` (POST per event) and
-  `file` (append per event). `output.select` event-filtering is not yet applied — it needs
-  per-provider event normalization, planned alongside the adapters.
+  (pod logs), which the controller reads back on a terminal transition into the Agent's
+  `status.output` (alongside the agent container's real `status.exitCode`). It also goes to every sink
+  the recipe declares: `http` (POST per event) and `file` (append per event). When `output.select` is
+  set, sink delivery is filtered to the listed event types — each provider event is normalized to the
+  `tool_call`/`message`/`tool_result`/`result`/`usage` vocabulary and matched against the selectors
+  (with optional `tool`/`contains` narrowing); stdout still receives everything, so `status.output`
+  stays complete.
 - **Credentials** are the agent's own concern: the controller injects the provider's API key
   (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …) as an environment variable from a Kubernetes Secret
   (`AgentDefinition.spec.resources.secrets`). Each `secrets` entry `{name, ref}` becomes a container

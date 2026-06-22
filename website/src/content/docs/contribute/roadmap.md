@@ -18,10 +18,14 @@ these docs.
   repos, and installs the agent CLI.
 - CRD, RBAC, and controller manifests under `deploy/`.
 
+- `output.select` event filtering, with per-provider event normalization, applied to sink delivery;
+  the controller reads pod logs back into `status.output` and the real `status.exitCode`.
+- Controller integration test on a `kind` cluster (`scripts/itest-controller.sh`) and a GHCR image
+  publish workflow.
+
 ## In progress
 
-- Cross-distro container tests and CI for the controller + `ai-agent` image.
-- `output.select` event filtering (needs per-provider event normalization).
+- Cross-distro hardening of the `ai-agent` image build (rockylinux:9, matching the supervisor).
 
 ## Deferred
 

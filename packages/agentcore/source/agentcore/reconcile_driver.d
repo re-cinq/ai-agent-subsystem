@@ -6,9 +6,9 @@ import agentcore.crds.station : Station;
 import agentcore.jobs : jobNameFor;
 import agentcore.jobspec : buildJob;
 import agentcore.jsonbody : statusPatch;
-import agentcore.kubeclient : KubeClient, NotFound;
+import agentcore.kubeclient : KubeClient, NotFound, PodResult;
 import agentcore.prune : agentsToPrune;
-import agentcore.reconcile : ActionKind, decide, JobOutcome;
+import agentcore.reconcile : ActionKind, decide, JobOutcome, JobState;
 import agentcore.types : Phase;
 
 /**
@@ -37,6 +37,8 @@ void reconcileAgent(KubeClient client, string ns, Agent agent, string agentImage
 	{
 		outcome = client.jobOutcome(ns, agent.status.jobName);
 		hasOutcome = true;
+		if (outcome.state != JobState.running)
+			enrichFromPod(client, ns, agent.status.jobName, outcome);
 	}
 
 	const decision = decide(phase, refsResolved, hasOutcome, outcome);
@@ -59,6 +61,21 @@ void reconcileAgent(KubeClient client, string ns, Agent agent, string agentImage
 		pruneHistory(client, ns, agent.spec.stationRef);
 		return;
 	}
+}
+
+/// On a terminal Job, replace the placeholder exit code / output the Job
+/// conditions carry with the run pod's real values — the `agent` container's exit
+/// code and its captured stdout — so `status.exitCode` / `status.output` reflect
+/// what actually happened. A pod that has already been GC'd leaves the outcome
+/// as-is.
+private void enrichFromPod(KubeClient client, string ns, string jobName, ref JobOutcome outcome)
+{
+	const podName = client.podNameForJob(ns, jobName);
+	if (podName.length == 0)
+		return;
+	const pod = client.podResult(ns, podName);
+	outcome.exitCode = pod.exitCode;
+	outcome.output = pod.log;
 }
 
 private bool resolveRefs(KubeClient client, string ns, Agent agent, ref Station station,
@@ -101,6 +118,8 @@ version (unittest)
 		bool stationMissing;
 		JobOutcome outcome;
 		Agent[] agents;
+		string podNameValue;
+		PodResult podResultValue;
 
 		JSONValue[] createdJobs;
 		JSONValue[] statusPatches;
@@ -143,6 +162,16 @@ version (unittest)
 		override void deleteAgent(string ns, string name)
 		{
 			deletedAgents ~= name;
+		}
+
+		override string podNameForJob(string ns, string jobName)
+		{
+			return podNameValue;
+		}
+
+		override PodResult podResult(string ns, string podName)
+		{
+			return podResultValue;
 		}
 	}
 
@@ -192,9 +221,12 @@ unittest
 
 unittest
 {
-	// Running + Job succeeded -> Succeeded status and history pruned.
+	// Running + Job succeeded -> Succeeded; status enriched from the run pod
+	// (output = pod log, exitCode = the agent container's real code), history pruned.
 	auto client = new FakeKubeClient;
-	client.outcome = JobOutcome(JobState.succeeded, 0, "", "done");
+	client.outcome = JobOutcome(JobState.succeeded);
+	client.podNameValue = "agent-job-run-3-abc";
+	client.podResultValue = PodResult(0, "the wrapped event log");
 	client.station.metadata.name = "stn";
 	client.station.spec.successfulRunsHistoryLimit = 0; // prune the whole succeeded bucket
 
@@ -213,8 +245,32 @@ unittest
 	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z");
 
 	client.statusPatches[0]["status"]["phase"].str.should.equal("Succeeded");
-	client.statusPatches[0]["status"]["output"].str.should.equal("done");
+	client.statusPatches[0]["status"]["output"].str.should.equal("the wrapped event log");
+	client.statusPatches[0]["status"]["exitCode"].integer.should.equal(0);
 	client.deletedAgents.should.equal(["old-success"]);
+}
+
+unittest
+{
+	// Running + Job failed -> Failed status carries the pod's real exit code + log.
+	auto client = new FakeKubeClient;
+	client.outcome = JobOutcome(JobState.failed, 0, "BackoffLimitExceeded", "");
+	client.podNameValue = "agent-job-run-6-xyz";
+	client.podResultValue = PodResult(42, "boom in the log");
+	client.station.metadata.name = "stn";
+
+	Agent agent;
+	agent.metadata.name = "run-6";
+	agent.spec.stationRef = "stn";
+	agent.status.phase = Phase.running;
+	agent.status.jobName = "agent-job-run-6";
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z");
+
+	client.statusPatches[0]["status"]["phase"].str.should.equal("Failed");
+	client.statusPatches[0]["status"]["exitCode"].integer.should.equal(42);
+	client.statusPatches[0]["status"]["output"].str.should.equal("boom in the log");
+	client.statusPatches[0]["status"]["failureReason"].str.should.equal("BackoffLimitExceeded");
 }
 
 unittest

@@ -9,11 +9,16 @@ import vibe.core.core : disableDefaultSignalHandlers, runTask, sleep;
 import vibe.core.process : pipeProcess, Redirect, ProcessPipes;
 import vibe.stream.operations : readLine;
 
+import std.process : environment;
+
+import agentcore.agentselect : agentForModel;
+import agentcore.env : envModel, envSelect;
 import agentcore.event : sourceFromEnv;
 import agentcore.exec : findExecutable;
 import agentcore.lifecycle : LifecycleEvent, Phase, Status, toJson;
 import agentcore.log : logError;
 import agentcore.output : sinksFromEnv;
+import agentcore.selectmatcher : parseSelectors, selected;
 import sink : emit;
 
 /// PID of the spawned agent, shared with the signal handler.
@@ -46,6 +51,8 @@ int supervise(string[] agentArgv)
 {
 	const sinks = sinksFromEnv();
 	const source = sourceFromEnv();
+	const selectors = parseSelectors(environment.get(envSelect, ""));
+	const provider = agentForModel(environment.get(envModel, "")).name;
 
 	if (findExecutable(agentArgv[0]).length == 0)
 	{
@@ -78,7 +85,8 @@ int supervise(string[] agentArgv)
 				auto raw = pipes.stdout.readLine(size_t.max, "\n");
 				if (raw.length == 0)
 					continue;
-				emit(sinks, source, cast(string) raw.idup);
+				const payload = cast(string) raw.idup;
+				emit(sinks, source, payload, selected(selectors, provider, payload));
 			}
 		}
 		catch (Exception)

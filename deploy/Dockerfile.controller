@@ -1,0 +1,34 @@
+# syntax=docker/dockerfile:1
+#
+# The controller image (ghcr.io/re-cinq/ai-agent-controller). Multi-stage: build
+# the controller with the official ldc (static druntime, like the agent image),
+# then a minimal glibc runtime with libssl3 (vibe-d links it dynamically). Runs
+# non-root, matching deploy/controller.yaml's securityContext.
+#
+ARG BUILDER_IMAGE=debian:bookworm
+ARG RUNTIME_IMAGE=debian:bookworm-slim
+ARG LDC_VERSION=1.40.0
+
+FROM ${BUILDER_IMAGE} AS builder
+ARG LDC_VERSION
+RUN set -eu; \
+	export DEBIAN_FRONTEND=noninteractive; \
+	apt-get update; \
+	apt-get install -y --no-install-recommends \
+		curl xz-utils gcc libc6-dev zlib1g-dev libssl-dev libxml2 git ca-certificates; \
+	rm -rf /var/lib/apt/lists/*
+RUN curl -fsS https://dlang.org/install.sh | bash -s "ldc-${LDC_VERSION}" -p /opt/dlang
+ENV PATH="/opt/dlang/ldc-${LDC_VERSION}/bin:${PATH}"
+WORKDIR /src
+COPY . .
+RUN DFLAGS="-link-defaultlib-shared=false -L-lz" dub build :controller --compiler=ldc2
+
+FROM ${RUNTIME_IMAGE} AS runtime
+RUN set -eu; \
+	export DEBIAN_FRONTEND=noninteractive; \
+	apt-get update; \
+	apt-get install -y --no-install-recommends ca-certificates libssl3; \
+	rm -rf /var/lib/apt/lists/*
+COPY --from=builder /src/packages/controller/ai-agent-controller /usr/local/bin/ai-agent-controller
+USER 1000
+ENTRYPOINT ["/usr/local/bin/ai-agent-controller"]

@@ -11,6 +11,7 @@ public import agentcore.jsonbody;
 public import agentcore.jobspec;
 public import agentcore.kubeclient;
 public import agentcore.reconcile_driver;
+public import agentcore.selectmatcher;
 public import agentcore.env;
 public import agentcore.agent;
 public import agentcore.claude_agent;
