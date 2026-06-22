@@ -1,0 +1,7 @@
+{
+	"name": "itest",
+	"description": "Integration tests: run the real supervisor against the mock agent.",
+	"license": "AGPL-3.0",
+	"targetType": "executable",
+	"targetName": "ai-agent-itest"
+}

@@ -14,14 +14,17 @@ ai-agent-subsystem/
 │   │   └── source/agentcore/      # types, schema (UDAs), crds, prompt, reconcile, jobs, env
 │   ├── controller/                # binary: the operator
 │   ├── supervisor/                # binary: the in-pod supervisor
-│   └── crdgen/                    # dev/CI tool: generates deploy/crds from the structs
+│   ├── crdgen/                    # dev/CI tool: generates deploy/crds from the structs
+│   ├── mockagent/                 # test-only: configurable mock agent (ai-agent-mock)
+│   └── itest/                     # test-only: supervisor integration suite (ai-agent-itest)
 ├── deploy/                        # CRDs (generated), RBAC, NetworkPolicy, controller manifest
-├── scripts/                       # check-crd-drift.sh
+├── scripts/                       # check-crd-drift.sh, itest-supervisor.sh
 └── website/                       # this documentation site (Astro Starlight)
 ```
 
-Unit tests live inline in the `agentcore` modules as D `unittest` blocks; run them with
-`dub test :agentcore`.
+Unit tests live inline in the `agentcore` modules as D `unittest` blocks (`dub test :agentcore`); the
+supervisor's end-to-end behaviour is covered by an integration suite
+(`./scripts/itest-supervisor.sh`) that runs the real binary against the `mockagent`.
 
 ## Mapping to the concepts
 

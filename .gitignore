@@ -11,6 +11,8 @@
 ai-agent-controller
 ai-agent-supervisor
 ai-agent-crdgen
+ai-agent-mock
+ai-agent-itest
 __test__*__
 *-test-*
 dub.selections.json.bak

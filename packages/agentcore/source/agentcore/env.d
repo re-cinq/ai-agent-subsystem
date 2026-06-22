@@ -7,6 +7,7 @@ module agentcore.env;
 enum envPrompt = "LORE_PROMPT";
 enum envModel = "LORE_MODEL";
 enum envNotifyUrl = "LORE_NOTIFY_URL";
+enum envSinks = "AGENT_SINKS";
 enum envParameters = "LORE_PARAMETERS";
 enum envTargetRepo = "TARGET_REPO";
 enum envBranch = "BRANCH_NAME";

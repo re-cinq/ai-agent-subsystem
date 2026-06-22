@@ -5,7 +5,7 @@ import std.algorithm.searching : countUntil;
 import vibe.core.core : runEventLoop, runTask, exitEventLoop;
 
 import agentcore.log : logError;
-import supervise : supervise;
+import supervise : supervise, installSignalForwarding;
 
 private __gshared int g_exitCode = 1;
 
@@ -20,6 +20,8 @@ int main(string[] args)
 	}
 
 	auto agentArgv = args[sep + 1 .. $].dup;
+
+	installSignalForwarding();
 
 	runTask(() nothrow {
 		try

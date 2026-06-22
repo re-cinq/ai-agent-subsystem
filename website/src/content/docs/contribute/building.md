@@ -80,3 +80,11 @@ attribute metadata) is unit-tested with D's built-in `unittest` blocks:
 ```sh
 dub test :agentcore
 ```
+
+The supervisor's end-to-end behaviour — streaming, file/http sinks, signal forwarding, exit-code
+passthrough, and robustness against an agent that leaves a child holding stdout — is covered by an
+integration suite that runs the real binary against a configurable **mock agent** (`ai-agent-mock`):
+
+```sh
+./scripts/itest-supervisor.sh
+```

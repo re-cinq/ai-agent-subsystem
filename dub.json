@@ -8,6 +8,8 @@
 		"./packages/agentcore/",
 		"./packages/controller/",
 		"./packages/supervisor/",
-		"./packages/crdgen/"
+		"./packages/crdgen/",
+		"./packages/mockagent/",
+		"./packages/itest/"
 	]
 }

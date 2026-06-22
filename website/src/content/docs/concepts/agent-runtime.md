@@ -34,7 +34,8 @@ The Job builder sets the container's **command** to the supervisor followed by t
 by the agent adapter from the recipe (see [Pluggable agents](#pluggable-agents)) — and injects a few
 environment variables:
 
-- `LORE_NOTIFY_URL` — set when the recipe declares an `http` output sink.
+- `AGENT_SINKS` — the recipe's `output.sinks` as JSON (`http` + `file` destinations).
+- `LORE_NOTIFY_URL` — shorthand for a single `http` sink.
 - `LORE_PARAMETERS` — the run parameters as JSON, when present.
 - `TARGET_REPO` / `BRANCH_NAME` — set when the Agent provides them.
 - `PATH` / `HOME` — pointed at the injected bundle and home directory.
@@ -48,11 +49,13 @@ The supervisor is the Pod's entrypoint (PID 1). It:
 
 - Spawns the agent argv it was handed (built by the controller from the recipe).
 - Reads the agent's stdout line by line, echoes each line to its own stdout (captured in the pod
-  logs, and therefore in `status.output`), and POSTs each line to the http sink when one is set.
-- Exits with the agent's exit code. (Forwarding `SIGTERM` to the agent for graceful shutdown on pod
-  termination is a pending item.)
+  logs, and therefore in `status.output`), and **fans it out to every configured sink** — `http`
+  (POST) and `file` (append).
+- Forwards `SIGTERM`/`SIGINT` to the agent for graceful shutdown, and ignores `SIGPIPE` so a broken
+  sink can't kill it.
+- Exits with the agent's exit code.
 
-It runs on vibe's event loop, and posts to the http sink with vibe's HTTP client.
+It runs on vibe's event loop and uses vibe's HTTP client for http sinks.
 
 ## Pluggable agents
 
@@ -72,8 +75,9 @@ one new `Agent` implementation plus a `model` match — nothing else changes.
 
 ## Output and credentials
 
-- **Output** is captured two ways: always to stdout (pod logs → `status.output`), and optionally to
-  an `http` sink for streaming consumers.
+- **Output** always goes to stdout (pod logs → `status.output`), and to every sink the recipe
+  declares: `http` (POST per line) and `file` (append per line). `output.select` event-filtering is
+  not yet applied — it needs per-provider event normalization, planned alongside the adapters.
 - **Credentials** are the agent's own concern: the controller injects the provider's API key
   (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …) as an environment variable from a Kubernetes Secret
   (`AgentDefinition.spec.resources.secrets`). The supervisor stages nothing.
