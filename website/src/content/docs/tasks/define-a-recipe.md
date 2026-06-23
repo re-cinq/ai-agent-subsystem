@@ -7,7 +7,7 @@ An [AgentDefinition](/concepts/agentdefinition/) describes a task once so many
 runs can reuse it. Here is a minimal bug-fixer recipe.
 
 ```yaml
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1
 kind: AgentDefinition
 metadata:
   name: bug-fixer

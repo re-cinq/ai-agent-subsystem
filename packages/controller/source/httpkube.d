@@ -24,7 +24,7 @@ import agentcore.reconcile.reconcile : JobOutcome;
 import incluster : ClusterConfig;
 
 enum crGroup = "agents.re-cinq.com";
-enum crVersion = "v1alpha1";
+enum crVersion = "v1";
 
 /// Last lines requested from a pod's log: a coarse cap on what crosses the wire.
 /// The byte-accurate tail kept in status.output is enforced by `capOutput`.
@@ -425,9 +425,9 @@ unittest
 	// connection.
 	auto client = new HttpKubeClient(ClusterConfig("https://api:443", "tok", "/ca", "ai-agents"));
 	client.crUrl("ai-agents", "agents", "run-1").should.equal(
-		"https://api:443/apis/agents.re-cinq.com/v1alpha1/namespaces/ai-agents/agents/run-1");
+		"https://api:443/apis/agents.re-cinq.com/v1/namespaces/ai-agents/agents/run-1");
 	client.crCollectionUrl("ai-agents", "stations").should.equal(
-		"https://api:443/apis/agents.re-cinq.com/v1alpha1/namespaces/ai-agents/stations");
+		"https://api:443/apis/agents.re-cinq.com/v1/namespaces/ai-agents/stations");
 	client.jobUrl("ai-agents", "agent-job-run-1").should.equal(
 		"https://api:443/apis/batch/v1/namespaces/ai-agents/jobs/agent-job-run-1");
 	client.podLogUrl("ai-agents", "p1").should.equal(

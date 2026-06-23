@@ -11,7 +11,7 @@ A recipe that fixes a referenced ticket, with tool permissions scoped to reading
 running tests.
 
 ```yaml
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1
 kind: AgentDefinition
 metadata:
   name: bug-fixer
@@ -28,7 +28,7 @@ spec:
     sinks:
       - type: stdout
 ---
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1
 kind: Station
 metadata:
   name: node-fixer
@@ -47,7 +47,7 @@ Launch a run:
 
 ```sh
 kubectl create -f - <<'EOF'
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1
 kind: Agent
 metadata:
   generateName: bug-fixer-run-
@@ -65,7 +65,7 @@ EOF
 No tools, no repo: just prompt in, text out, streamed to an http sink.
 
 ```yaml
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1
 kind: AgentDefinition
 metadata:
   name: story-writer
@@ -81,7 +81,7 @@ spec:
       - type: http
         url: http://collector.ai-agents.svc:8099/notify
 ---
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1
 kind: Station
 metadata:
   name: writer
@@ -98,7 +98,7 @@ spec:
 
 ```sh
 kubectl create -f - <<'EOF'
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1
 kind: Agent
 metadata:
   generateName: story-run-

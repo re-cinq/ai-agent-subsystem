@@ -16,7 +16,7 @@ import agentcore.core.env;
 import agentcore.kube.jobs : jobNameFor;
 import agentcore.agents.prompt : renderPrompt;
 
-enum crApiVersion = "agents.re-cinq.com/v1alpha1";
+enum crApiVersion = "agents.re-cinq.com/v1";
 enum agentContainerName = "agent";
 enum initContainerName = "init";
 enum bundleVolume = "lore";
