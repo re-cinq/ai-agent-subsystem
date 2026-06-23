@@ -89,9 +89,17 @@ git tag v0.1.0 && git push origin v0.1.0
 ```
 
 The [`Publish images`](.github/workflows/images.yml) workflow builds, pushes, and cosign-signs the
-controller and agent images for the tag, then opens a PR that pins `deploy/` to the exact signed
-digests (sourced from the build, not a mutable tag). Merge it and `kubectl apply -k deploy` installs
-a reproducible, tamper-evident image set. The local equivalent is `scripts/pin-image-digests.sh`.
+controller and agent images for the tag (each with an SPDX SBOM and SLSA provenance attestation). It
+then renders `deploy/` to a single digest-pinned `install.yaml` and attaches it to the GitHub
+Release — the artifact end users install with one command:
+
+```sh
+kubectl apply -f https://github.com/re-cinq/ai-agent-subsystem/releases/latest/download/install.yaml
+```
+
+Finally it opens a PR that pins `deploy/` and the install page's cosign-verify example to the exact
+signed digests (sourced from the build, not a mutable tag), so `main` and `kubectl apply -k deploy`
+never ship a floating `:latest`. The local equivalent is `scripts/pin-image-digests.sh`.
 
 ## License
 

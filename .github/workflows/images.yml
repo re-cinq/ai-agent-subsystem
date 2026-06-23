@@ -9,9 +9,11 @@ name: Publish images
 # OIDC token — no stored keys) and carries an SPDX SBOM + SLSA provenance
 # attestation. The immutable digest is written to the run summary.
 #
-# Release pinning: on a v* tag the `pin` job takes the digests this build emitted
-# and opens a PR that points deploy/ at them (scripts/pin-image-digests.sh), so a
-# release never ships a floating :latest. See README "Releases".
+# Releases: on a v* tag the `release` job renders deploy/ to a single digest-pinned
+# install.yaml and attaches it to the GitHub Release — the published `kubectl apply
+# -f` artifact. The `pin` job then opens a PR that points deploy/ AND the docs
+# cosign-verify example at the same digests (scripts/pin-image-digests.sh), so main
+# never ships a floating :latest. See README "Releases".
 
 on:
   push:
@@ -87,14 +89,48 @@ jobs:
           path: ${{ matrix.key }}.digest
           retention-days: 1
 
+  # On a v* tag, render the tagged deploy/ to one flat, digest-pinned install.yaml
+  # and attach it to the GitHub Release. This is the artifact `kubectl apply -f
+  # .../releases/.../install.yaml` fetches. The digests come from the build outputs
+  # above (no registry read). The pin script also rewrites the docs cosign example
+  # here, but only deploy/ feeds `kubectl kustomize` and this checkout is discarded.
+  release:
+    name: Render and attach install.yaml
+    needs: publish
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release and upload the asset
+    steps:
+      - uses: actions/checkout@v6 # the tagged commit, so install.yaml matches the release
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digest-*
+          path: digests
+          merge-multiple: true
+      - uses: azure/setup-kubectl@v4 # provides `kubectl kustomize`
+      - name: Render the digest-pinned install.yaml
+        run: |
+          export CONTROLLER_DIGEST="$(cat digests/controller.digest)"
+          export AGENT_DIGEST="$(cat digests/agent.digest)"
+          ./scripts/pin-image-digests.sh "${{ github.ref_name }}"
+          kubectl kustomize deploy > install.yaml
+      - name: Create or update the release and upload install.yaml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" install.yaml --generate-notes \
+            || gh release upload "$TAG" install.yaml --clobber
+
   # On a v* tag, point deploy/ at the exact signed digests this run built and open
   # a PR. The digests come from the build outputs above, so no registry read is
   # needed. Requires the repo setting "Allow GitHub Actions to create and approve
   # pull requests" (Settings -> Actions -> General). The PR is opened with the
-  # default token, so it deliberately carries a digest-only change for a human to
-  # review and merge.
+  # default token, so it deliberately carries a digest-only change (deploy/ + the
+  # docs cosign example) for a human to review and merge.
   pin:
-    name: Pin deploy/ to released digests
+    name: Pin deploy/ and docs to released digests
     needs: publish
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
@@ -110,24 +146,25 @@ jobs:
           pattern: digest-*
           path: digests
           merge-multiple: true
-      - name: Pin deploy/ and open a PR
+      - name: Pin deploy/ + docs and open a PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
+          DOCS: website/src/content/docs/setup/install.md
         run: |
           export CONTROLLER_DIGEST="$(cat digests/controller.digest)"
           export AGENT_DIGEST="$(cat digests/agent.digest)"
           ./scripts/pin-image-digests.sh "$TAG"
-          if git diff --quiet -- deploy/; then
-            echo "deploy/ already pinned to ${TAG}; nothing to do"
+          if git diff --quiet -- deploy/ "$DOCS"; then
+            echo "deploy/ and docs already pinned to ${TAG}; nothing to do"
             exit 0
           fi
           branch="chore/pin-deploy-${TAG}"
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$branch"
-          git commit -am "chore(deploy): pin deploy/ to ${TAG} image digests"
+          git commit -am "chore(release): pin deploy/ and docs to ${TAG} image digests"
           git push -u origin "$branch" --force-with-lease
           gh pr create --base main --head "$branch" \
-            --title "chore(deploy): pin deploy/ to ${TAG} image digests" \
-            --body "Automated by the release pin job. deploy/ now references the cosign-signed digests built for \`${TAG}\` instead of a mutable tag, closing the floating-\`:latest\` gap for this release."
+            --title "chore(release): pin deploy/ and docs to ${TAG} image digests" \
+            --body "Automated by the release pin job. deploy/ and the install-page cosign-verify example now reference the cosign-signed digests built for \`${TAG}\` instead of a mutable tag, closing the floating-\`:latest\` gap for this release."
