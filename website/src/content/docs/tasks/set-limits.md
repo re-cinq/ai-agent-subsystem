@@ -22,6 +22,7 @@ spec:
   agentDefRef: bug-fixer
   deadlineMinutes: 15            # per-run wall-clock -> Job activeDeadlineSeconds
   maxConcurrentRuns: 3           # at most 3 runs of THIS Station at once (0 = unlimited)
+  concurrencyPolicy: Allow       # at the limit: Allow (queue) | Forbid (cap at one) | Replace (cancel oldest)
   successfulRunsHistoryLimit: 3  # finished Agents kept before pruning (retention, not concurrency)
   failedRunsHistoryLimit: 3
   template:
@@ -44,15 +45,21 @@ spec:
 | `resources` (on the `agent` container) | CPU/memory requests + limits for the run. **The controller does not default these**: only the init container is defaulted, so set them here or use a `LimitRange` (below). |
 | `deadlineMinutes` | Wall-clock limit per run; becomes the Job's `activeDeadlineSeconds`. |
 | `maxConcurrentRuns` | How many Agents of this Station may be `Running` at once. `0` (default) is unlimited. A new `Agent` created while the Station is at the limit stays `Pending` and starts automatically once a run finishes. |
+| `concurrencyPolicy` | What happens to a new run while at the limit: `Allow` (default) queues it, `Forbid` caps the Station at a single run, `Replace` cancels the oldest `Running` run and starts the new one ("always run the latest"). |
 | `successfulRunsHistoryLimit` / `failedRunsHistoryLimit` | How many **finished** Agents are kept per phase before the oldest are pruned. Retention only, unrelated to concurrency. |
 
 ## How concurrency works
 
 The controller counts the Station's Agents currently in `Running`. While that count is
-at `maxConcurrentRuns`, any `Pending` Agent for the Station **waits** (it is not failed
-or dropped) and is admitted on the next reconcile once a run completes. So you can queue
-work freely: create as many Agents as you like, and the Station drains them
-`maxConcurrentRuns` at a time. `maxConcurrentRuns: 1` gives strict serial execution.
+at the effective limit, what a new `Pending` Agent does depends on `concurrencyPolicy`:
+
+- **`Allow`** (default) — the Agent **waits** (it is not failed or dropped) and is admitted
+  on the next reconcile once a run completes, up to `maxConcurrentRuns` at a time. So you can
+  queue work freely. `maxConcurrentRuns: 1` gives strict serial execution.
+- **`Forbid`** — the Station is capped at a single run regardless of `maxConcurrentRuns`;
+  extra Agents wait, same as `Allow` with the limit at one.
+- **`Replace`** — the controller cancels the **oldest** `Running` run (deleting its Agent,
+  which cascades to its Job) and starts the new one. Use this for "always run the latest".
 
 ## Namespace ceiling: bound the whole namespace
 

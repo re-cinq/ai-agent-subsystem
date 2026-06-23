@@ -2,6 +2,7 @@ module agentcore.crds.station_spec;
 
 import std.json : JSONValue;
 
+import agentcore.crds.enums : ConcurrencyPolicy;
 import agentcore.crds.schema;
 
 @Description("The runtime template that pairs a recipe with a Pod template.")
@@ -19,6 +20,9 @@ struct StationSpec
 	@Minimum(0) @Description("Max Agents of this Station running at once; 0 is unlimited. A Pending Agent waits while at the limit.")
 	int maxConcurrentRuns = 0;
 
+	@Description("At the limit: Allow queues (default), Forbid caps at one, Replace cancels the oldest run for the new one.")
+	ConcurrencyPolicy concurrencyPolicy = ConcurrencyPolicy.allow;
+
 	@Required @Json("template") @PreserveUnknownFields
 	@Description("Standard Kubernetes PodTemplateSpec; the container named \"agent\" is wired with the recipe.")
 	JSONValue template_;
@@ -32,6 +36,7 @@ version (unittest) import fluent.asserts;
 	s.deadlineMinutes.should.equal(30);
 	s.successfulRunsHistoryLimit.should.equal(3);
 	s.maxConcurrentRuns.should.equal(0); // unlimited by default
+	s.concurrencyPolicy.should.equal(ConcurrencyPolicy.allow); // queue by default
 	static assert(jsonNameOf!(StationSpec.template_) == "template");
 	static assert(jsonNameOf!(StationSpec.agentDefRef) == "agentDefRef");
 	static assert(isRequired!(StationSpec.agentDefRef));

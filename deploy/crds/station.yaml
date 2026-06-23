@@ -58,6 +58,13 @@ spec:
                   type: integer
                   minimum: 0
                   description: "Max Agents of this Station running at once; 0 is unlimited. A Pending Agent waits while at the limit."
+                concurrencyPolicy:
+                  type: string
+                  description: "At the limit: Allow queues (default), Forbid caps at one, Replace cancels the oldest run for the new one."
+                  enum:
+                    - Allow
+                    - Forbid
+                    - Replace
                 template:
                   type: object
                   description: "Standard Kubernetes PodTemplateSpec; the container named \"agent\" is wired with the recipe."

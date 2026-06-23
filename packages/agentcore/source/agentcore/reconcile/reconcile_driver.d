@@ -3,7 +3,7 @@ module agentcore.reconcile.reconcile_driver;
 import agentcore.crds.agent : Agent;
 import agentcore.crds.agent_definition : AgentDefinition;
 import agentcore.crds.station : Station;
-import agentcore.reconcile.concurrency : stationAtCapacity;
+import agentcore.reconcile.concurrency : effectiveMaxRuns, oldestRunningRun, stationAtCapacity;
 import agentcore.kube.jobs : jobNameFor;
 import agentcore.kube.jobspec : buildJob;
 import agentcore.kube.jsonbody : statusPatch;
@@ -49,7 +49,7 @@ void reconcileAgent(KubeClient client, string ns, Agent agent, string agentImage
 		refsResolved = resolveRefs(client, ns, agent, station, definition);
 		if (refsResolved)
 			atCapacity = stationAtCapacity(cached, agent.spec.stationRef,
-				station.spec.maxConcurrentRuns);
+				effectiveMaxRuns(station.spec.concurrencyPolicy, station.spec.maxConcurrentRuns));
 	}
 
 	JobOutcome outcome;
@@ -60,13 +60,20 @@ void reconcileAgent(KubeClient client, string ns, Agent agent, string agentImage
 		hasOutcome = true;
 	}
 
-	const decision = decide(phase, refsResolved, hasOutcome, outcome, atCapacity);
+	const decision = decide(phase, refsResolved, hasOutcome, outcome, atCapacity,
+		station.spec.concurrencyPolicy);
 
 	final switch (decision.kind)
 	{
 	case ActionKind.none:
 		return;
 	case ActionKind.startRun:
+		client.createJob(ns, buildJob(agent, station, definition, agentImage));
+		client.patchAgentStatus(ns, agent.metadata.name,
+			statusPatch(decision, jobNameFor(agent.metadata.name), now));
+		return;
+	case ActionKind.replaceRun:
+		client.deleteAgent(ns, oldestRunningRun(cached, agent.spec.stationRef));
 		client.createJob(ns, buildJob(agent, station, definition, agentImage));
 		client.patchAgentStatus(ns, agent.metadata.name,
 			statusPatch(decision, jobNameFor(agent.metadata.name), now));
@@ -149,6 +156,7 @@ version (unittest)
 {
 	import fluent.asserts;
 	import std.json : JSONValue, parseJSON;
+	import agentcore.crds.enums : ConcurrencyPolicy;
 	import agentcore.reconcile.reconcile : JobState;
 
 	private final class FakeKubeClient : KubeClient
@@ -275,6 +283,32 @@ unittest
 
 	client.createdJobs.length.should.equal(0);
 	client.statusPatches.length.should.equal(0);
+}
+
+unittest
+{
+	// Pending + Station at capacity with concurrencyPolicy Replace -> preempt the
+	// oldest Running run (delete it, cascading to its Job) and start the new one.
+	auto client = new FakeKubeClient;
+	client.station.metadata.name = "stn";
+	client.station.spec.agentDefRef = "def";
+	client.station.spec.concurrencyPolicy = ConcurrencyPolicy.replace;
+	client.station.spec.template_ = parseJSON(`{"spec":{"containers":[{"name":"agent"}]}}`);
+
+	Agent running; // the in-flight run Replace should cancel
+	running.metadata.name = "run-old";
+	running.spec.stationRef = "stn";
+	running.status.phase = Phase.running;
+	running.status.startedAt = "2026-06-22T10:00:00Z";
+
+	reconcileAgent(client, "ai-agents", pendingAgent("run-new", "stn"), "img",
+		"2026-06-22T12:00:00Z", [running]);
+
+	client.deletedAgents.should.equal(["run-old"]);
+	client.createdJobs.length.should.equal(1);
+	client.patchedNames.should.equal(["run-new"]);
+	client.statusPatches[0]["status"]["phase"].str.should.equal("Running");
+	client.statusPatches[0]["status"]["jobName"].str.should.equal("agent-job-run-new");
 }
 
 unittest

@@ -1,6 +1,7 @@
 module agentcore.reconcile.reconcile;
 
 import agentcore.core.types : Phase;
+import agentcore.crds.enums : ConcurrencyPolicy;
 
 /// Observed state of the Job backing a running Agent.
 enum JobState
@@ -23,6 +24,7 @@ enum ActionKind
 {
 	none, /// nothing to do (still running, or already terminal)
 	startRun, /// create the Job and move to Running
+	replaceRun, /// preempt the Station's oldest run (Replace policy), then start this one
 	failMissingRef, /// a referenced Station/AgentDefinition is missing
 	complete, /// move to a terminal phase from the Job outcome
 }
@@ -40,11 +42,12 @@ struct Decision
  * The pure reconcile state machine. All I/O — resolving refs, creating Jobs,
  * patching status, pruning history, counting the Station's active runs — is
  * performed by the caller based on the returned Decision. `atCapacity` is true
- * when the Station is already at its `maxConcurrentRuns`, in which case a Pending
- * Agent waits rather than starting.
+ * when the Station is already at its effective concurrent-run limit; what a Pending
+ * Agent does then depends on `policy`: Allow/Forbid wait, Replace preempts the
+ * Station's oldest run and starts (`ActionKind.replaceRun`).
  */
 Decision decide(Phase current, bool refsResolved, bool hasOutcome, JobOutcome outcome,
-	bool atCapacity = false) @safe pure
+	bool atCapacity = false, ConcurrencyPolicy policy = ConcurrencyPolicy.allow) @safe pure
 {
 	final switch (current)
 	{
@@ -53,7 +56,9 @@ Decision decide(Phase current, bool refsResolved, bool hasOutcome, JobOutcome ou
 			return Decision(ActionKind.failMissingRef, Phase.failed, 0,
 				"Station or AgentDefinition not found");
 		if (atCapacity)
-			return Decision(ActionKind.none, Phase.pending);
+			return policy == ConcurrencyPolicy.replace
+				? Decision(ActionKind.replaceRun, Phase.running)
+				: Decision(ActionKind.none, Phase.pending);
 		return Decision(ActionKind.startRun, Phase.running);
 	case Phase.running:
 		if (!hasOutcome || outcome.state == JobState.running)
@@ -89,6 +94,25 @@ version (unittest) import fluent.asserts;
 	const waiting = decide(Phase.pending, true, false, no, true);
 	waiting.kind.should.equal(ActionKind.none);
 	waiting.phase.should.equal(Phase.pending);
+}
+
+@safe unittest
+{
+	JobOutcome no;
+	// At capacity: Allow and Forbid both wait (stay Pending)...
+	decide(Phase.pending, true, false, no, true, ConcurrencyPolicy.allow)
+		.kind.should.equal(ActionKind.none);
+	decide(Phase.pending, true, false, no, true, ConcurrencyPolicy.forbid)
+		.kind.should.equal(ActionKind.none);
+
+	// ...while Replace preempts the oldest run and starts (-> Running).
+	const replacing = decide(Phase.pending, true, false, no, true, ConcurrencyPolicy.replace);
+	replacing.kind.should.equal(ActionKind.replaceRun);
+	replacing.phase.should.equal(Phase.running);
+
+	// Replace with room (not at capacity) just starts normally.
+	decide(Phase.pending, true, false, no, false, ConcurrencyPolicy.replace)
+		.kind.should.equal(ActionKind.startRun);
 }
 
 @safe unittest
