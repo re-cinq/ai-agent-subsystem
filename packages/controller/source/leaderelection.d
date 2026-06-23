@@ -9,7 +9,7 @@ import std.json : JSONValue;
 import vibe.core.core : sleep;
 import vibe.core.log : logError, logInfo;
 
-import httpkube : HttpKubeClient, LeaseRecord;
+import httpkube : LeaseClient, LeaseRecord;
 
 /// Fixed Lease the controller's replicas contend for. Whoever holds it reconciles;
 /// every standby stays idle. One Lease per controller Deployment.
@@ -126,13 +126,13 @@ private JSONValue leaseSpec(string identity, long durationSeconds, string timest
 /// observation, decide, and act, flipping `leadership.isLeader` to match. Any
 /// error (including a lost renewal race) steps us down so a stale leader stops
 /// reconciling. Runs as a vibe task; never returns.
-void runLeaderElection(HttpKubeClient client, string ns, string identity, Leadership leadership) nothrow
+void runLeaderElection(LeaseClient client, string ns, string identity, Leadership leadership) nothrow
 {
 	Observation observation;
 	for (;;)
 	{
 		try
-			observation = electionTick(client, ns, identity, leadership, observation);
+			observation = electionTick(client, ns, identity, leadership, observation, nowUnix(), rfc3339Micro());
 		catch (Exception error)
 		{
 			logError("election: %s", error.msg);
@@ -142,21 +142,24 @@ void runLeaderElection(HttpKubeClient client, string ns, string identity, Leader
 	}
 }
 
-private Observation electionTick(HttpKubeClient client, string ns, string identity,
-	Leadership leadership, Observation observation)
+/// One election tick with the clock injected (`now` in unix seconds, `timestamp`
+/// the RFC3339 micro string written into the Lease): fetch, fold into the
+/// observation, decide, act, and set leadership to whether we hold the Lease
+/// afterwards. Returns the advanced observation to thread into the next tick.
+Observation electionTick(LeaseClient client, string ns, string identity, Leadership leadership,
+	Observation observation, long now, string timestamp)
 {
-	const now = nowUnix();
 	const record = client.getLease(ns, leaseName);
 	observation = observe(observation, record.exists, record.holder, record.renewTime, now);
 	const decision = electionDecide(observation, identity, now, leaseDurationSeconds);
-	const won = decision.leader && act(client, ns, identity, decision, record);
+	const won = decision.leader && act(client, ns, identity, decision, record, timestamp);
 	setLeader(leadership, identity, won);
 	return observation;
 }
 
-private bool act(HttpKubeClient client, string ns, string identity, LeaseDecision decision, LeaseRecord record)
+private bool act(LeaseClient client, string ns, string identity, LeaseDecision decision,
+	LeaseRecord record, string timestamp)
 {
-	const timestamp = rfc3339Micro();
 	final switch (decision.action)
 	{
 	case LeaseAction.create:
@@ -261,4 +264,124 @@ unittest
 	auto renewed = renewLeaseBody("42", "2026-06-23T00:00:01.000000Z");
 	renewed["metadata"]["resourceVersion"].str.should.equal("42");
 	renewed["spec"]["renewTime"].str.should.equal("2026-06-23T00:00:01.000000Z");
+}
+
+version (unittest)
+{
+	import std.conv : to;
+
+	/// In-memory Lease store standing in for the API server: a successful write
+	/// mutates the stored record the way the apiserver would (merge semantics, a
+	/// bumped resourceVersion), and the `*Ok` flags simulate a lost
+	/// optimistic-concurrency race (a 409).
+	final class FakeLeaseClient : LeaseClient
+	{
+		LeaseRecord record;
+		bool createOk = true;
+		bool patchOk = true;
+		string[] writes;
+		private int generation;
+
+		override LeaseRecord getLease(string ns, string name)
+		{
+			return record;
+		}
+
+		override bool createLease(string ns, JSONValue body)
+		{
+			writes ~= "create";
+			if (!createOk)
+				return false;
+			apply(body);
+			return true;
+		}
+
+		override bool patchLease(string ns, string name, JSONValue body)
+		{
+			writes ~= "patch";
+			if (!patchOk)
+				return false;
+			apply(body);
+			return true;
+		}
+
+		private void apply(JSONValue body)
+		{
+			auto spec = body["spec"];
+			record.exists = true;
+			if (auto holder = "holderIdentity" in spec.object)
+				record.holder = holder.str;
+			if (auto renew = "renewTime" in spec.object)
+				record.renewTime = renew.str;
+			if (auto transitions = "leaseTransitions" in spec.object)
+				record.transitions = cast(int) transitions.integer;
+			record.resourceVersion = (++generation).to!string;
+		}
+	}
+}
+
+unittest
+{
+	// Bootstrap: no Lease yet -> we create it and lead. Next tick: we hold it, so
+	// we renew and stay leader.
+	auto client = new FakeLeaseClient;
+	auto leadership = new Leadership;
+
+	auto obs = electionTick(client, "ns", "me", leadership, Observation.init, 100, "ts-1");
+	leadership.isLeader.should.equal(true);
+	client.writes.should.equal(["create"]);
+	client.record.holder.should.equal("me");
+
+	cast(void) electionTick(client, "ns", "me", leadership, obs, 105, "ts-2");
+	leadership.isLeader.should.equal(true);
+	client.writes.should.equal(["create", "patch"]);
+	client.record.renewTime.should.equal("ts-2");
+}
+
+unittest
+{
+	// A live peer holds the Lease: within the duration we stand by (no write), then
+	// the peer stops renewing and a full duration later we take it over.
+	auto client = new FakeLeaseClient;
+	client.record = LeaseRecord(true, "peer", "ts-x", "7", 2);
+	auto leadership = new Leadership;
+
+	auto obs = electionTick(client, "ns", "me", leadership, Observation.init, 100, "ts-1");
+	leadership.isLeader.should.equal(false);
+	client.writes.length.should.equal(0);
+
+	cast(void) electionTick(client, "ns", "me", leadership, obs, 115, "ts-2");
+	leadership.isLeader.should.equal(true);
+	client.writes.should.equal(["patch"]);
+	client.record.holder.should.equal("me");
+	client.record.transitions.should.equal(3); // bumped on takeover
+}
+
+unittest
+{
+	// We believe we hold it, but the renew loses the resourceVersion race (409):
+	// step down so a stale leader stops reconciling.
+	auto client = new FakeLeaseClient;
+	client.record = LeaseRecord(true, "me", "ts-x", "3", 0);
+	client.patchOk = false;
+	auto leadership = new Leadership;
+	leadership.isLeader = true;
+
+	cast(void) electionTick(client, "ns", "me", leadership, Observation(true, "me", "ts-x", 90), 100, "ts-1");
+	leadership.isLeader.should.equal(false);
+	client.writes.should.equal(["patch"]);
+}
+
+unittest
+{
+	// Bootstrap race: another replica created the Lease first (409) -> not leader,
+	// store untouched.
+	auto client = new FakeLeaseClient;
+	client.createOk = false;
+	auto leadership = new Leadership;
+
+	cast(void) electionTick(client, "ns", "me", leadership, Observation.init, 100, "ts-1");
+	leadership.isLeader.should.equal(false);
+	client.writes.should.equal(["create"]);
+	client.record.exists.should.equal(false);
 }

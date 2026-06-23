@@ -40,11 +40,28 @@ struct LeaseRecord
 	int transitions;
 }
 
+/// The Lease operations the leader-election loop needs, behind an interface so the
+/// loop is fake-testable — the same seam posture as `KubeClient`. The real vibe-d
+/// implementation is `HttpKubeClient`.
+interface LeaseClient
+{
+	/// Read the election Lease; `exists` is false when none has been created yet.
+	LeaseRecord getLease(string ns, string name);
+
+	/// Create the Lease. True when we created it (201); false when another replica
+	/// created it first (409).
+	bool createLease(string ns, JSONValue body);
+
+	/// Merge-patch the Lease (renew or takeover). True when the write landed (200);
+	/// false when our resourceVersion was stale (409) — another replica wrote first.
+	bool patchLease(string ns, string name, JSONValue body);
+}
+
 /// `KubeClient` over the Kubernetes API server, spoken with vibe's HTTP client:
 /// bearer-token auth, the cluster CA added to the TLS trust store, and
 /// merge-patch for the status subresource. The long-lived watch stream
 /// (`watchAgents`) is controller-only and sits beside the interface.
-final class HttpKubeClient : KubeClient
+final class HttpKubeClient : KubeClient, LeaseClient
 {
 	private ClusterConfig config;
 	private HTTPClientSettings settings;
@@ -138,7 +155,7 @@ final class HttpKubeClient : KubeClient
 	/// Read the leader-election Lease. A 404 means none has been created yet,
 	/// reported as `exists = false` rather than thrown — that is the signal to
 	/// create one.
-	LeaseRecord getLease(string ns, string name)
+	override LeaseRecord getLease(string ns, string name)
 	{
 		JSONValue document;
 		int status;
@@ -158,7 +175,7 @@ final class HttpKubeClient : KubeClient
 
 	/// Create the Lease. Returns true when we created it (201); a 409 means another
 	/// replica created it first, so we did not win leadership.
-	bool createLease(string ns, JSONValue body)
+	override bool createLease(string ns, JSONValue body)
 	{
 		return send(HTTPMethod.POST, leasesUrl(ns), body, "application/json", [201, 409]) == 201;
 	}
@@ -166,7 +183,7 @@ final class HttpKubeClient : KubeClient
 	/// Merge-patch the Lease (renew or takeover). Returns true when the write landed
 	/// (200); a 409 means our resourceVersion was stale — another replica wrote
 	/// first — so we did not hold or take leadership this tick.
-	bool patchLease(string ns, string name, JSONValue body)
+	override bool patchLease(string ns, string name, JSONValue body)
 	{
 		return send(HTTPMethod.PATCH, leaseUrl(ns, name), body, "application/merge-patch+json",
 			[200, 409]) == 200;
