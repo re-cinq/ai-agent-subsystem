@@ -9,6 +9,12 @@ enum envModel = "LORE_MODEL";
 enum envNotifyUrl = "LORE_NOTIFY_URL";
 enum envSinks = "AGENT_SINKS";
 enum envParameters = "LORE_PARAMETERS";
+
+// HTTP sink delivery retry: a transient POST failure is retried with capped
+// exponential backoff before the event is dropped (never fatal to the run).
+enum envSinkRetryAttempts = "AGENT_SINK_RETRY_ATTEMPTS";
+enum envSinkRetryBaseMs = "AGENT_SINK_RETRY_BASE_MS";
+enum envSinkRetryMaxMs = "AGENT_SINK_RETRY_MAX_MS";
 enum envTargetRepo = "TARGET_REPO";
 enum envBranch = "BRANCH_NAME";
 enum envRepos = "AGENT_REPOS";
