@@ -80,6 +80,19 @@ npm run build    # production build
 This phase delivers the documentation and scaffold; the D implementation follows, guided by the
 docs. See the [roadmap](https://glowing-garbanzo-y7ek98q.pages.github.io/contribute/roadmap/).
 
+## Releases
+
+Cut a release by pushing a version tag:
+
+```sh
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+The [`Publish images`](.github/workflows/images.yml) workflow builds, pushes, and cosign-signs the
+controller and agent images for the tag, then opens a PR that pins `deploy/` to the exact signed
+digests (sourced from the build, not a mutable tag). Merge it and `kubectl apply -k deploy` installs
+a reproducible, tamper-evident image set. The local equivalent is `scripts/pin-image-digests.sh`.
+
 ## License
 
 [AGPL-3.0](LICENSE).
