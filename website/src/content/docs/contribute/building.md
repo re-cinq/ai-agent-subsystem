@@ -52,20 +52,11 @@ library).
 
 ## Static linking
 
-The goal is binaries that ship with **no D runtime dependency**. The default build already achieves
-this: the D runtime (druntime + Phobos) is linked statically, and only the system C library remains
+The goal is binaries that ship with **no D runtime dependency** — only the system C library stays
 dynamic, and any glibc-based image (which the [injected runtime](/concepts/agent-runtime/) already
-requires) provides it.
-
-Verify:
-
-```sh
-ldd packages/controller/ai-agent-controller
-# libm.so.6, libgcc_s.so.1, libc.so.6, ld-linux, and no libphobos / libdruntime
-```
-
-This static-D-runtime, dynamic-glibc build is the **portable artifact**: built on an *old* glibc base
-(e.g. `debian:bullseye`, glibc 2.31) with
+requires) provides it. The default `dub` + LDC build links the D runtime (druntime + Phobos)
+*shared*, so the static link is requested explicitly. Built on an *old* glibc base (e.g.
+`debian:bullseye`, glibc 2.31) with
 
 ```sh
 DFLAGS="-link-defaultlib-shared=false -L-lz" dub build :initializer --compiler=ldc2
@@ -73,6 +64,13 @@ DFLAGS="-link-defaultlib-shared=false -L-lz" dub build :initializer --compiler=l
 
 the binary runs unchanged on every glibc-based Kubernetes distro (Debian, Ubuntu, the RHEL family,
 Amazon Linux) because it only needs a baseline glibc (and `libz`/`libgcc_s`, present everywhere).
+Verify the D runtime is statically linked in:
+
+```sh
+ldd packages/controller/ai-agent-controller
+# libm.so.6, libgcc_s.so.1, libc.so.6, ld-linux, and no libphobos / libdruntime
+```
+
 **Alpine** is musl, not glibc, so a glibc binary can't run there; it is built natively on Alpine
 instead. A fully-static musl binary is *not* used: LDC's musl static link drags in `libunwind` →
 `liblzma` and is brittle, so the portable-glibc + native-Alpine split is the CI strategy (see

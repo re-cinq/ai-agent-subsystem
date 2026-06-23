@@ -91,7 +91,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: agent
-          image: node:22-bookworm   # glibc >= 2.36 + Node: the init container installs the Claude CLI
+          image: node:22-bookworm   # glibc-based + Node: the init container installs the Claude CLI
 ---
 apiVersion: agents.re-cinq.com/v1alpha1
 kind: Agent
@@ -99,9 +99,9 @@ metadata: { name: auth-check-run, namespace: ai-agents }
 spec: { stationRef: auth-check-station }
 ```
 
-The Station base must be **glibc ≥ 2.36** (the static-druntime supervisor's floor) with Node
-present; the init container installs the Claude CLI into `/lore/.local/bin` (on the run `PATH`). No
-`~/.claude` mount is added, so the key can only come from the Secret.
+The Station base must be **glibc-based** (so the injected supervisor runs) with Node present; the
+init container installs the Claude CLI into `/lore/.local/bin` (on the run `PATH`). No `~/.claude`
+mount is added, so the key can only come from the Secret.
 
 ```sh
 kubectl -n ai-agents get agent auth-check-run -w         # expect Succeeded
