@@ -29,9 +29,12 @@ enum runOutputUnavailable = "run output unavailable: pod garbage-collected";
  * `agentImage` is the image whose init container injects the runtime into the
  * run Pod; `now` is the RFC3339 timestamp stamped onto the status (injected so
  * the driver is deterministic and fake-testable). Terminal Agents are a no-op
- * with no I/O.
+ * with no I/O. `cached` is the controller's informer view of the namespace's
+ * Agents — used for the Station concurrency count and history pruning instead of
+ * a fresh LIST per reconcile, so cost stays O(changed) rather than O(all).
  */
-void reconcileAgent(KubeClient client, string ns, Agent agent, string agentImage, string now)
+void reconcileAgent(KubeClient client, string ns, Agent agent, string agentImage, string now,
+	const Agent[] cached)
 {
 	const phase = agent.status.phase;
 	if (phase == Phase.succeeded || phase == Phase.failed)
@@ -45,7 +48,7 @@ void reconcileAgent(KubeClient client, string ns, Agent agent, string agentImage
 	{
 		refsResolved = resolveRefs(client, ns, agent, station, definition);
 		if (refsResolved)
-			atCapacity = stationAtCapacity(client.listAgents(ns), agent.spec.stationRef,
+			atCapacity = stationAtCapacity(cached, agent.spec.stationRef,
 				station.spec.maxConcurrentRuns);
 	}
 
@@ -74,7 +77,7 @@ void reconcileAgent(KubeClient client, string ns, Agent agent, string agentImage
 	case ActionKind.complete:
 		client.patchAgentStatus(ns, agent.metadata.name,
 			statusPatch(decision, agent.status.jobName, now));
-		pruneHistory(client, ns, agent.spec.stationRef);
+		pruneHistory(client, ns, agent.spec.stationRef, cached);
 		return;
 	}
 }
@@ -129,7 +132,7 @@ private bool resolveRefs(KubeClient client, string ns, Agent agent, ref Station 
 		return false;
 }
 
-private void pruneHistory(KubeClient client, string ns, string stationRef)
+private void pruneHistory(KubeClient client, string ns, string stationRef, const Agent[] cached)
 {
 	Station station;
 	try
@@ -137,8 +140,7 @@ private void pruneHistory(KubeClient client, string ns, string stationRef)
 	catch (NotFound)
 		return;
 
-	auto agents = client.listAgents(ns);
-	foreach (name; agentsToPrune(agents, station.spec.successfulRunsHistoryLimit,
+	foreach (name; agentsToPrune(cached, station.spec.successfulRunsHistoryLimit,
 			station.spec.failedRunsHistoryLimit))
 		client.deleteAgent(ns, name);
 }
@@ -156,7 +158,6 @@ version (unittest)
 		bool stationMissing;
 		JobOutcome outcome;
 		bool jobMissing;
-		Agent[] agents;
 		string podNameValue;
 		PodResult podResultValue;
 
@@ -196,11 +197,6 @@ version (unittest)
 			statusPatches ~= patch;
 		}
 
-		override Agent[] listAgents(string ns)
-		{
-			return agents;
-		}
-
 		override void deleteAgent(string ns, string name)
 		{
 			deletedAgents ~= name;
@@ -238,7 +234,7 @@ unittest
 	client.definition.spec.model = "claude-sonnet-4-6";
 	client.definition.spec.prompt = "Fix it";
 
-	reconcileAgent(client, "ai-agents", pendingAgent("run-1", "stn"), "img", "2026-06-22T12:00:00Z");
+	reconcileAgent(client, "ai-agents", pendingAgent("run-1", "stn"), "img", "2026-06-22T12:00:00Z", null);
 
 	client.createdJobs.length.should.equal(1);
 	client.patchedNames.should.equal(["run-1"]);
@@ -253,7 +249,7 @@ unittest
 	auto client = new FakeKubeClient;
 	client.stationMissing = true;
 
-	reconcileAgent(client, "ai-agents", pendingAgent("run-2", "gone"), "img", "2026-06-22T12:00:00Z");
+	reconcileAgent(client, "ai-agents", pendingAgent("run-2", "gone"), "img", "2026-06-22T12:00:00Z", null);
 
 	client.createdJobs.length.should.equal(0);
 	client.statusPatches[0]["status"]["phase"].str.should.equal("Failed");
@@ -274,9 +270,8 @@ unittest
 	active.metadata.name = "run-active";
 	active.spec.stationRef = "stn";
 	active.status.phase = Phase.running;
-	client.agents = [active];
 
-	reconcileAgent(client, "ai-agents", pendingAgent("run-waiting", "stn"), "img", "now");
+	reconcileAgent(client, "ai-agents", pendingAgent("run-waiting", "stn"), "img", "now", [active]);
 
 	client.createdJobs.length.should.equal(0);
 	client.statusPatches.length.should.equal(0);
@@ -297,7 +292,6 @@ unittest
 	old.metadata.name = "old-success";
 	old.status.phase = Phase.succeeded;
 	old.status.completedAt = "2026-06-22T01:00:00Z";
-	client.agents = [old];
 
 	Agent agent;
 	agent.metadata.name = "run-3";
@@ -305,7 +299,7 @@ unittest
 	agent.status.phase = Phase.running;
 	agent.status.jobName = "agent-job-run-3";
 
-	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z");
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", [old]);
 
 	client.statusPatches[0]["status"]["phase"].str.should.equal("Succeeded");
 	client.statusPatches[0]["status"]["output"].str.should.equal("the wrapped event log");
@@ -328,7 +322,7 @@ unittest
 	agent.status.phase = Phase.running;
 	agent.status.jobName = "agent-job-run-6";
 
-	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z");
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null);
 
 	client.statusPatches[0]["status"]["phase"].str.should.equal("Failed");
 	client.statusPatches[0]["status"]["exitCode"].integer.should.equal(42);
@@ -351,7 +345,7 @@ unittest
 	agent.status.phase = Phase.running;
 	agent.status.jobName = "agent-job-run-7";
 
-	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z");
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null);
 
 	client.statusPatches[0]["status"]["phase"].str.should.equal("Succeeded");
 	client.statusPatches[0]["status"]["output"].str.should.equal("");
@@ -372,7 +366,7 @@ unittest
 	agent.status.phase = Phase.running;
 	agent.status.jobName = "agent-job-run-8";
 
-	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z");
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null);
 
 	client.statusPatches[0]["status"]["phase"].str.should.equal("Failed");
 	client.statusPatches[0]["status"]["failureReason"].str.should.equal(runRecordUnavailable);
@@ -390,7 +384,7 @@ unittest
 	agent.status.phase = Phase.running;
 	agent.status.jobName = "agent-job-run-4";
 
-	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z");
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null);
 
 	client.statusPatches.length.should.equal(0);
 	client.createdJobs.length.should.equal(0);
