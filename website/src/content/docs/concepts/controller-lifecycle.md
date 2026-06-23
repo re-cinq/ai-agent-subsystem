@@ -89,16 +89,26 @@ reported terminal with a clear `failureReason` rather than silently losing its o
 
 ## History pruning
 
-On every terminal transition the controller lists the Station's Agents, groups them by phase, sorts
+On every terminal transition the controller groups its cached Agents for the Station by phase, sorts
 by `completedAt` (newest first), and deletes any beyond the Station's
 `successfulRunsHistoryLimit` / `failedRunsHistoryLimit`. This bounds how many finished Agents
 accumulate without losing the most recent ones.
 
-## Watch + poll
+## Watch + poll + cache
 
-The controller combines a long-lived **watch** on Agents (low latency, reconnecting on error) with a
-periodic **poll** (every ~15s) that reconciles any Agent still in `Pending` or `Running`. The poll
-is a safety net for watch events that were missed or dropped.
+The controller combines a low-latency **watch** with a ~15s **poll**, sharing one in-memory cache of
+Agents. The watch seeds the cache and its starting `resourceVersion` with a full, **paginated** LIST
+(`?limit=&continue=`), then resumes from that `resourceVersion`, applying each event to the cache
+(`ADDED`/`MODIFIED` upsert, `DELETED` evict) and reconciling the changed Agent. When the watch
+closes it resumes from the last `resourceVersion` seen — it does not replay the whole collection. A
+`410 Gone` (the change history was compacted past our cursor) triggers a fresh paginated re-list.
+
+The **poll** runs independently every ~15s: a full paginated LIST that refreshes the cache and
+reconciles every Agent. This is the safety net — it guarantees an Agent whose watch event was missed
+or dropped is still reconciled, since the watch is the fast path but not a guarantee. Because
+concurrency counts and history pruning read the **cache** rather than doing their own LIST per
+reconcile, reconcile work is O(changed) even though the poll itself lists. The `/metrics` endpoint
+exposes `controller_resyncs_total` (full LISTs) and `controller_watch_reconnects_total`.
 
 ## Leader election
 

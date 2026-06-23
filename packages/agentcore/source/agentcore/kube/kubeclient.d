@@ -51,9 +51,6 @@ interface KubeClient
 	/// Merge-patch the Agent's `/status` subresource.
 	void patchAgentStatus(string ns, string name, JSONValue statusPatch);
 
-	/// Every Agent in the namespace — the source list for history pruning.
-	Agent[] listAgents(string ns);
-
 	/// Delete a pruned Agent by name.
 	void deleteAgent(string ns, string name);
 

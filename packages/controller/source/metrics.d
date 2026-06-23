@@ -62,6 +62,13 @@ void recordWatchReconnect() nothrow
 	addCounter("controller_watch_reconnects_total", "Agent watch stream reconnects.", "");
 }
 
+/// Count a full namespace resync (a paginated LIST) — done at startup, on a 410
+/// Gone, and on the slow periodic resync interval.
+void recordResync() nothrow
+{
+	addCounter("controller_resyncs_total", "Full namespace resyncs (paginated LIST).", "");
+}
+
 /// Set the number of Agents currently observed in a given phase.
 void recordAgentsByPhase(string phase, double count) nothrow
 {
