@@ -1,6 +1,6 @@
 ---
 title: Station
-description: The runtime: a Pod template that pairs a recipe with the environment it runs in.
+description: "The runtime: a Pod template that pairs a recipe with the environment it runs in."
 ---
 
 A `Station` is the **runtime template**. It pairs one [AgentDefinition](/concepts/agentdefinition/)

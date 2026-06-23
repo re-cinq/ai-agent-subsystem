@@ -1,6 +1,6 @@
 ---
 title: AgentDefinition
-description: The recipe: what an agent does, with which model, tools, permissions, and output.
+description: "The recipe: what an agent does, with which model, tools, permissions, and output."
 ---
 
 An `AgentDefinition` is the **recipe**: a reusable, environment-independent description of a task.

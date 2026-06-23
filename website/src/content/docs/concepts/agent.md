@@ -1,6 +1,6 @@
 ---
 title: Agent
-description: One run: a Station reference, parameters, and a status that tracks the lifecycle.
+description: "One run: a Station reference, parameters, and a status that tracks the lifecycle."
 ---
 
 An `Agent` is **one run**. It references a [Station](/concepts/station/), supplies

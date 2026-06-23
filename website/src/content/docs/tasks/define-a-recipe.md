@@ -1,6 +1,6 @@
 ---
 title: Define a recipe
-description: Author an AgentDefinition: the reusable task recipe.
+description: "Author an AgentDefinition: the reusable task recipe."
 ---
 
 An [AgentDefinition](/concepts/agentdefinition/) describes a task once so many

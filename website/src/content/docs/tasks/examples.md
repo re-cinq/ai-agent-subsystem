@@ -1,6 +1,6 @@
 ---
 title: Examples
-description: Two worked end-to-end examples: a code-editing bug-fixer and a pure-text story writer.
+description: "Two worked end-to-end examples: a code-editing bug-fixer and a pure-text story writer."
 ---
 
 Two complete examples show the range: one edits code with tools, the other just generates text.

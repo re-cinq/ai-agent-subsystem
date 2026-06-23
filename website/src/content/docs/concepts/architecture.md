@@ -1,6 +1,6 @@
 ---
 title: Architecture
-description: The D monorepo: three binaries and a shared library, statically linked with no runtime dependencies.
+description: "The D monorepo: three binaries and a shared library, statically linked with no runtime dependencies."
 ---
 
 ai-agent-subsystem is built as a single **dub** monorepo: reusable code lives in a shared library and

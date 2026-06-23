@@ -1,6 +1,6 @@
 ---
 title: Agent runtime
-description: The injected-kernel model: how the Job Pod is assembled and how the supervisor runs the agent.
+description: "The injected-kernel model: how the Job Pod is assembled and how the supervisor runs the agent."
 ---
 
 This page describes what happens *inside* the Pod once the controller has created a Job. The design

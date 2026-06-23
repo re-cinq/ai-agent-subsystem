@@ -1,6 +1,6 @@
 ---
 title: Repository layout
-description: How the D monorepo is organized: three binaries and a shared library.
+description: "How the D monorepo is organized: three binaries and a shared library."
 ---
 
 The repository is a single **dub** monorepo (root `dub.json` with `targetType: none`; every
