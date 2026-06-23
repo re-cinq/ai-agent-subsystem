@@ -16,6 +16,13 @@ kubectl get agent <name> -o yaml
 Useful fields under `status`: `phase`, `exitCode`, `output` (a truncated tail of the pod logs,
 capped at 256 KiB by default), `failureReason`, `startedAt`, and `completedAt`.
 
+If `output` is empty on a terminal Agent, check `failureReason`: when the run pod or its Job was
+garbage-collected before the controller could read the result back (e.g. the controller was down
+longer than the Job's one-hour TTL), the Agent still finishes but `failureReason` says so -
+`run output unavailable: pod garbage-collected` or `run record unavailable: …` - rather than leaving
+you guessing at a blank `output`. An `http` sink (below) avoids this entirely by capturing events as
+they happen.
+
 ## From the pod logs
 
 While a run is in progress, follow the supervisor's stdout. The supervisor echoes every

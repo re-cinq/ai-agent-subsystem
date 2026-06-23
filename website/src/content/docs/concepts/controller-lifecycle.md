@@ -29,7 +29,7 @@ stateDiagram-v2
 1. Resolve `Station` by `spec.stationRef`; if missing, set `phase = Failed` with a reason and stop.
 2. Resolve `AgentDefinition` by `station.spec.agentDefRef`; if missing, fail the same way.
 3. Build the Job (see [Agent runtime](/concepts/agent-runtime/)) and create it.
-   Creation is idempotent — an already-existing Job is fine.
+   Creation is idempotent - an already-existing Job is fine.
 4. Patch `status`: `phase = Running`, `jobName`, `startedAt`.
 
 **Running → Succeeded | Failed**
@@ -38,6 +38,14 @@ stateDiagram-v2
 2. On success, patch `phase = Succeeded` with `exitCode` and `output` (the truncated tail of the pod log).
 3. On failure, patch `phase = Failed` with `exitCode`, `failureReason`, and `output` (the truncated tail).
 4. After any terminal transition, prune history.
+
+If the run pod was already garbage-collected when the controller reads back (so its captured stdout
+is gone), the Agent still reaches its terminal phase but `failureReason` records
+`run output unavailable: pod garbage-collected` instead of leaving `output` silently empty. If the
+**Job itself** was garbage-collected first - the controller was down or backlogged past
+`ttlSecondsAfterFinished` - the outcome is unrecoverable, so the Agent is reported `Failed` with
+`run record unavailable: Job garbage-collected before its result was observed` rather than being left
+stuck in `Running`.
 
 **Terminal → terminal** is a no-op; reconciling a finished Agent does nothing.
 
@@ -71,8 +79,13 @@ sequenceDiagram
 
 Each Job is created with an owner reference back to its Agent (`controller: true`,
 `blockOwnerDeletion: true`). Deleting the Agent garbage-collects the Job. Jobs also set
-`ttlSecondsAfterFinished: 300`, so finished Jobs self-delete five minutes after completion while the
-Agent's `status` retains the result.
+`ttlSecondsAfterFinished: 3600`, so finished Jobs (and their pods) self-delete one hour after
+completion while the Agent's `status` retains the result. This is the window the controller has to
+read the pod's exit code and captured stdout back into `status`; one hour comfortably survives a
+controller restart or backlog. The trade-off is that finished pods linger that long - but they are
+terminal (only an etcd object plus node log disk, no CPU/memory), and [history
+pruning](#history-pruning) already cascade-deletes most of them sooner. Past the window the run is
+reported terminal with a clear `failureReason` rather than silently losing its output.
 
 ## History pruning
 

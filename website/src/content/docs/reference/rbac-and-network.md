@@ -9,17 +9,17 @@ The subsystem ships least-privilege RBAC and a restrictive network policy for ru
 
 The controller's ServiceAccount is granted exactly what reconciliation needs:
 
-- **Agents** — watch, list, get, and patch (including `status`); delete (for history pruning).
-- **Stations** and **AgentDefinitions** — get and list (read-only).
-- **Jobs** — create and get.
-- **Pods** — list and read logs (to capture `status.output`).
+- **Agents** - watch, list, get, and patch (including `status`); delete (for history pruning).
+- **Stations** and **AgentDefinitions** - get and list (read-only).
+- **Jobs** - create and get.
+- **Pods** - list and read logs (to capture `status.output`).
 
 ## Caller role
 
 A separate, narrower role lets other in-cluster apps launch and inspect runs **without** touching
 Jobs or pods:
 
-- **Agents** — create, get, list, watch.
+- **Agents** - create, get, list, watch.
 
 This is the role a UI or upstream pipeline binds to when it only needs to start runs and read their
 status.

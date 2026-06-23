@@ -22,7 +22,7 @@ The runtime template. It has a `spec` and no `status`.
 ## Notes on `template`
 
 - The container named **`agent`** has its `command` overridden by the controller to run the injected
-  supervisor — do not set it yourself.
+  supervisor - do not set it yourself.
 - The base image must be **glibc-based**; the injected runtime is glibc-linked.
 - Any volumes, node selectors, tolerations, and resource limits you set are preserved. The controller
   adds the bundle `emptyDir` and (if present) a credentials volume mount, and a non-root security

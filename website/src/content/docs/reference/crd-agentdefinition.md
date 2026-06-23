@@ -12,16 +12,16 @@ The recipe. It has a `spec` and no `status`.
 
 | Field | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `description` | string | — | Human summary for operators. |
+| `description` | string | - | Human summary for operators. |
 | `model` | string | runtime default | Model id, e.g. `claude-sonnet-4-6`. Selects the tool adapter. |
-| `prompt` | string | — | Task template; `{placeholder}` tokens filled from Agent `parameters`. |
-| `allowed_tools` | []string | — | Permission rules, e.g. `Bash(npm run test:*)`. |
-| `disallowed_tools` | []string | — | Scoped denials, e.g. `Bash(rm *)`. |
+| `prompt` | string | - | Task template; `{placeholder}` tokens filled from Agent `parameters`. |
+| `allowed_tools` | []string | - | Permission rules, e.g. `Bash(npm run test:*)`. |
+| `disallowed_tools` | []string | - | Scoped denials, e.g. `Bash(rm *)`. |
 | `permission_mode` | enum | `bypass` | `auto` enforces allow/deny lists; `bypass` grants all. |
-| `max_turns` | int | — | Agentic turn cap; omit for uncapped. |
-| `resources` | object | — | Run inputs; see below. |
-| `output` | object | — | Result contract; see below. |
-| `tool_config` | object | — | Raw passthrough for tool-specific knobs; unknown fields preserved. |
+| `max_turns` | int | - | Agentic turn cap; omit for uncapped. |
+| `resources` | object | - | Run inputs; see below. |
+| `output` | object | - | Result contract; see below. |
+| `tool_config` | object | - | Raw passthrough for tool-specific knobs; unknown fields preserved. |
 
 ### `spec.resources`
 

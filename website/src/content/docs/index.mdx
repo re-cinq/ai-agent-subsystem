@@ -1,9 +1,9 @@
 ---
 title: AI agent subsystem
-description: Run autonomous coding agents as Kubernetes resources — declarative recipes, reusable runtimes, and a reconciling controller.
+description: Run autonomous coding agents as Kubernetes resources - declarative recipes, reusable runtimes, and a reconciling controller.
 template: splash
 hero:
-  tagline: Run autonomous coding agents as first-class Kubernetes resources. Describe the work, pick a runtime, launch a run — the controller does the rest.
+  tagline: Run autonomous coding agents as first-class Kubernetes resources. Describe the work, pick a runtime, launch a run - the controller does the rest.
   actions:
     - text: Read the concepts
       link: /concepts/overview/
@@ -20,12 +20,12 @@ hero:
 
 import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-## What is ai-agent-subsystem?
+## What is the ai agent subsystem?
 
 **ai-agent-subsystem** turns "run a coding agent" into a declarative Kubernetes operation. You
 describe *what* the agent should do (a recipe), *where* it runs (a runtime template), and *which*
 run you want (parameters). A controller reconciles each run into a Kubernetes `Job`, supervises it,
-streams its output, and records the result on the resource's `status` — Kubernetes stays the single
+streams its output, and records the result on the resource's `status` - Kubernetes stays the single
 source of truth.
 
 It is a clean-sheet, standalone rebuild of an internal subsystem, written in **D** as a statically

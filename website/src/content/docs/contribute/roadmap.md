@@ -29,12 +29,12 @@ these docs.
 
 ## Deferred
 
-- **Production secret wiring** — replace the development host-path credentials mount with Kubernetes
+- **Production secret wiring** - replace the development host-path credentials mount with Kubernetes
   Secrets.
-- **Image publishing** — build and push the controller and agent images to a registry.
-- **External integrations** — persisting results to a database and wiring a web UI, beyond the
+- **Image publishing** - build and push the controller and agent images to a registry.
+- **External integrations** - persisting results to a database and wiring a web UI, beyond the
   in-cluster caller API.
-- **Multi-tenancy** — per-team/namespace isolation.
+- **Multi-tenancy** - per-team/namespace isolation.
 
 Have a suggestion? Open an issue on
 [GitHub](https://github.com/re-cinq/ai-agent-subsystem).
