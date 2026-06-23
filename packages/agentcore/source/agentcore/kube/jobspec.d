@@ -20,7 +20,16 @@ enum crApiVersion = "agents.re-cinq.com/v1alpha1";
 enum agentContainerName = "agent";
 enum initContainerName = "init";
 enum bundleVolume = "lore";
-enum jobTtlSeconds = 300;
+
+/// How long a finished Job (and its pod) lingers before the TTL-after-finished GC
+/// removes it. The controller reads the pod's exit code + captured stdout back into
+/// the Agent status on the terminal transition, so this is the window it has to
+/// observe a finished run. One hour comfortably survives a controller restart or
+/// backlog; the trade-off is that finished pods linger that long (terminal, so only
+/// an etcd object + node log disk — no CPU/memory), and history pruning already
+/// cascade-deletes most of them sooner. Past the window the run is reported terminal
+/// with a clear `failureReason` rather than silently losing the output.
+enum jobTtlSeconds = 3600;
 
 /// The non-root identity the agent container runs as. A concrete UID/GID (not
 /// just `runAsNonRoot`) is required or the kubelet rejects a root-by-default base
@@ -425,7 +434,7 @@ unittest
 	owner["controller"].boolean.should.equal(true);
 	owner["blockOwnerDeletion"].boolean.should.equal(true);
 
-	job["spec"]["ttlSecondsAfterFinished"].integer.should.equal(300);
+	job["spec"]["ttlSecondsAfterFinished"].integer.should.equal(3600);
 	job["spec"]["activeDeadlineSeconds"].integer.should.equal(1800);
 	job["spec"]["backoffLimit"].integer.should.equal(0);
 }

@@ -59,8 +59,8 @@ Decision decide(Phase current, bool refsResolved, bool hasOutcome, JobOutcome ou
 		if (!hasOutcome || outcome.state == JobState.running)
 			return Decision(ActionKind.none, Phase.running);
 		if (outcome.state == JobState.succeeded)
-			return Decision(ActionKind.complete, Phase.succeeded, outcome.exitCode, "", outcome
-					.output);
+			return Decision(ActionKind.complete, Phase.succeeded, outcome.exitCode, outcome.reason,
+					outcome.output);
 		return Decision(ActionKind.complete, Phase.failed, outcome.exitCode, outcome.reason, outcome
 				.output);
 	case Phase.succeeded:
@@ -112,6 +112,16 @@ version (unittest) import fluent.asserts;
 	bad.phase.should.equal(Phase.failed);
 	bad.exitCode.should.equal(1);
 	bad.failureReason.should.equal("boom");
+}
+
+@safe unittest
+{
+	// A succeeded run whose outcome carries a reason (e.g. its output couldn't be
+	// recovered) surfaces it as failureReason, so the empty output is never silent.
+	const degraded = decide(Phase.running, true, true,
+		JobOutcome(JobState.succeeded, 0, "run output unavailable: pod garbage-collected", ""));
+	degraded.phase.should.equal(Phase.succeeded);
+	degraded.failureReason.should.equal("run output unavailable: pod garbage-collected");
 }
 
 @safe unittest

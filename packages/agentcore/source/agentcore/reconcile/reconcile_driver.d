@@ -12,6 +12,17 @@ import agentcore.reconcile.prune : agentsToPrune;
 import agentcore.reconcile.reconcile : ActionKind, decide, JobOutcome, JobState;
 import agentcore.core.types : Phase;
 
+/// Status reason when the run Job was garbage-collected before the controller could
+/// observe its result — the controller was down or backlogged past the Job's
+/// TTL-after-finished. The real outcome is unrecoverable, so the run is reported
+/// terminal with this reason instead of being left Running forever.
+enum runRecordUnavailable = "run record unavailable: Job garbage-collected before its result was observed";
+
+/// Status reason when the Job's result was read but the run pod (and the stdout it
+/// captured) was already garbage-collected, so `status.output` could not be
+/// recovered. Surfaced instead of a silently empty output.
+enum runOutputUnavailable = "run output unavailable: pod garbage-collected";
+
 /**
  * Reconcile one Agent: resolve its refs, decide the next action with the pure
  * `decide()` state machine, then apply the decision through the injected client.
@@ -42,10 +53,8 @@ void reconcileAgent(KubeClient client, string ns, Agent agent, string agentImage
 	bool hasOutcome = false;
 	if (phase == Phase.running && agent.status.jobName.length)
 	{
-		outcome = client.jobOutcome(ns, agent.status.jobName);
+		outcome = observeJob(client, ns, agent.status.jobName);
 		hasOutcome = true;
-		if (outcome.state != JobState.running)
-			enrichFromPod(client, ns, agent.status.jobName, outcome);
 	}
 
 	const decision = decide(phase, refsResolved, hasOutcome, outcome, atCapacity);
@@ -70,16 +79,38 @@ void reconcileAgent(KubeClient client, string ns, Agent agent, string agentImage
 	}
 }
 
+/// Observe the run Job: its terminal/running state, enriched on a terminal
+/// transition with the run pod's real values. The TTL-after-finished GC can delete
+/// the Job (cascading to its pod) before the controller observes the result if the
+/// controller was down or backlogged. A GC'd Job is reported terminal with a clear
+/// reason — never re-thrown, which would leave the Agent stuck Running.
+private JobOutcome observeJob(KubeClient client, string ns, string jobName)
+{
+	JobOutcome outcome;
+	try
+		outcome = client.jobOutcome(ns, jobName);
+	catch (NotFound)
+		return JobOutcome(JobState.failed, 0, runRecordUnavailable, "");
+	if (outcome.state != JobState.running)
+		enrichFromPod(client, ns, jobName, outcome);
+	return outcome;
+}
+
 /// On a terminal Job, replace the placeholder exit code / output the Job
 /// conditions carry with the run pod's real values — the `agent` container's exit
 /// code and its captured stdout — so `status.exitCode` / `status.output` reflect
-/// what actually happened. A pod that has already been GC'd leaves the outcome
-/// as-is.
+/// what actually happened. A pod that has already been GC'd can't be read back, so
+/// the outcome records why the output is missing instead of leaving it silently
+/// empty (a Job-level failure reason already present is kept).
 private void enrichFromPod(KubeClient client, string ns, string jobName, ref JobOutcome outcome)
 {
 	const podName = client.podNameForJob(ns, jobName);
 	if (podName.length == 0)
+	{
+		if (outcome.reason.length == 0)
+			outcome.reason = runOutputUnavailable;
 		return;
+	}
 	const pod = client.podResult(ns, podName);
 	outcome.exitCode = pod.exitCode;
 	outcome.output = pod.log;
@@ -124,6 +155,7 @@ version (unittest)
 		AgentDefinition definition;
 		bool stationMissing;
 		JobOutcome outcome;
+		bool jobMissing;
 		Agent[] agents;
 		string podNameValue;
 		PodResult podResultValue;
@@ -152,6 +184,9 @@ version (unittest)
 
 		override JobOutcome jobOutcome(string ns, string jobName)
 		{
+			if (jobMissing)
+				throw new NotFound("Job " ~ jobName ~ " not found");
+
 			return outcome;
 		}
 
@@ -299,6 +334,48 @@ unittest
 	client.statusPatches[0]["status"]["exitCode"].integer.should.equal(42);
 	client.statusPatches[0]["status"]["output"].str.should.equal("boom in the log");
 	client.statusPatches[0]["status"]["failureReason"].str.should.equal("BackoffLimitExceeded");
+}
+
+unittest
+{
+	// Running + Job succeeded but the run pod was GC'd before readback -> still
+	// Succeeded, but status carries a clear reason instead of a silently empty output.
+	auto client = new FakeKubeClient;
+	client.outcome = JobOutcome(JobState.succeeded);
+	client.podNameValue = ""; // pod garbage-collected
+	client.station.metadata.name = "stn";
+
+	Agent agent;
+	agent.metadata.name = "run-7";
+	agent.spec.stationRef = "stn";
+	agent.status.phase = Phase.running;
+	agent.status.jobName = "agent-job-run-7";
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z");
+
+	client.statusPatches[0]["status"]["phase"].str.should.equal("Succeeded");
+	client.statusPatches[0]["status"]["output"].str.should.equal("");
+	client.statusPatches[0]["status"]["failureReason"].str.should.equal(runOutputUnavailable);
+}
+
+unittest
+{
+	// Running + Job itself GC'd (controller backlogged past ttlSecondsAfterFinished)
+	// -> reported terminal Failed with a clear reason, not left stuck Running.
+	auto client = new FakeKubeClient;
+	client.jobMissing = true;
+	client.station.metadata.name = "stn";
+
+	Agent agent;
+	agent.metadata.name = "run-8";
+	agent.spec.stationRef = "stn";
+	agent.status.phase = Phase.running;
+	agent.status.jobName = "agent-job-run-8";
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z");
+
+	client.statusPatches[0]["status"]["phase"].str.should.equal("Failed");
+	client.statusPatches[0]["status"]["failureReason"].str.should.equal(runRecordUnavailable);
 }
 
 unittest
