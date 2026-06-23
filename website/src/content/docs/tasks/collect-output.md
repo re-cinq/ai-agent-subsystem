@@ -45,6 +45,18 @@ output:
       url: http://collector.my-namespace.svc:8099/notify
 ```
 
-The supervisor POSTs each `stream-json` line to that URL (fire-and-forget). This is how a UI or an
+The supervisor POSTs each `stream-json` line to that URL. This is how a UI or an
 indexer consumes runs in real time. See [Agent runtime](/concepts/agent-runtime/)
 for how the supervisor produces these events.
+
+A failed POST is retried with capped exponential backoff before the event is dropped — a
+transient blip in your listener does not lose events, while a persistently unreachable sink
+never blocks or fails the run (the pod logs remain the source of truth). Tune the retry with
+these env vars on the run container (defaults: 3 attempts, 200 ms base, 5 s cap); set
+`AGENT_SINK_RETRY_ATTEMPTS=1` to restore pure fire-and-forget:
+
+| Env var | Default | Meaning |
+| --- | --- | --- |
+| `AGENT_SINK_RETRY_ATTEMPTS` | `3` | Total delivery attempts per event (minimum 1). |
+| `AGENT_SINK_RETRY_BASE_MS` | `200` | Base backoff, doubled each retry. |
+| `AGENT_SINK_RETRY_MAX_MS` | `5000` | Cap on the backoff between retries. |
