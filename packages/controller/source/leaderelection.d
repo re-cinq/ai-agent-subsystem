@@ -402,3 +402,56 @@ unittest
 	client.writes.should.equal(["create"]);
 	client.record.exists.should.equal(false);
 }
+
+version (unittest)
+{
+	import std.algorithm : canFind, filter, map, sort, startsWith;
+	import std.array : array, split;
+	import std.file : readText;
+	import std.path : buildNormalizedPath, dirName;
+	import std.string : indexOf, replace, strip;
+
+	/// Verbs the controller Role grants the `leases` resource: the `verbs:` line
+	/// following the `resources: ["leases"]` rule. Text-simple on purpose — it reads
+	/// one known rule in our own manifest, not arbitrary YAML.
+	string[] leaseRuleVerbs(string manifest)
+	{
+		auto lines = manifest.split("\n");
+		foreach (i, line; lines)
+		{
+			if (!line.canFind(`["leases"]`))
+				continue;
+			foreach (rest; lines[i + 1 .. $])
+				if (rest.strip.startsWith("verbs:"))
+					return bracketItems(rest);
+		}
+		return [];
+	}
+
+	/// The quoted tokens inside the first `[...]` on a line:
+	/// `verbs: ["get", "patch"]` -> ["get", "patch"].
+	string[] bracketItems(string line)
+	{
+		auto items = line[line.indexOf('[') + 1 .. line.indexOf(']')];
+		return items.split(",")
+			.map!(token => token.strip.replace(`"`, ""))
+			.filter!(token => token.length > 0)
+			.array;
+	}
+}
+
+unittest
+{
+	// Least privilege (issue #21): the Role grants the Lease exactly the verbs the
+	// leader-election client issues -- getLease/createLease/patchLease map to
+	// get/create/patch. No `update`: HttpKubeClient never PUTs a Lease, so granting
+	// it would be unused privilege. This fails if anyone re-adds it.
+	auto manifest = readText(buildNormalizedPath(dirName(__FILE_FULL_PATH__),
+		"../../../deploy/rbac/controller-rbac.yaml"));
+
+	auto granted = leaseRuleVerbs(manifest);
+	auto used = ["get", "create", "patch"];
+	granted.sort();
+	used.sort();
+	granted.should.equal(used);
+}
