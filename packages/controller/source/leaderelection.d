@@ -25,6 +25,12 @@ enum leaseDurationSeconds = 15;
 /// standby re-checks the Lease this often.
 enum renewIntervalSeconds = 5;
 
+/// A healthy leader renews every renewIntervalSeconds, several times within a lease
+/// duration, so one failed renew does not mean the lease is lost. Step down only
+/// once consecutive transient renew failures reach this count — kept one short of
+/// the renews that fit in a duration so we always relinquish before it can expire.
+enum maxConsecutiveRenewFailures = leaseDurationSeconds / renewIntervalSeconds - 1; // = 2
+
 /// Leadership flag the election loop (writer) shares with the reconcile loops
 /// (readers). They all run as cooperative vibe fibers on the one event-loop
 /// thread, so the unsynchronized flag is race-free — but only while that holds.
@@ -61,8 +67,9 @@ final class Leadership
 
 /// One running leader election: its fixed collaborators (the Lease client, this
 /// replica's namespace + identity, and the `Leadership` flag it drives) plus the
-/// `observation` that advances each tick. Built once and passed by `ref` so a
-/// tick mutates it in place rather than threading state through return values.
+/// `observation` and `renewFailures` count that advance each tick. Built once and
+/// passed by `ref` so a tick mutates it in place rather than threading state
+/// through return values.
 struct Election
 {
 	LeaseClient client;
@@ -70,6 +77,7 @@ struct Election
 	string identity;
 	Leadership leadership;
 	Observation observation;
+	int renewFailures; /// consecutive transient renew failures while we hold the Lease
 }
 
 /// What this replica should do with the Lease this tick.
@@ -164,22 +172,47 @@ private JSONValue leaseSpec(string identity, long durationSeconds, string timest
 }
 
 /// Contend for the Lease forever: each tick fetch it, fold it into our
-/// observation, decide, and act, flipping `leadership.isLeader` to match. Any
-/// error (including a lost renewal race) steps us down so a stale leader stops
-/// reconciling. Runs as a vibe task; never returns.
+/// observation, decide, and act, flipping `leadership.isLeader` to match. A lost
+/// renewal race steps us down at once; a transient renew error is tolerated for a
+/// few ticks (see electionTickGuarded) so a momentary blip does not make us flap.
+/// Runs as a vibe task; never returns.
 void runLeaderElection(LeaseClient client, string ns, string identity, Leadership leadership) nothrow
 {
 	auto election = Election(client, ns, identity, leadership);
 	for (;;)
 	{
+		// Only the clock reads can throw here; electionTickGuarded handles its own
+		// tick errors. A clock failure (never, in practice) steps us down.
 		try
-			electionTick(election, nowUnix(), rfc3339Micro());
+			electionTickGuarded(election, nowUnix(), rfc3339Micro());
 		catch (Exception error)
 		{
 			logError("election: %s", error.msg);
-			setLeader(leadership, identity, false);
+			setLeader(election.leadership, election.identity, false);
 		}
 		backoff(renewIntervalSeconds);
+	}
+}
+
+/// One tick wrapped with transient-failure tolerance. A definitive outcome
+/// (success, including a lost 409 race that electionTick acts on immediately)
+/// resets the failure count. A thrown error is a transient renew failure: a leader
+/// stays put until maxConsecutiveRenewFailures of them in a row, then steps down so
+/// a stale leader stops reconciling.
+void electionTickGuarded(ref Election election, long now, string timestamp) nothrow
+{
+	try
+	{
+		electionTick(election, now, timestamp);
+		election.renewFailures = 0;
+	}
+	catch (Exception error)
+	{
+		logError("election: %s", error.msg);
+		if (!election.leadership.isLeader)
+			return;
+		if (++election.renewFailures >= maxConsecutiveRenewFailures)
+			setLeader(election.leadership, election.identity, false);
 	}
 }
 
@@ -321,11 +354,17 @@ version (unittest)
 		LeaseRecord record;
 		bool createOk = true;
 		bool patchOk = true;
+		int getThrows; // number of upcoming getLease calls that fail transiently
 		string[] writes;
 		private int generation;
 
 		override LeaseRecord getLease(string ns, string name)
 		{
+			if (getThrows > 0)
+			{
+				getThrows--;
+				throw new Exception("transient get failure");
+			}
 			return record;
 		}
 
@@ -430,6 +469,69 @@ unittest
 	leadership.isLeader.should.equal(false);
 	client.writes.should.equal(["create"]);
 	client.record.exists.should.equal(false);
+}
+
+unittest
+{
+	// issue #19: a healthy leader renews several times per lease duration, so a
+	// single transient renew failure must not make it flap — it stays leader.
+	auto client = new FakeLeaseClient;
+	auto leadership = new Leadership;
+	auto election = Election(client, "ns", "me", leadership);
+
+	electionTickGuarded(election, 100, "ts-1"); // create + lead
+	leadership.isLeader.should.equal(true);
+
+	client.getThrows = 1; // one transient blip
+	electionTickGuarded(election, 105, "ts-2");
+	leadership.isLeader.should.equal(true); // tolerated
+}
+
+unittest
+{
+	// Consecutive transient failures up to the tolerance step us down, since by
+	// then the lease can no longer be safely held.
+	auto client = new FakeLeaseClient;
+	auto leadership = new Leadership;
+	auto election = Election(client, "ns", "me", leadership);
+
+	electionTickGuarded(election, 100, "ts-1");
+	client.getThrows = 2;
+
+	electionTickGuarded(election, 105, "ts-2");
+	leadership.isLeader.should.equal(true); // first failure tolerated
+	electionTickGuarded(election, 110, "ts-3");
+	leadership.isLeader.should.equal(false); // tolerance exhausted -> step down
+}
+
+unittest
+{
+	// A successful renew between blips resets the tolerance.
+	auto client = new FakeLeaseClient;
+	auto leadership = new Leadership;
+	auto election = Election(client, "ns", "me", leadership);
+
+	electionTickGuarded(election, 100, "ts-1");
+	client.getThrows = 1;
+	electionTickGuarded(election, 105, "ts-2"); // blip
+	electionTickGuarded(election, 110, "ts-3"); // success -> reset
+	client.getThrows = 1;
+	electionTickGuarded(election, 115, "ts-4"); // blip again, still tolerated
+	leadership.isLeader.should.equal(true);
+}
+
+unittest
+{
+	// A lost optimistic-concurrency race (409 on the renew) is a real takeover
+	// signal, not a transient blip: step down immediately, no tolerance.
+	auto client = new FakeLeaseClient;
+	auto leadership = new Leadership;
+	auto election = Election(client, "ns", "me", leadership);
+
+	electionTickGuarded(election, 100, "ts-1"); // lead
+	client.patchOk = false; // next renew loses the race (409)
+	electionTickGuarded(election, 105, "ts-2");
+	leadership.isLeader.should.equal(false);
 }
 
 version (unittest)
