@@ -48,12 +48,11 @@ prunes old runs beyond the Station's history limits, and exposes `/healthz` plus
 `/metrics` endpoint (reconcile counts and latency, agents by phase, watch reconnects, Kubernetes
 API latency, and leader status).
 
-It combines a low-latency **watch** with a ~15s **poll**, sharing one in-memory cache. The watch
-resumes from the last `resourceVersion` rather than replaying the whole collection (a `410 Gone`
-triggers a paginated re-list), applying each change to the cache and reconciling it. The poll does a
-full **paginated** LIST every ~15s that refreshes the cache and reconciles every Agent — the safety
-net that catches anything the watch missed. Concurrency counts and history pruning read the cache
-rather than re-listing per reconcile, so reconcile work is O(changed).
+It combines a low-latency **watch** with a ~15s **poll** over one shared in-memory cache, so
+reconcile work is O(changed) and a dropped watch event is still caught by the next poll. Two replicas
+run with Lease-based leader election, so only the leader reconciles. See [Watch + poll +
+cache](/concepts/controller-lifecycle/#watch--poll--cache) and [leader
+election](/concepts/controller-lifecycle/#leader-election) for the mechanics.
 
 ### `initializer`: binary 2
 
@@ -68,7 +67,7 @@ same output sinks as the agent. New provisioning tools and distros are added beh
 
 Runs inside the Job Pod as the entrypoint. It launches the agent process, streams its `stream-json`
 output line by line to the configured sinks, forwards termination signals for graceful shutdown,
-and exits with the agent's exit code. It replaces the previous Node-based `run.mjs`.
+and exits with the agent's exit code.
 
 ## Static linking
 
