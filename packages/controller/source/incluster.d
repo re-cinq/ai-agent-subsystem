@@ -18,6 +18,7 @@ struct ClusterConfig
 	string caFile; /// path to the CA bundle the API server's cert is signed by
 	string namespace; /// the Pod's own namespace
 	size_t maxOutputBytes = defaultMaxOutputBytes; /// tail of a run pod's log kept in status.output
+	string identity; /// this replica's leader-election identity (its Pod name)
 }
 
 enum tokenPath = "/var/run/secrets/kubernetes.io/serviceaccount/token";
@@ -56,6 +57,7 @@ ClusterConfig loadClusterConfig()
 		.strip : environment.get("NAMESPACE", "ai-agents");
 	config.maxOutputBytes = parseMaxOutputBytes(
 		environment.get(envMaxOutputBytes, defaultMaxOutputBytes.to!string));
+	config.identity = environment.get("POD_NAME", environment.get("HOSTNAME", "agent-controller"));
 	return config;
 }
 

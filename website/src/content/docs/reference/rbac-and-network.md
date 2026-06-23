@@ -13,6 +13,8 @@ The controller's ServiceAccount is granted exactly what reconciliation needs:
 - **Stations** and **AgentDefinitions**: get and list (read-only).
 - **Jobs**: create and get.
 - **Pods**: list and read logs (to capture `status.output`).
+- **Leases** (`coordination.k8s.io`): get, create, update, and patch — one Lease the
+  replicas contend for so only the leader reconciles (see [leader election](/concepts/controller-lifecycle/#leader-election)).
 
 ## Caller role
 

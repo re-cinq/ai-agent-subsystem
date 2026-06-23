@@ -9,6 +9,7 @@ import vibe.core.log : logInfo;
 import httpkube : HttpKubeClient;
 import health : startHealthServer;
 import incluster : loadClusterConfig;
+import leaderelection : Leadership, runLeaderElection;
 import watchpoll : runControlLoop;
 
 version (unittest)
@@ -29,12 +30,16 @@ else
 
 		auto config = loadClusterConfig();
 		auto client = new HttpKubeClient(config);
+		auto leadership = new Leadership();
 
-		logInfo("ai-agent-controller: namespace=%s health=:%s agentImage=%s",
-			config.namespace, healthPort, agentImage);
+		logInfo("ai-agent-controller: namespace=%s identity=%s health=:%s agentImage=%s",
+			config.namespace, config.identity, healthPort, agentImage);
 
 		startHealthServer(healthPort);
-		runTask(() nothrow { runControlLoop(client, config.namespace, agentImage); });
+		runTask(() nothrow {
+			runLeaderElection(client, config.namespace, config.identity, leadership);
+		});
+		runTask(() nothrow { runControlLoop(client, config.namespace, agentImage, leadership); });
 		return runEventLoop();
 	}
 }

@@ -6,7 +6,10 @@ metadata:
   labels:
     agents.re-cinq.com/component: controller
 spec:
-  replicas: 1
+  # Two replicas for HA. Both run, but only the Lease holder reconciles (see
+  # deploy/rbac/controller-rbac.yaml and the leader-election loop); a standby
+  # takes over within the lease duration if the leader's pod dies.
+  replicas: 2
   selector:
     matchLabels:
       agents.re-cinq.com/component: controller
@@ -28,6 +31,12 @@ spec:
           env:
             - name: NAMESPACE
               value: ai-agents
+            # The replica's own pod name, used as its leader-election Lease
+            # holder identity so the holder is identifiable in `kubectl get lease`.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
             - name: HEALTH_PORT
               value: "8081"
             # Image whose init container injects the agent runtime + supervisor

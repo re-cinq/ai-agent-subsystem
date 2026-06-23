@@ -99,3 +99,37 @@ accumulate without losing the most recent ones.
 The controller combines a long-lived **watch** on Agents (low latency, reconnecting on error) with a
 periodic **poll** (every ~15s) that reconciles any Agent still in `Pending` or `Running`. The poll
 is a safety net for watch events that were missed or dropped.
+
+## Leader election
+
+The controller runs **two replicas** for availability, but only **one** reconciles at a time. The
+replicas contend for a single [`coordination.k8s.io/v1` Lease](/reference/rbac-and-network/) named
+`agent-controller`; the holder is the leader and runs the watch + poll loop, while standbys stay
+idle.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Standby
+    Standby --> Leader : Lease absent, or held by us, or expired and we take it over
+    Leader --> Leader : renew the Lease every ~5s
+    Leader --> Standby : renewal lost (another replica wrote, or the API is unreachable)
+    note right of Leader : only the leader reconciles
+```
+
+Each tick (~5s) a replica reads the Lease, folds it into a running observation, and decides:
+
+- **no Lease** → create one we hold;
+- **we hold it** → renew its `renewTime`;
+- **someone else holds it, unrenewed past the 15s lease duration** → take it over;
+- **someone else holds a still-valid Lease** → stand by.
+
+Expiry is judged against the replica's **own** clock — the time since it first saw the current
+`renewTime` — not the remote timestamp, so clock skew between replicas can't trigger a premature
+takeover. Writes carry the Lease's `resourceVersion` as an optimistic-concurrency precondition, so
+two standbys can't both win a takeover and a leader that **fails** to renew (lost the race, or lost
+the API server) immediately steps down and stops reconciling.
+
+When the leader's pod is deleted it stops renewing; a standby sees the `renewTime` stop changing and
+takes over within the lease duration. The brief overlap a partition could cause is harmless anyway:
+Job creation is keyed on the Agent name and idempotent (an existing Job is a `409`, not a duplicate),
+so two reconcilers never produce two Jobs for one Agent.

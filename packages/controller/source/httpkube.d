@@ -27,6 +27,19 @@ enum crVersion = "v1alpha1";
 /// The byte-accurate tail kept in status.output is enforced by `capOutput`.
 enum logTailLines = 10_000;
 
+/// The fields of a `coordination.k8s.io/v1` Lease the election loop reads back:
+/// who holds it, when they last renewed, the resourceVersion (used as an
+/// optimistic-concurrency precondition on writes), and the takeover count.
+/// `exists` is false when no Lease has been created yet (the GET 404s).
+struct LeaseRecord
+{
+	bool exists;
+	string holder;
+	string renewTime;
+	string resourceVersion;
+	int transitions;
+}
+
 /// `KubeClient` over the Kubernetes API server, spoken with vibe's HTTP client:
 /// bearer-token auth, the cluster CA added to the TLS trust store, and
 /// merge-patch for the status subresource. The long-lived watch stream
@@ -122,6 +135,43 @@ final class HttpKubeClient : KubeClient
 			}, settings);
 	}
 
+	/// Read the leader-election Lease. A 404 means none has been created yet,
+	/// reported as `exists = false` rather than thrown — that is the signal to
+	/// create one.
+	LeaseRecord getLease(string ns, string name)
+	{
+		JSONValue document;
+		int status;
+		requestHTTP(leaseUrl(ns, name),
+			(scope HTTPClientRequest req) { authorize(req); },
+			(scope HTTPClientResponse res) {
+				status = res.statusCode;
+				const body = res.bodyReader.readAllUTF8();
+				if (status == 200)
+					document = parseJSON(body);
+			}, settings);
+		if (status == 404)
+			return LeaseRecord.init;
+		enforce(status == 200, "Lease " ~ name ~ ": unexpected status " ~ status.to!string);
+		return parseLeaseRecord(document);
+	}
+
+	/// Create the Lease. Returns true when we created it (201); a 409 means another
+	/// replica created it first, so we did not win leadership.
+	bool createLease(string ns, JSONValue body)
+	{
+		return send(HTTPMethod.POST, leasesUrl(ns), body, "application/json", [201, 409]) == 201;
+	}
+
+	/// Merge-patch the Lease (renew or takeover). Returns true when the write landed
+	/// (200); a 409 means our resourceVersion was stale — another replica wrote
+	/// first — so we did not hold or take leadership this tick.
+	bool patchLease(string ns, string name, JSONValue body)
+	{
+		return send(HTTPMethod.PATCH, leaseUrl(ns, name), body, "application/merge-patch+json",
+			[200, 409]) == 200;
+	}
+
 	private JSONValue getJson(string url, string what)
 	{
 		JSONValue document;
@@ -186,7 +236,7 @@ final class HttpKubeClient : KubeClient
 		return 0;
 	}
 
-	private void send(HTTPMethod method, string url, JSONValue body, string contentType, int[] okCodes)
+	private int send(HTTPMethod method, string url, JSONValue body, string contentType, int[] okCodes)
 	{
 		int status;
 		requestHTTP(url,
@@ -199,6 +249,7 @@ final class HttpKubeClient : KubeClient
 			(scope HTTPClientResponse res) { status = res.statusCode; res.dropBody(); },
 			settings);
 		enforce(okCodes.canFind(status), url ~ ": unexpected status " ~ status.to!string);
+		return status;
 	}
 
 	private void authorize(scope HTTPClientRequest req)
@@ -241,6 +292,51 @@ final class HttpKubeClient : KubeClient
 	{
 		return podUrl(ns, name) ~ "/log?tailLines=" ~ logTailLines.to!string;
 	}
+
+	private string leasesUrl(string ns)
+	{
+		return config.apiBase ~ "/apis/coordination.k8s.io/v1/namespaces/" ~ ns ~ "/leases";
+	}
+
+	private string leaseUrl(string ns, string name)
+	{
+		return leasesUrl(ns) ~ "/" ~ name;
+	}
+}
+
+/// Read the leadership fields out of a Lease object. Missing fields fall back to
+/// their zero value — a freshly created Lease may not carry every field yet.
+LeaseRecord parseLeaseRecord(JSONValue lease)
+{
+	LeaseRecord record;
+	record.exists = true;
+	record.resourceVersion = leaseField(lease, "metadata", "resourceVersion");
+	record.holder = leaseField(lease, "spec", "holderIdentity");
+	record.renewTime = leaseField(lease, "spec", "renewTime");
+	record.transitions = cast(int) leaseTransitions(lease);
+	return record;
+}
+
+private string leaseField(JSONValue lease, string section, string key)
+{
+	auto value = leaseSection(lease, section, key);
+	return (value !is null && value.type == JSONType.string) ? value.str : "";
+}
+
+private long leaseTransitions(JSONValue lease)
+{
+	auto value = leaseSection(lease, "spec", "leaseTransitions");
+	return (value !is null && value.type == JSONType.integer) ? value.integer : 0;
+}
+
+private JSONValue* leaseSection(JSONValue lease, string section, string key)
+{
+	if (lease.type != JSONType.object)
+		return null;
+	auto sec = section in lease.object;
+	if (sec is null || sec.type != JSONType.object)
+		return null;
+	return key in sec.object;
 }
 
 version (unittest) import fluent.asserts;
@@ -258,4 +354,16 @@ unittest
 		"https://api:443/apis/batch/v1/namespaces/ai-agents/jobs/agent-job-run-1");
 	client.podLogUrl("ai-agents", "p1").should.equal(
 		"https://api:443/api/v1/namespaces/ai-agents/pods/p1/log?tailLines=10000");
+	client.leaseUrl("ai-agents", "agent-controller").should.equal(
+		"https://api:443/apis/coordination.k8s.io/v1/namespaces/ai-agents/leases/agent-controller");
+}
+
+unittest
+{
+	auto record = parseLeaseRecord(parseJSON(`{"metadata":{"resourceVersion":"99"},
+		"spec":{"holderIdentity":"pod-a","renewTime":"2026-06-23T00:00:00.000000Z","leaseTransitions":3}}`));
+	record.should.equal(LeaseRecord(true, "pod-a", "2026-06-23T00:00:00.000000Z", "99", 3));
+
+	// A Lease that has not been created yet leaves exists false and fields empty.
+	LeaseRecord.init.should.equal(LeaseRecord(false, "", "", "", 0));
 }

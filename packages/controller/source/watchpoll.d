@@ -13,6 +13,7 @@ import agentcore.kube.jsonbody : parseAgent;
 import agentcore.reconcile.reconcile_driver : reconcileAgent;
 
 import httpkube : HttpKubeClient;
+import leaderelection : Leadership;
 
 /// A decoded line from the Agent watch stream.
 struct WatchEvent
@@ -60,37 +61,41 @@ private string resourceVersionOf(JSONValue object)
 
 /// The controller's reconcile engine: a low-latency watch and an independent
 /// ~15s safety-net poll, running as two concurrent vibe tasks so a long-lived
-/// watch never starves the periodic poll. Both reconnect on error.
-void runControlLoop(HttpKubeClient client, string ns, string agentImage) nothrow
+/// watch never starves the periodic poll. Both reconnect on error and only
+/// reconcile while this replica holds leadership, so standbys stay idle.
+void runControlLoop(HttpKubeClient client, string ns, string agentImage, Leadership leadership) nothrow
 {
-	runTask(() nothrow { pollLoop(client, ns, agentImage); });
-	watchLoop(client, ns, agentImage);
+	runTask(() nothrow { pollLoop(client, ns, agentImage, leadership); });
+	watchLoop(client, ns, agentImage, leadership);
 }
 
-private void pollLoop(HttpKubeClient client, string ns, string agentImage) nothrow
+private void pollLoop(HttpKubeClient client, string ns, string agentImage, Leadership leadership) nothrow
 {
 	for (;;)
 	{
-		try
-		{
-			auto agents = client.listAgents(ns);
-			logInfo("poll: %s agent(s)", agents.length);
-			foreach (agent; agents)
-				reconcileOne(client, ns, agent, agentImage);
-		}
-		catch (Exception error)
-			logError("poll: %s", error.msg);
+		if (leadership.isLeader)
+			try
+			{
+				auto agents = client.listAgents(ns);
+				logInfo("poll: %s agent(s)", agents.length);
+				foreach (agent; agents)
+					reconcileOne(client, ns, agent, agentImage);
+			}
+			catch (Exception error)
+				logError("poll: %s", error.msg);
 
 		backoff(15);
 	}
 }
 
-private void watchLoop(HttpKubeClient client, string ns, string agentImage) nothrow
+private void watchLoop(HttpKubeClient client, string ns, string agentImage, Leadership leadership) nothrow
 {
 	for (;;)
 	{
 		try
 			client.watchAgents(ns, "0", (string line) {
+				if (!leadership.isLeader)
+					return;
 				auto event = parseWatchLine(line);
 				if (event.type == "ADDED" || event.type == "MODIFIED")
 					reconcileOne(client, ns, event.agent, agentImage);
