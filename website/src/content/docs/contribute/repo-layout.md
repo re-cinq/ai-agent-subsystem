@@ -1,6 +1,6 @@
 ---
 title: Repository layout
-description: How the D monorepo is organized - three binaries and a shared library.
+description: How the D monorepo is organized: three binaries and a shared library.
 ---
 
 The repository is a single **dub** monorepo (root `dub.json` with `targetType: none`; every
@@ -44,12 +44,12 @@ supervisor's end-to-end behaviour is covered by an integration suite
 | `ai-agent-controller` | `packages/controller/` | [Controller lifecycle](/concepts/controller-lifecycle/) |
 | `ai-agent-init` | `packages/initializer/` | [Agent runtime](/concepts/agent-runtime/) |
 | `ai-agent-supervisor` | `packages/supervisor/` | [Agent runtime](/concepts/agent-runtime/) |
-| `ai-agent-crdgen` | `packages/crdgen/` | dev tool - generates `deploy/crds` |
+| `ai-agent-crdgen` | `packages/crdgen/` | dev tool, generates `deploy/crds` |
 | CRDs / RBAC | `deploy/` | [Reference](/reference/crd-agent/) |
 
 :::note
 Bootstrapped so far: the CRD model (with attribute metadata), prompt templating, the pure reconcile
 state machine, thin binaries that link the library, and the `crdgen` tool that generates
 `deploy/crds` from the model. The Kubernetes client, Job builder, and the supervisor's process
-handling are next - see the [roadmap](/contribute/roadmap/).
+handling are next; see the [roadmap](/contribute/roadmap/).
 :::

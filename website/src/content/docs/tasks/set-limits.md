@@ -4,10 +4,10 @@ description: Bound an Agent run's resources and wall-clock, cap how many run at 
 ---
 
 Limits live at two levels: **per run** (on the Station) and a **namespace ceiling**
-(standard Kubernetes objects). Use both - the Station shapes each run, the namespace
+(standard Kubernetes objects). Use both: the Station shapes each run, the namespace
 caps the blast radius.
 
-## Per-run limits - on the Station
+## Per-run limits: on the Station
 
 Set them on the `Station`. The controller wires the container named `agent` (command,
 env, mounts) but **preserves whatever else you set on it**, including `resources`.
@@ -30,7 +30,7 @@ spec:
       containers:
         - name: agent
           image: node:22-bookworm
-          resources:             # per-run CPU/memory - set these yourself
+          resources:             # per-run CPU/memory, set these yourself
             requests:
               cpu: "500m"
               memory: 512Mi
@@ -41,10 +41,10 @@ spec:
 
 | Field | Effect |
 | --- | --- |
-| `resources` (on the `agent` container) | CPU/memory requests + limits for the run. **The controller does not default these** - only the init container is defaulted, so set them here or use a `LimitRange` (below). |
+| `resources` (on the `agent` container) | CPU/memory requests + limits for the run. **The controller does not default these**: only the init container is defaulted, so set them here or use a `LimitRange` (below). |
 | `deadlineMinutes` | Wall-clock limit per run; becomes the Job's `activeDeadlineSeconds`. |
 | `maxConcurrentRuns` | How many Agents of this Station may be `Running` at once. `0` (default) is unlimited. A new `Agent` created while the Station is at the limit stays `Pending` and starts automatically once a run finishes. |
-| `successfulRunsHistoryLimit` / `failedRunsHistoryLimit` | How many **finished** Agents are kept per phase before the oldest are pruned. Retention only - unrelated to concurrency. |
+| `successfulRunsHistoryLimit` / `failedRunsHistoryLimit` | How many **finished** Agents are kept per phase before the oldest are pruned. Retention only, unrelated to concurrency. |
 
 ## How concurrency works
 
@@ -54,7 +54,7 @@ or dropped) and is admitted on the next reconcile once a run completes. So you c
 work freely: create as many Agents as you like, and the Station drains them
 `maxConcurrentRuns` at a time. `maxConcurrentRuns: 1` gives strict serial execution.
 
-## Namespace ceiling - bound the whole namespace
+## Namespace ceiling: bound the whole namespace
 
 `maxConcurrentRuns` caps one Station; a `ResourceQuota` caps everything in the namespace,
 so a burst across many Stations can't exhaust the cluster.

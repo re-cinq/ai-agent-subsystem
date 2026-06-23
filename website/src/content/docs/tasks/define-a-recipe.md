@@ -1,6 +1,6 @@
 ---
 title: Define a recipe
-description: Author an AgentDefinition - the reusable task recipe.
+description: Author an AgentDefinition: the reusable task recipe.
 ---
 
 An [AgentDefinition](/concepts/agentdefinition/) describes a task once so many
@@ -33,7 +33,7 @@ spec:
 
 ## Notes
 
-- **`{ticket}`, `{repo}`, `{branch}`** are placeholders filled from an Agent's `parameters` - see
+- **`{ticket}`, `{repo}`, `{branch}`** are placeholders filled from an Agent's `parameters`; see
   [Prompt templating](/reference/prompt-templating/).
 - **`permission_mode: auto`** enforces the `allowed_tools` / `disallowed_tools` lists. Use `bypass`
   to grant all tools.

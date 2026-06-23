@@ -8,18 +8,18 @@ cluster is plenty.
 
 ## Tooling
 
-- **`kubectl`** - configured to talk to your target cluster.
-- **A Kubernetes cluster** - `v1.27+`. Any distribution works; for local use see
+- **`kubectl`**: configured to talk to your target cluster.
+- **A Kubernetes cluster**: `v1.27+`. Any distribution works; for local use see
   [Local cluster](/setup/local-cluster/).
-- **A container registry** - to host the controller and agent images, unless you side-load them into
+- **A container registry**: to host the controller and agent images, unless you side-load them into
   a local cluster.
 
 ## To build from source
 
 The project is a D monorepo. To build the binaries yourself you need:
 
-- **LDC** (the LLVM-based D compiler) - used for static linking.
-- **dub** - the D package manager and build tool.
+- **LDC** (the LLVM-based D compiler): used for static linking.
+- **dub**: the D package manager and build tool.
 
 See [Building](/contribute/building/).
 
@@ -32,4 +32,4 @@ to provide them:
   the recipe's `resources.secrets` (e.g. `{name: ANTHROPIC_API_KEY, ref: ANTHROPIC_API_KEY}`); the
   controller injects it as an env var via `secretKeyRef`.
 - **Subscription auth (local dev):** mount your host `~/.claude` into the run container at
-  `/lore/.claude` (the agent's `HOME` is `/lore`) via the Station template - no API key needed.
+  `/lore/.claude` (the agent's `HOME` is `/lore`) via the Station template; no API key needed.

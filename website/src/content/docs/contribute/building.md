@@ -8,8 +8,8 @@ library and the `controller`, `initializer`, `supervisor`, and `crdgen` executab
 
 ## Prerequisites
 
-- **dub** - the D package manager and build tool.
-- **A D compiler** - `dmd` works out of the box; **LDC** (`ldc2`) is used for optimized release
+- **dub**: the D package manager and build tool.
+- **A D compiler**: `dmd` works out of the box; **LDC** (`ldc2`) is used for optimized release
   builds and for fully-static (musl) builds.
 
 ## Build
@@ -25,12 +25,12 @@ dub build :controller --build=static --compiler=ldc2   # optimized release
 ```
 
 The executables depend on `ai-agent-subsystem:agentcore`, which dub resolves locally as a
-sub-package - no separate install step.
+sub-package, no separate install step.
 
 ## Generating the CRDs
 
 The CRD manifests in `deploy/crds` are **generated from the annotated structs** in
-`packages/agentcore/source/agentcore/crds` - not hand-written. The `crdgen` tool introspects the
+`packages/agentcore/source/agentcore/crds`, not hand-written. The `crdgen` tool introspects the
 model (with `describe-d`) and emits the OpenAPI schemas (using `open-api`'s vocabulary):
 
 ```sh
@@ -54,14 +54,14 @@ library).
 
 The goal is binaries that ship with **no D runtime dependency**. The default build already achieves
 this: the D runtime (druntime + Phobos) is linked statically, and only the system C library remains
-dynamic - and any glibc-based image (which the [injected runtime](/concepts/agent-runtime/) already
+dynamic, and any glibc-based image (which the [injected runtime](/concepts/agent-runtime/) already
 requires) provides it.
 
 Verify:
 
 ```sh
 ldd packages/controller/ai-agent-controller
-# libm.so.6, libgcc_s.so.1, libc.so.6, ld-linux - and no libphobos / libdruntime
+# libm.so.6, libgcc_s.so.1, libc.so.6, ld-linux, and no libphobos / libdruntime
 ```
 
 This static-D-runtime, dynamic-glibc build is the **portable artifact**: built on an *old* glibc base
@@ -71,8 +71,8 @@ This static-D-runtime, dynamic-glibc build is the **portable artifact**: built o
 DFLAGS="-link-defaultlib-shared=false -L-lz" dub build :initializer --compiler=ldc2
 ```
 
-the binary runs unchanged on every glibc-based Kubernetes distro - Debian, Ubuntu, the RHEL family,
-Amazon Linux - because it only needs a baseline glibc (and `libz`/`libgcc_s`, present everywhere).
+the binary runs unchanged on every glibc-based Kubernetes distro (Debian, Ubuntu, the RHEL family,
+Amazon Linux) because it only needs a baseline glibc (and `libz`/`libgcc_s`, present everywhere).
 **Alpine** is musl, not glibc, so a glibc binary can't run there; it is built natively on Alpine
 instead. A fully-static musl binary is *not* used: LDC's musl static link drags in `libunwind` →
 `liblzma` and is brittle, so the portable-glibc + native-Alpine split is the CI strategy (see
@@ -89,8 +89,8 @@ scoped to a `unittest` dub configuration, so the shipped binaries link none of i
 dub test :agentcore
 ```
 
-The supervisor's end-to-end behaviour - streaming, file/http sinks, signal forwarding, exit-code
-passthrough, and robustness against an agent that leaves a child holding stdout - is covered by an
+The supervisor's end-to-end behaviour (streaming, file/http sinks, signal forwarding, exit-code
+passthrough, and robustness against an agent that leaves a child holding stdout) is covered by an
 integration suite that runs the real binary against a configurable **mock agent** (`ai-agent-mock`):
 
 ```sh
@@ -108,7 +108,7 @@ never leaks to a sink):
 ### Cross-distro init-container tests
 
 The init container self-bootstraps its prerequisites through the distro package manager, so it is
-also exercised inside real **minimal images where `git` is absent** - proving it installs git via the
+also exercised inside real **minimal images where `git` is absent**, proving it installs git via the
 detected package manager and clones for real:
 
 ```sh
@@ -116,15 +116,15 @@ detected package manager and clones for real:
 BUILDER_IMAGE=fedora:40 RUNTIME_IMAGE=fedora:40 ./scripts/ctest-initializer.sh  # dnf
 ```
 
-CI runs this across the top Kubernetes base distros - Debian, Ubuntu, Rocky, and Amazon Linux (one
-shared glibc build) plus Alpine (built natively on musl) - in the **Init container** workflow
-(`.github/workflows/init-container.yml`).
+CI runs this in the **Init container** workflow (`.github/workflows/init-container.yml`) across the
+top Kubernetes base distros: Debian, Ubuntu, Rocky, and Amazon Linux (one shared glibc build) plus
+Alpine (built natively on musl).
 
 ### Cross-distro supervisor tests
 
 The supervisor runs inside the Station's (glibc) image, so its integration suite is also run inside
 each glibc base distro. Because the supervisor links vibe-d (and so `libssl.so.3`), the stack is
-built once on **Rocky 9** - the oldest glibc (2.34) and openssl 3 common to every glibc distro - and
+built once on **Rocky 9**: the oldest glibc (2.34) and openssl 3 common to every glibc distro, and
 fanned out, carrying the ldc runtime libs and installing `libssl3` where a base image lacks it.
 Alpine is **not** a target: the supervisor requires glibc.
 

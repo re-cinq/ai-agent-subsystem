@@ -28,7 +28,7 @@ One run. It has a `spec` (your desired run) and a `status` (owned by the control
 | `completedAt` | date-time | When the run ended. |
 | `exitCode` | int | Process exit code (`0` = success). |
 | `output` | string | Captured summary: the truncated tail of pod logs, capped at `MAX_OUTPUT_BYTES` (default 256 KiB) to stay under etcd's per-object limit. |
-| `failureReason` | string | Human-readable reason on failure. Also set when a run reaches a terminal phase but its result couldn't be fully read back - e.g. `run output unavailable: pod garbage-collected` or `run record unavailable: Job garbage-collected before its result was observed`. |
+| `failureReason` | string | Human-readable reason on failure. Also set when a run reaches a terminal phase but its result couldn't be fully read back, e.g. `run output unavailable: pod garbage-collected` or `run record unavailable: Job garbage-collected before its result was observed`. |
 | `prUrl` | string | Pull-request URL when applicable. |
 
 Phase transitions are driven by the

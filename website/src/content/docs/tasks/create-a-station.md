@@ -36,7 +36,7 @@ spec:
 
 - **`agentDefRef`** must match the name of an existing `AgentDefinition`.
 - The container named **`agent`** is the one the controller wires with the rendered prompt and the
-  injected supervisor. You do not set its `command` - the controller overrides it.
+  injected supervisor. You do not set its `command`; the controller overrides it.
 - **`deadlineMinutes`** becomes the Job's `activeDeadlineSeconds`.
 - **History limits** bound how many finished Agents the controller keeps per phase.
 

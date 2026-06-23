@@ -1,6 +1,6 @@
 ---
 title: How the pieces relate
-description: The relationship schema for ai-agent-subsystem - the data model and the runtime composition.
+description: The relationship schema for ai-agent-subsystem: the data model and the runtime composition.
 ---
 
 This page is the schema hub. The first diagram shows how the resources reference one another and
