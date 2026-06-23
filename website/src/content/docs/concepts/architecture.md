@@ -48,8 +48,13 @@ prunes old runs beyond the Station's history limits, and exposes `/healthz` plus
 `/metrics` endpoint (reconcile counts and latency, agents by phase, watch reconnects, Kubernetes
 API latency, and leader status).
 
-It uses a **watch + poll** loop: a long-lived watch for low latency, plus a periodic poll (every
-~15s) as a safety net for missed events.
+It runs an **informer**: a full (paginated) LIST seeds an in-memory cache and the watch's starting
+`resourceVersion`, then a long-lived watch keeps the cache current and reconciles each change. The
+watch resumes from the last `resourceVersion` rather than replaying the whole collection, and a
+`410 Gone` triggers a paginated re-list and resync. Concurrency counts and history pruning read the
+cache instead of re-listing, so steady-state reconcile cost is O(changed), not O(all Agents). A
+~15s cache sweep (re-evaluating cached Agents, no LIST) and a slow periodic re-list are the safety
+nets.
 
 ### `initializer`: binary 2
 

@@ -16,7 +16,7 @@ import metrics : recordApiCall, recordJobCreated, recordStatusPatch;
 import agentcore.crds.agent : Agent;
 import agentcore.crds.agent_definition : AgentDefinition;
 import agentcore.crds.station : Station;
-import agentcore.kube.jsonbody : parseAgent, parseAgentDefinition, parseAgentList, parseJobOutcome, parseStation;
+import agentcore.kube.jsonbody : AgentListPage, parseAgentDefinition, parseAgentListPage, parseJobOutcome, parseStation;
 import agentcore.kube.kubeclient : KubeClient, NotFound, PodResult;
 import agentcore.kube.outputcap : capOutput;
 import agentcore.reconcile.reconcile : JobOutcome;
@@ -29,6 +29,23 @@ enum crVersion = "v1alpha1";
 /// Last lines requested from a pod's log: a coarse cap on what crosses the wire.
 /// The byte-accurate tail kept in status.output is enforced by `capOutput`.
 enum logTailLines = 10_000;
+
+/// Page size for the namespace LIST: the API server returns at most this many
+/// Agents per response and a `continue` token for the next page, so a large
+/// namespace is fetched in bounded chunks rather than one unbounded GET.
+enum listPageLimit = 500;
+
+/// Thrown by `watchAgents` when the API server rejects the watch's starting
+/// resourceVersion as too old (HTTP 410 Gone) — the change history it would need
+/// to replay has been compacted away. The control loop catches it and does a full
+/// paginated re-list to resync before watching again.
+class WatchExpired : Exception
+{
+	this(string message) @safe pure nothrow
+	{
+		super(message);
+	}
+}
 
 /// The fields of a `coordination.k8s.io/v1` Lease the election loop reads back:
 /// who holds it, when they last renewed, the resourceVersion (used as an
@@ -111,9 +128,26 @@ final class HttpKubeClient : KubeClient, LeaseClient
 		recordStatusPatch();
 	}
 
-	override Agent[] listAgents(string ns)
+	/// List every Agent in the namespace, following `continue` tokens across pages
+	/// so a large namespace arrives in bounded chunks. Returns the accumulated
+	/// items with the list's `resourceVersion` — the point the watch resumes from.
+	/// Controller-only (it sits beside `watchAgents`), not on the KubeClient seam.
+	AgentListPage listAllAgents(string ns)
 	{
-		return parseAgentList(getJson(crCollectionUrl(ns, "agents"), "agents"));
+		AgentListPage all;
+		string continueToken;
+		do
+		{
+			auto url = crCollectionUrl(ns, "agents") ~ "?limit=" ~ listPageLimit.to!string;
+			if (continueToken.length)
+				url ~= "&continue=" ~ continueToken;
+			auto page = parseAgentListPage(getJson(url, "agents"));
+			all.items ~= page.items;
+			all.resourceVersion = page.resourceVersion;
+			continueToken = page.continueToken;
+		}
+		while (continueToken.length);
+		return all;
 	}
 
 	override void deleteAgent(string ns, string name)
@@ -140,14 +174,22 @@ final class HttpKubeClient : KubeClient, LeaseClient
 	}
 
 	/// Stream Agent watch events (one newline-delimited JSON object per line) to
-	/// `onLine` until the connection ends. `resourceVersion` "0" replays the
-	/// current state then follows changes.
+	/// `onLine` until the connection ends, resuming from `resourceVersion` (the
+	/// last one observed; the controller seeds it from the list). A 410 Gone means
+	/// that resourceVersion is too old to replay — surfaced as `WatchExpired` so
+	/// the caller re-lists and resyncs rather than silently re-watching from a dead
+	/// cursor.
 	void watchAgents(string ns, string resourceVersion, scope void delegate(string line) onLine)
 	{
 		const url = crCollectionUrl(ns, "agents") ~ "?watch=1&resourceVersion=" ~ resourceVersion;
 		requestHTTP(url,
 			(scope HTTPClientRequest req) { authorize(req); },
 			(scope HTTPClientResponse res) {
+				if (res.statusCode == 410)
+				{
+					res.dropBody();
+					throw new WatchExpired("watch resourceVersion " ~ resourceVersion ~ " is too old (410 Gone)");
+				}
 				while (!res.bodyReader.empty)
 				{
 					auto line = cast(string) res.bodyReader.readLine(size_t.max, "\n");

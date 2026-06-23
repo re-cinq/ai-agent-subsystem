@@ -89,16 +89,26 @@ reported terminal with a clear `failureReason` rather than silently losing its o
 
 ## History pruning
 
-On every terminal transition the controller lists the Station's Agents, groups them by phase, sorts
+On every terminal transition the controller groups its cached Agents for the Station by phase, sorts
 by `completedAt` (newest first), and deletes any beyond the Station's
 `successfulRunsHistoryLimit` / `failedRunsHistoryLimit`. This bounds how many finished Agents
 accumulate without losing the most recent ones.
 
-## Watch + poll
+## Informer cache
 
-The controller combines a long-lived **watch** on Agents (low latency, reconnecting on error) with a
-periodic **poll** (every ~15s) that reconciles any Agent still in `Pending` or `Running`. The poll
-is a safety net for watch events that were missed or dropped.
+The controller runs an **informer** rather than re-listing every cycle. On start (and on resync) it
+does a full, **paginated** LIST (`?limit=&continue=`) that seeds an in-memory cache of Agents and
+records the list's `resourceVersion`. A long-lived **watch** then resumes from that
+`resourceVersion`, applying each event to the cache (`ADDED`/`MODIFIED` upsert, `DELETED` evict) and
+reconciling the changed Agent. When the watch closes it resumes from the last `resourceVersion`
+seen — it does not replay the whole collection. A `410 Gone` (the change history was compacted past
+our cursor) triggers a fresh paginated re-list and resync.
+
+Concurrency counts and history pruning read the **cache**, not a fresh LIST, so steady-state
+reconcile cost is O(changed) rather than O(all Agents). Two safety nets cover gaps: a ~15s sweep
+that re-reconciles the cached Agents (no LIST, so a `Pending` Agent that was at capacity gets
+re-evaluated), and a slow periodic full re-list as drift insurance. The `/metrics` endpoint exposes
+`controller_resyncs_total` (full re-lists) and `controller_watch_reconnects_total`.
 
 ## Leader election
 

@@ -8,10 +8,14 @@
 #   B) credential path: an `agent-secrets` Secret -> ANTHROPIC_API_KEY env var (via
 #      secretKeyRef) reaches the agent child (kubelet -> pod -> supervisor -> child),
 #      proven with a fake key the mock asserts before it Succeeds.
+#   C) scale (opt-in, LOAD=<N>): drive N Agents through one Station and assert they all
+#      reach Succeeded while the controller stays Ready — exercises the informer-cache
+#      reconcile loop at hundreds of Agents. Off unless LOAD is set; needs pod capacity.
 #
 #   env: CLUSTER_TOOL (kind|minikube, default kind), CLUSTER (cluster/profile name),
-#        KEEP=1 (don't tear down), REBUILD=1 (force image rebuilds), CONTROLLER_IMAGE,
-#        AGENT_IMAGE. Use minikube on hosts where kind's containerd OOMs the init.
+#        KEEP=1 (don't tear down), REBUILD=1 (force image rebuilds), LOAD=<N> (run
+#        Scenario C with N Agents), CONTROLLER_IMAGE, AGENT_IMAGE. Use minikube on
+#        hosts where kind's containerd OOMs the init.
 set -euo pipefail
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
@@ -222,5 +226,73 @@ job="$(k -n ai-agents get agent "$agent" -o jsonpath='{.status.jobName}')"
 owner="$(k -n ai-agents get job "$job" -o jsonpath='{.metadata.ownerReferences[0].controller}')"
 [ "$owner" = "true" ] || fail "job ownerReference controller=$owner"
 echo "  PASS  agent-secrets -> ANTHROPIC_API_KEY reached the agent child; run Succeeded"
+
+# Scenario C: scale. Opt-in (LOAD=<N>), not run in CI — it needs a cluster with the
+# pod capacity to drain N run pods. Proves the informer-cache reconcile loop drives
+# hundreds of Agents to terminal without the controller hammering the API server or
+# falling over: the watch resumes from resourceVersion, concurrency/pruning read the
+# cache, and the periodic resync re-lists only occasionally (see /metrics:
+# controller_resyncs_total). History limits are set high so terminal Agents are not
+# pruned out from under the terminal-count below.
+if [ "${LOAD:-0}" -gt 0 ]; then
+	load_n="${LOAD}"
+	echo "== Scenario C: load — ${load_n} Agents through one Station (opt-in) =="
+	k apply -f - <<'YAML'
+apiVersion: agents.re-cinq.com/v1alpha1
+kind: AgentDefinition
+metadata: { name: load-writer, namespace: ai-agents }
+spec:
+  model: gpt-mock
+  prompt: "say hello"
+  output: { format: stream-json, sinks: [{ type: stdout }] }
+---
+apiVersion: agents.re-cinq.com/v1alpha1
+kind: Station
+metadata: { name: load-station, namespace: ai-agents }
+spec:
+  agentDefRef: load-writer
+  deadlineMinutes: 5
+  successfulRunsHistoryLimit: 100000
+  failedRunsHistoryLimit: 100000
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: agent
+          image: ai-agent:itest
+          imagePullPolicy: IfNotPresent
+YAML
+
+	echo "== create ${load_n} Agents =="
+	for i in $(seq 1 "$load_n"); do
+		printf 'apiVersion: agents.re-cinq.com/v1alpha1\nkind: Agent\nmetadata: { name: load-%s, namespace: ai-agents }\nspec: { stationRef: load-station }\n---\n' "$i"
+	done | k apply -f - >/dev/null
+	echo "  created ${load_n} Agents"
+
+	load_phases() {
+		k -n ai-agents get agents \
+			-o jsonpath='{range .items[?(@.spec.stationRef=="load-station")]}{.status.phase}{"\n"}{end}'
+	}
+	# maxConcurrentRuns is unset, so throughput is bounded only by the cluster's pod
+	# capacity; budget generously and scale with N.
+	deadline=$(( load_n * 6 + 180 ))
+	start=$SECONDS
+	while :; do
+		terminal="$(load_phases | grep -cE 'Succeeded|Failed' || true)"
+		echo "   terminal=${terminal}/${load_n} (t=$((SECONDS - start))s)" >&2
+		[ "$terminal" -ge "$load_n" ] && break
+		[ $((SECONDS - start)) -ge "$deadline" ] && { echo "FAIL: only ${terminal}/${load_n} terminal after ${deadline}s"; exit 1; }
+		sleep 5
+	done
+
+	failed="$(load_phases | grep -c 'Failed' || true)"
+	[ "$failed" = "0" ] || { echo "FAIL: ${failed} load Agents reached Failed"; exit 1; }
+
+	# The controller must have stayed Ready throughout — no crash/restart under load.
+	ready="$(k -n ai-agents get pods -l agents.re-cinq.com/component=controller -o jsonpath='{.items[*].status.containerStatuses[0].ready}')"
+	echo "$ready" | grep -q false && { echo "FAIL: a controller pod is not Ready"; exit 1; } || true
+	restarts="$(k -n ai-agents get pods -l agents.re-cinq.com/component=controller -o jsonpath='{.items[*].status.containerStatuses[0].restartCount}')"
+	echo "  PASS  ${load_n} Agents all Succeeded; controller Ready, restartCounts=[${restarts}]"
+fi
 
 echo "ALL PASSED"
