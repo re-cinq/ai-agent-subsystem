@@ -1,14 +1,17 @@
 module httpkube;
 
+import core.time : MonoTime;
 import std.algorithm.searching : canFind;
 import std.conv : to;
 import std.exception : enforce;
 import std.json : JSONType, JSONValue, parseJSON;
 
 import vibe.http.client : HTTPClientRequest, HTTPClientResponse, HTTPClientSettings, requestHTTP;
-import vibe.http.common : HTTPMethod;
+import vibe.http.common : HTTPMethod, httpMethodString;
 import vibe.stream.operations : readAllUTF8, readLine;
 import vibe.stream.tls : TLSContext;
+
+import metrics : recordApiCall, recordJobCreated, recordStatusPatch;
 
 import agentcore.crds.agent : Agent;
 import agentcore.crds.agent_definition : AgentDefinition;
@@ -92,7 +95,8 @@ final class HttpKubeClient : KubeClient, LeaseClient
 
 	override void createJob(string ns, JSONValue job)
 	{
-		send(HTTPMethod.POST, jobsUrl(ns), job, "application/json", [201, 409]);
+		if (send(HTTPMethod.POST, jobsUrl(ns), job, "application/json", [201, 409]) == 201)
+			recordJobCreated();
 	}
 
 	override JobOutcome jobOutcome(string ns, string jobName)
@@ -104,6 +108,7 @@ final class HttpKubeClient : KubeClient, LeaseClient
 	{
 		send(HTTPMethod.PATCH, crUrl(ns, "agents", name) ~ "/status", statusPatch,
 			"application/merge-patch+json", [200]);
+		recordStatusPatch();
 	}
 
 	override Agent[] listAgents(string ns)
@@ -187,14 +192,16 @@ final class HttpKubeClient : KubeClient, LeaseClient
 	private JSONValue requestJson(string url, out int status)
 	{
 		JSONValue document;
-		requestHTTP(url,
+		int observed;
+		timedRequest("GET", url,
 			(scope HTTPClientRequest req) { authorize(req); },
 			(scope HTTPClientResponse res) {
-				status = res.statusCode;
+				observed = res.statusCode;
 				const body = res.bodyReader.readAllUTF8();
-				if (status == 200)
+				if (observed == 200)
 					document = parseJSON(body);
-			}, settings);
+			});
+		status = observed;
 		return document;
 	}
 
@@ -212,12 +219,12 @@ final class HttpKubeClient : KubeClient, LeaseClient
 	{
 		string body;
 		int status;
-		requestHTTP(url,
+		timedRequest("GET", url,
 			(scope HTTPClientRequest req) { authorize(req); },
 			(scope HTTPClientResponse res) {
 				status = res.statusCode;
 				body = res.bodyReader.readAllUTF8();
-			}, settings);
+			});
 		enforce(status == 200, what ~ ": unexpected status " ~ status.to!string);
 		return body;
 	}
@@ -257,17 +264,28 @@ final class HttpKubeClient : KubeClient, LeaseClient
 	private int send(HTTPMethod method, string url, JSONValue body, string contentType, int[] okCodes)
 	{
 		int status;
-		requestHTTP(url,
+		timedRequest(httpMethodString(method), url,
 			(scope HTTPClientRequest req) {
 				req.method = method;
 				authorize(req);
 				if (body.type != JSONType.null_)
 					req.writeBody(cast(const(ubyte)[]) body.toString(), contentType);
 			},
-			(scope HTTPClientResponse res) { status = res.statusCode; res.dropBody(); },
-			settings);
+			(scope HTTPClientResponse res) { status = res.statusCode; res.dropBody(); });
 		enforce(okCodes.canFind(status), url ~ ": unexpected status " ~ status.to!string);
 		return status;
+	}
+
+	/// Issue one short request and record its wall-clock duration against the API
+	/// latency summary, labelled by `verb`. The long-lived `watchAgents` stream is
+	/// deliberately not routed here — it is not a request/response RPC.
+	private void timedRequest(string verb, string url,
+		scope void delegate(scope HTTPClientRequest) onRequest,
+		scope void delegate(scope HTTPClientResponse) onResponse)
+	{
+		const start = MonoTime.currTime;
+		requestHTTP(url, onRequest, onResponse, settings);
+		recordApiCall(verb, (MonoTime.currTime - start).total!"nsecs" / 1e9);
 	}
 
 	private void authorize(scope HTTPClientRequest req)

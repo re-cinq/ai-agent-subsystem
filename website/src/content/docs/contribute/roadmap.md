@@ -13,7 +13,7 @@ these docs.
 - The `agentcore` shared library: CRD types, reconcile state machine, prompt templating, Job builder,
   and the in-cluster Kubernetes client.
 - The `controller`, `supervisor`, and `initializer` binaries, with the controller's watch + poll
-  reconcile loop, Job ownership/pruning, credential injection, and `/healthz`.
+  reconcile loop, Job ownership/pruning, credential injection, `/healthz`, and Prometheus `/metrics`.
 - The `ai-agent` runtime image: the init container stages the supervisor into the run bundle, clones
   repos, and installs the agent CLI.
 - CRD, RBAC, and controller manifests under `deploy/`.

@@ -17,6 +17,13 @@ spec:
     metadata:
       labels:
         agents.re-cinq.com/component: controller
+      # Vanilla Prometheus pod discovery scrapes /metrics on the health port. With
+      # the Prometheus Operator instead, drop these and point a ServiceMonitor at
+      # the same port/path.
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8081"
+        prometheus.io/path: /metrics
     spec:
       serviceAccountName: agent-controller
       securityContext:

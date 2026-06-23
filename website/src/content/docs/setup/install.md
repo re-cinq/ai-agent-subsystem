@@ -42,8 +42,9 @@ kubectl -n ai-agents get deploy,pods
 kubectl -n ai-agents logs deploy/agent-controller
 ```
 
-The controller exposes `/healthz` on its health port; a `Running` pod with passing probes means it
-is reconciling.
+The controller exposes `/healthz` and a Prometheus `/metrics` endpoint on its health port; a
+`Running` pod with passing probes means it is reconciling. The pod template carries
+`prometheus.io/scrape` annotations, so a cluster Prometheus picks up `/metrics` automatically.
 
 ## Next
 

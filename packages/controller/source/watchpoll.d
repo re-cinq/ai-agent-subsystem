@@ -1,6 +1,6 @@
 module watchpoll;
 
-import core.time : seconds;
+import core.time : MonoTime, seconds;
 import std.datetime.systime : Clock;
 import std.datetime.timezone : UTC;
 import std.json : JSONType, JSONValue, parseJSON;
@@ -8,12 +8,14 @@ import std.json : JSONType, JSONValue, parseJSON;
 import vibe.core.core : runTask, sleep;
 import vibe.core.log : logError, logInfo;
 
+import agentcore.core.types : Phase;
 import agentcore.crds.agent : Agent;
 import agentcore.kube.jsonbody : parseAgent;
 import agentcore.reconcile.reconcile_driver : reconcileAgent;
 
 import httpkube : HttpKubeClient;
 import leaderelection : Leadership;
+import metrics : recordAgentsByPhase, recordReconcile, recordWatchReconnect;
 
 /// A decoded line from the Agent watch stream.
 struct WatchEvent
@@ -78,6 +80,7 @@ private void pollLoop(HttpKubeClient client, string ns, string agentImage, Leade
 			{
 				auto agents = client.listAgents(ns);
 				logInfo("poll: %s agent(s)", agents.length);
+					recordPhaseGauges(agents);
 				foreach (agent; agents)
 					reconcileOne(client, ns, agent, agentImage);
 			}
@@ -90,8 +93,12 @@ private void pollLoop(HttpKubeClient client, string ns, string agentImage, Leade
 
 private void watchLoop(HttpKubeClient client, string ns, string agentImage, Leadership leadership) nothrow
 {
+	bool firstConnect = true;
 	for (;;)
 	{
+		if (!firstConnect)
+			recordWatchReconnect();
+		firstConnect = false;
 		try
 			client.watchAgents(ns, "0", (string line) {
 				if (!leadership.isLeader)
@@ -109,13 +116,44 @@ private void watchLoop(HttpKubeClient client, string ns, string agentImage, Lead
 
 private void reconcileOne(HttpKubeClient client, string ns, Agent agent, string agentImage) nothrow
 {
+	const start = MonoTime.currTime;
 	try
 	{
 		logInfo("reconcile %s (phase=%s)", agent.metadata.name, cast(string) agent.status.phase);
 		reconcileAgent(client, ns, agent, agentImage, nowRfc3339());
+		recordReconcile("success", elapsedSeconds(start));
 	}
 	catch (Exception error)
+	{
+		recordReconcile("error", elapsedSeconds(start));
 		logError("reconcile %s: %s", agent.metadata.name, error.msg);
+	}
+}
+
+/// Tally how many Agents sit in each phase right now, for the agents-by-phase
+/// gauge. Every phase is set each poll (including 0) so a drained phase decays
+/// instead of holding its last non-zero reading.
+private void recordPhaseGauges(Agent[] agents) nothrow
+{
+	static immutable Phase[] phases = [Phase.pending, Phase.running, Phase.succeeded, Phase.failed];
+	foreach (phase; phases)
+		recordAgentsByPhase(cast(string) phase, countInPhase(agents, phase));
+}
+
+/// Count how many of `agents` sit in `phase`. Pure so the tally is unit-testable
+/// apart from the metrics side effect `recordPhaseGauges` wraps around it.
+size_t countInPhase(const Agent[] agents, Phase phase) @safe pure nothrow
+{
+	size_t count;
+	foreach (ref agent; agents)
+		if (agent.status.phase == phase)
+			count++;
+	return count;
+}
+
+private double elapsedSeconds(MonoTime start) nothrow
+{
+	return (MonoTime.currTime - start).total!"nsecs" / 1e9;
 }
 
 private void backoff(int secs) nothrow
@@ -144,4 +182,19 @@ unittest
 	event.resourceVersion.should.equal("42");
 
 	parseWatchLine("not json").type.should.equal("");
+}
+
+unittest
+{
+	Agent pending, runningOne, runningTwo, succeeded;
+	pending.status.phase = Phase.pending;
+	runningOne.status.phase = Phase.running;
+	runningTwo.status.phase = Phase.running;
+	succeeded.status.phase = Phase.succeeded;
+	const agents = [pending, runningOne, runningTwo, succeeded];
+
+	countInPhase(agents, Phase.running).should.equal(2);
+	countInPhase(agents, Phase.pending).should.equal(1);
+	countInPhase(agents, Phase.succeeded).should.equal(1);
+	countInPhase(agents, Phase.failed).should.equal(0);
 }
