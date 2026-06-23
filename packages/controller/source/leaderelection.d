@@ -10,6 +10,7 @@ import vibe.core.core : sleep;
 import vibe.core.log : logError, logInfo;
 
 import httpkube : LeaseClient, LeaseRecord;
+import metrics : recordLeadership;
 
 /// Fixed Lease the controller's replicas contend for. Whoever holds it reconciles;
 /// every standby stays idle. One Lease per controller Deployment.
@@ -194,6 +195,7 @@ private void setLeader(Leadership leadership, string identity, bool won) nothrow
 	else if (!won && leadership.isLeader)
 		logInfo("election: %s lost leadership", identity);
 	leadership.isLeader = won;
+	recordLeadership(won);
 }
 
 private long nowUnix()
