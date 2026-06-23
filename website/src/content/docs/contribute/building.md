@@ -135,3 +135,26 @@ TARGETS="debian:bookworm-slim" ./scripts/ctest-supervisor.sh   # a subset
 
 CI runs this on Rocky, Amazon Linux, Debian, and Ubuntu in the **Supervisor container** workflow
 (`.github/workflows/supervisor-container.yml`).
+
+### Controller integration test
+
+The controller is exercised end to end on a real cluster, hermetically (no API key, no network in
+the run pod), with the agent CLI swapped for a deterministic mock. It drives Agents through two
+scenarios: (A) controller wiring — Job creation with an owner reference, status moving
+`Pending → Running → Succeeded`, `status.output`/`exitCode` enrichment, and owner-reference garbage
+collection; and (B) the **credential path** — an `agent-secrets` Secret injected as
+`ANTHROPIC_API_KEY` via `secretKeyRef` reaches the agent child (kubelet → pod → supervisor → child),
+proven with a fake key the mock asserts before it succeeds:
+
+```sh
+./scripts/itest-controller.sh                       # kind (default)
+CLUSTER_TOOL=minikube CLUSTER=minikube ./scripts/itest-controller.sh   # minikube
+```
+
+CI runs this on kind in the **Controller container** workflow (`.github/workflows/controller.yml`).
+On some very new host kernels kind's containerd balloons the init container's memory and OOM-kills it
+before the run starts (it does not reproduce under plain Docker or in CI); on such hosts run it with
+`CLUSTER_TOOL=minikube` (the docker runtime), which is unaffected. The real-CLI half of the
+credential path (an actual Claude authentication) is a manual repro documented under
+[Launch an agent](/tasks/launch-an-agent/#verify-api-key-auth-end-to-end), kept out of CI so no job
+spends real API credits.
