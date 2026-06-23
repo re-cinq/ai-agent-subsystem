@@ -70,13 +70,28 @@ Agent parseAgent(JSONValue value)
 	return agent;
 }
 
-/// Parse the `.items` of a Kubernetes AgentList into typed Agents.
-Agent[] parseAgentList(JSONValue value)
+/// One page of a Kubernetes AgentList: the typed items plus the list's
+/// `metadata.resourceVersion` (where a watch resumes from) and `metadata.continue`
+/// (the token for the next page, empty on the last page). Capturing these is what
+/// lets the controller paginate and resume the watch instead of re-listing from 0.
+struct AgentListPage
 {
-	Agent[] agents;
+	Agent[] items;
+	string resourceVersion;
+	string continueToken;
+}
+
+/// Parse one page of a Kubernetes AgentList: its `.items` and the list-level
+/// `metadata.resourceVersion` / `metadata.continue`.
+AgentListPage parseAgentListPage(JSONValue value)
+{
+	AgentListPage page;
 	foreach (item; childArray(value, "items"))
-		agents ~= parseAgent(item);
-	return agents;
+		page.items ~= parseAgent(item);
+	auto meta = childObject(value, "metadata");
+	page.resourceVersion = childString(meta, "resourceVersion");
+	page.continueToken = childString(meta, "continue");
+	return page;
 }
 
 /// Parse a Kubernetes Station object into the typed struct.
@@ -323,11 +338,20 @@ unittest
 
 unittest
 {
-	// No status -> phase defaults to Pending; a list parses each item.
+	// No status -> phase defaults to Pending.
 	parseAgent(parseJSON(`{"metadata":{"name":"fresh"},"spec":{"stationRef":"s"}}`))
 		.status.phase.should.equal(Phase.pending);
-	parseAgentList(parseJSON(`{"items":[{"metadata":{"name":"a"}},{"metadata":{"name":"b"}}]}`))
-		.length.should.equal(2);
+
+	// A list page parses each item plus the resourceVersion and continue token.
+	auto page = parseAgentListPage(parseJSON(`{"metadata":{"resourceVersion":"7","continue":"tok"},`
+			~ `"items":[{"metadata":{"name":"a"}},{"metadata":{"name":"b"}}]}`));
+	page.items.length.should.equal(2);
+	page.resourceVersion.should.equal("7");
+	page.continueToken.should.equal("tok");
+
+	// The last page carries no continue token.
+	parseAgentListPage(parseJSON(`{"metadata":{"resourceVersion":"9"},"items":[]}`))
+		.continueToken.should.equal("");
 }
 
 unittest
