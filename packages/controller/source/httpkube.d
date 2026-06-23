@@ -157,16 +157,8 @@ final class HttpKubeClient : KubeClient, LeaseClient
 	/// create one.
 	override LeaseRecord getLease(string ns, string name)
 	{
-		JSONValue document;
 		int status;
-		requestHTTP(leaseUrl(ns, name),
-			(scope HTTPClientRequest req) { authorize(req); },
-			(scope HTTPClientResponse res) {
-				status = res.statusCode;
-				const body = res.bodyReader.readAllUTF8();
-				if (status == 200)
-					document = parseJSON(body);
-			}, settings);
+		auto document = requestJson(leaseUrl(ns, name), status);
 		if (status == 404)
 			return LeaseRecord.init;
 		enforce(status == 200, "Lease " ~ name ~ ": unexpected status " ~ status.to!string);
@@ -189,10 +181,12 @@ final class HttpKubeClient : KubeClient, LeaseClient
 			[200, 409]) == 200;
 	}
 
-	private JSONValue getJson(string url, string what)
+	/// GET a JSON document, returning the HTTP `status` and (on 200) the parsed
+	/// body. The 404 policy is the caller's: `getJson` throws `NotFound`, while a
+	/// Lease read treats it as "absent".
+	private JSONValue requestJson(string url, out int status)
 	{
 		JSONValue document;
-		int status;
 		requestHTTP(url,
 			(scope HTTPClientRequest req) { authorize(req); },
 			(scope HTTPClientResponse res) {
@@ -201,6 +195,13 @@ final class HttpKubeClient : KubeClient, LeaseClient
 				if (status == 200)
 					document = parseJSON(body);
 			}, settings);
+		return document;
+	}
+
+	private JSONValue getJson(string url, string what)
+	{
+		int status;
+		auto document = requestJson(url, status);
 		if (status == 404)
 			throw new NotFound(what ~ " not found");
 		enforce(status == 200, what ~ ": unexpected status " ~ status.to!string);
