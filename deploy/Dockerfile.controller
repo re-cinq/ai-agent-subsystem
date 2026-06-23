@@ -5,18 +5,22 @@
 # then a minimal glibc runtime with libssl3 (vibe-d links it dynamically). Runs
 # non-root, matching deploy/controller.yaml's securityContext.
 #
-ARG BUILDER_IMAGE=debian:bookworm
+# Builder: rockylinux:9 — its glibc (2.34) is the oldest in the runtime/Station
+# matrix (rocky/amazonlinux/debian/ubuntu), so the static-druntime binary it builds
+# runs on every glibc >= 2.34, not just bookworm's 2.36. The OFFICIAL ldc release
+# (dlang.org install.sh) ships the static druntime/phobos that
+# `-link-defaultlib-shared=false` needs — the EPEL ldc package ships only shared.
+#
+ARG BUILDER_IMAGE=rockylinux:9
 ARG RUNTIME_IMAGE=debian:bookworm-slim
 ARG LDC_VERSION=1.40.0
 
 FROM ${BUILDER_IMAGE} AS builder
 ARG LDC_VERSION
 RUN set -eu; \
-	export DEBIAN_FRONTEND=noninteractive; \
-	apt-get update; \
-	apt-get install -y --no-install-recommends \
-		curl xz-utils gcc libc6-dev zlib1g-dev libssl-dev libxml2 git ca-certificates; \
-	rm -rf /var/lib/apt/lists/*
+	dnf install -y --setopt=install_weak_deps=False \
+		curl-minimal xz tar gzip gcc glibc-devel zlib-devel openssl-devel libxml2 git ca-certificates; \
+	dnf clean all
 RUN curl -fsS https://dlang.org/install.sh | bash -s "ldc-${LDC_VERSION}" -p /opt/dlang
 ENV PATH="/opt/dlang/ldc-${LDC_VERSION}/bin:${PATH}"
 WORKDIR /src

@@ -7,27 +7,25 @@
 # agentcore.bundle.supervisorStageSource) and copied into the emptyDir at run
 # start by SupervisorTool, then exec'd by the Station's OWN base image — so both
 # binaries are built static-druntime (only glibc + libssl.so.3 needed at run time)
-# on the same glibc family as a typical Station image (debian/node:22-bookworm).
+# on the OLDEST glibc in the supported Station matrix, so they run on every base.
 #
 #   build args: BUILDER_IMAGE (gets a D toolchain), RUNTIME_IMAGE
 #
-# Builder: debian:bookworm + the OFFICIAL ldc release (current enough for vibe-d
-# 0.10.3 and, unlike the distro/EPEL packages, ships the STATIC druntime/phobos
-# libs that `-link-defaultlib-shared=false` needs). Bookworm's glibc (2.36) matches
-# the runtime and a typical Station base image (node:22-bookworm), so the binaries
-# run there directly.
-ARG BUILDER_IMAGE=debian:bookworm
+# Builder: rockylinux:9 — glibc 2.34, the oldest in the supported matrix
+# (rocky/amazonlinux/debian/ubuntu), so the static-druntime binaries run on every
+# glibc >= 2.34 Station base, not just bookworm's 2.36. The OFFICIAL ldc release
+# (dlang.org install.sh) is used, not the EPEL package, because only it ships the
+# STATIC druntime/phobos libs that `-link-defaultlib-shared=false` needs.
+ARG BUILDER_IMAGE=rockylinux:9
 ARG RUNTIME_IMAGE=debian:bookworm-slim
 ARG LDC_VERSION=1.40.0
 
 FROM ${BUILDER_IMAGE} AS builder
 ARG LDC_VERSION
 RUN set -eu; \
-	export DEBIAN_FRONTEND=noninteractive; \
-	apt-get update; \
-	apt-get install -y --no-install-recommends \
-		curl xz-utils gcc libc6-dev zlib1g-dev libssl-dev libxml2 git ca-certificates; \
-	rm -rf /var/lib/apt/lists/*
+	dnf install -y --setopt=install_weak_deps=False \
+		curl-minimal xz tar gzip gcc glibc-devel zlib-devel openssl-devel libxml2 git ca-certificates; \
+	dnf clean all
 RUN curl -fsS https://dlang.org/install.sh | bash -s "ldc-${LDC_VERSION}" -p /opt/dlang
 ENV PATH="/opt/dlang/ldc-${LDC_VERSION}/bin:${PATH}"
 WORKDIR /src
