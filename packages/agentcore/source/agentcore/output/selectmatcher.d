@@ -99,11 +99,10 @@ private SelectEvent toSelectEvent(string name)
 	}
 }
 
-/// Normalize one provider event to the `SelectEvent` vocabulary. Claude's
-/// `stream-json` is mapped from real event shapes; Codex's `--json` is best-effort
-/// off its `type` field. (Role filtering is intentionally omitted — the CRD's
-/// `SelectRole` has no "unset" value, so it cannot be distinguished from
-/// `assistant`.)
+/// Normalize one provider event to the `SelectEvent` vocabulary. Both mappings are
+/// grounded in real output: Claude's `stream-json` and Codex's `exec --json`. (Role
+/// filtering is intentionally omitted — the CRD's `SelectRole` has no "unset" value,
+/// so it cannot be distinguished from `assistant`.)
 Classified classify(string provider, JSONValue event)
 {
 	if (event.type != JSONType.object)
@@ -149,18 +148,50 @@ private Classified fromContent(JSONValue[] content, SelectEvent fallback)
 	return Classified(true, fallback, "", text);
 }
 
+/// Normalize a Codex `exec --json` event. Codex streams thread/turn lifecycle plus
+/// `item.completed` events whose nested `item.type` names what was produced, and token
+/// usage on `turn.completed`. Codex has no distinct result event — the final answer is
+/// an `agent_message` (select `message`). Lifecycle, in-progress (`item.started`/
+/// `item.updated`) and internal `reasoning` events don't map; they're dropped from
+/// sinks while stdout keeps the full stream.
 private Classified classifyCodex(JSONValue event)
 {
 	const type = strAt(event, "type");
-	if (canFind(type, "result") || canFind(type, "complete"))
-		return Classified(true, SelectEvent.result, "", strAt(event, "text"));
-	if (canFind(type, "tool") || canFind(type, "command") || canFind(type, "function"))
-		return Classified(true, SelectEvent.toolCall, strAt(event, "name"));
-	if (canFind(type, "token") || canFind(type, "usage"))
+	if (type == "turn.completed")
 		return Classified(true, SelectEvent.usage);
-	if (canFind(type, "message"))
-		return Classified(true, SelectEvent.message, "", strAt(event, "text"));
-	return Classified.init;
+	if (type != "item.completed")
+		return Classified.init;
+	return classifyCodexItem(childObject(event, "item"));
+}
+
+/// Classify a completed Codex item by its `item.type`: the assistant's answer
+/// (`agent_message`) is a message; a shell `command_execution`, an `mcp_tool_call`, a
+/// `file_change` or a `web_search` is a tool_call (carrying the command text or the
+/// tool name for narrowing). Reasoning and anything unrecognised stay unclassified.
+private Classified classifyCodexItem(JSONValue item)
+{
+	switch (strAt(item, "type"))
+	{
+	case "agent_message":
+		return Classified(true, SelectEvent.message, "", strAt(item, "text"));
+	case "command_execution":
+		return Classified(true, SelectEvent.toolCall, "", strAt(item, "command"));
+	case "mcp_tool_call":
+		return Classified(true, SelectEvent.toolCall, strAt(item, "tool"));
+	case "file_change":
+	case "web_search":
+		return Classified(true, SelectEvent.toolCall);
+	default:
+		return Classified.init;
+	}
+}
+
+private JSONValue childObject(JSONValue event, string key)
+{
+	if (auto value = key in event.object)
+		if (value.type == JSONType.object)
+			return *value;
+	return JSONValue.init;
 }
 
 private JSONValue[] messageContent(JSONValue event)
@@ -228,4 +259,65 @@ unittest
 		`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read"}]}}`).should.equal(true);
 	selected(readTool, "claude",
 		`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit"}]}}`).should.equal(false);
+}
+
+unittest
+{
+	// Real `codex exec --json` shapes (issue #13): an item.completed carries the
+	// produced item in `item.type`; tokens arrive on turn.completed. Codex has no
+	// distinct result event — the final answer is an agent_message (-> message).
+	auto messages = [OutputSelector(SelectEvent.message)];
+	selected(messages, "codex",
+		`{"type":"item.completed","item":{"id":"i3","type":"agent_message","text":"Done."}}`)
+		.should.equal(true);
+
+	auto toolCalls = [OutputSelector(SelectEvent.toolCall)];
+	selected(toolCalls, "codex",
+		`{"type":"item.completed","item":{"id":"i1","type":"command_execution",`
+			~ `"command":"bash -lc ls","aggregated_output":"docs\n","exit_code":0,"status":"completed"}}`)
+		.should.equal(true);
+
+	auto usage = [OutputSelector(SelectEvent.usage)];
+	selected(usage, "codex",
+		`{"type":"turn.completed","usage":{"input_tokens":24763,"cached_input_tokens":24448,"output_tokens":122}}`)
+		.should.equal(true);
+}
+
+unittest
+{
+	// Codex tool narrowing: an mcp_tool_call exposes the tool name; a
+	// command_execution exposes its command for `contains`.
+	auto searchTool = [OutputSelector(SelectEvent.toolCall, "search")];
+	selected(searchTool, "codex",
+		`{"type":"item.completed","item":{"id":"i5","type":"mcp_tool_call",`
+			~ `"server":"docs","tool":"search","status":"completed"}}`)
+		.should.equal(true);
+	selected(searchTool, "codex",
+		`{"type":"item.completed","item":{"id":"i5","type":"mcp_tool_call",`
+			~ `"server":"docs","tool":"fetch","status":"completed"}}`)
+		.should.equal(false);
+
+	auto lsCommand = [OutputSelector(SelectEvent.toolCall, "", SelectRole.init, "ls")];
+	selected(lsCommand, "codex",
+		`{"type":"item.completed","item":{"id":"i1","type":"command_execution","command":"bash -lc ls"}}`)
+		.should.equal(true);
+}
+
+unittest
+{
+	// Lifecycle, in-progress (item.started/updated) and internal reasoning events do
+	// not classify -> dropped from sinks (stdout still receives everything).
+	auto any = [
+		OutputSelector(SelectEvent.message), OutputSelector(SelectEvent.toolCall),
+		OutputSelector(SelectEvent.usage), OutputSelector(SelectEvent.result),
+	];
+	selected(any, "codex", `{"type":"thread.started","thread_id":"t1"}`).should.equal(false);
+	selected(any, "codex", `{"type":"turn.started"}`).should.equal(false);
+	selected(any, "codex",
+		`{"type":"item.started","item":{"id":"i1","type":"command_execution",`
+			~ `"command":"bash -lc ls","status":"in_progress"}}`)
+		.should.equal(false);
+	selected(any, "codex",
+		`{"type":"item.completed","item":{"id":"i2","type":"reasoning","text":"thinking..."}}`)
+		.should.equal(false);
 }
