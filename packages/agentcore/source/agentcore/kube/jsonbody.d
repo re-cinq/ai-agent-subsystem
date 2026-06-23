@@ -4,7 +4,7 @@ import std.json : JSONType, JSONValue;
 
 import agentcore.crds.agent : Agent;
 import agentcore.crds.agent_definition : AgentDefinition;
-import agentcore.crds.enums : PermissionMode, SinkType;
+import agentcore.crds.enums : ConcurrencyPolicy, PermissionMode, SinkType;
 import agentcore.crds.output_sink : OutputSink;
 import agentcore.crds.repo_ref : RepoRef;
 import agentcore.crds.station : Station;
@@ -24,6 +24,7 @@ JSONValue statusPatch(Decision decision, string jobName, string timestamp)
 	final switch (decision.kind)
 	{
 	case ActionKind.startRun:
+	case ActionKind.replaceRun:
 		status["jobName"] = JSONValue(jobName);
 		status["startedAt"] = JSONValue(timestamp);
 		break;
@@ -107,6 +108,8 @@ Station parseStation(JSONValue value)
 	station.spec.deadlineMinutes = cast(int) childInt(spec, "deadlineMinutes", 30);
 	station.spec.successfulRunsHistoryLimit = cast(int) childInt(spec, "successfulRunsHistoryLimit", 3);
 	station.spec.failedRunsHistoryLimit = cast(int) childInt(spec, "failedRunsHistoryLimit", 3);
+	station.spec.maxConcurrentRuns = cast(int) childInt(spec, "maxConcurrentRuns", 0);
+	station.spec.concurrencyPolicy = toConcurrencyPolicy(childString(spec, "concurrencyPolicy"));
 	station.spec.template_ = childObject(spec, "template");
 	return station;
 }
@@ -215,6 +218,19 @@ private Phase toPhase(string phase)
 private PermissionMode toPermissionMode(string mode)
 {
 	return mode == "auto" ? PermissionMode.auto_ : PermissionMode.bypass;
+}
+
+private ConcurrencyPolicy toConcurrencyPolicy(string policy)
+{
+	switch (policy)
+	{
+	case "Forbid":
+		return ConcurrencyPolicy.forbid;
+	case "Replace":
+		return ConcurrencyPolicy.replace;
+	default:
+		return ConcurrencyPolicy.allow;
+	}
 }
 
 private SinkType toSinkType(string type)
@@ -359,12 +375,22 @@ unittest
 	auto station = parseStation(parseJSON(`{
 		"metadata":{"name":"stn"},
 		"spec":{"agentDefRef":"def","deadlineMinutes":45,"successfulRunsHistoryLimit":1,
+			"maxConcurrentRuns":2,"concurrencyPolicy":"Replace",
 			"template":{"spec":{"containers":[]}}}}`));
 	station.spec.agentDefRef.should.equal("def");
 	station.spec.deadlineMinutes.should.equal(45);
 	station.spec.successfulRunsHistoryLimit.should.equal(1);
 	station.spec.failedRunsHistoryLimit.should.equal(3); // default kept when absent
+	station.spec.maxConcurrentRuns.should.equal(2);
+	station.spec.concurrencyPolicy.should.equal(ConcurrencyPolicy.replace);
 	station.spec.template_["spec"]["containers"].array.length.should.equal(0);
+}
+
+unittest
+{
+	// concurrencyPolicy defaults to Allow when absent or unrecognised.
+	parseStation(parseJSON(`{"metadata":{"name":"stn"},"spec":{"template":{}}}`))
+		.spec.concurrencyPolicy.should.equal(ConcurrencyPolicy.allow);
 }
 
 unittest
