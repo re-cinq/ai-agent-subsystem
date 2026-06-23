@@ -10,3 +10,11 @@ resources:
   - rbac/caller-rbac.yaml
   - rbac/networkpolicy.yaml
   - controller.yaml
+
+# The controller image is pinned here. For reproducible, tamper-evident releases
+# run scripts/pin-image-digests.sh, which rewrites `newTag` to an immutable
+# `digest: sha256:...` (the digest cosign signs in .github/workflows/images.yml)
+# and pins the AGENT_IMAGE the controller injects, in controller.yaml.
+images:
+  - name: ghcr.io/re-cinq/ai-agent-controller
+    newTag: latest

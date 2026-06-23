@@ -4,6 +4,11 @@ name: Publish images
 # merge to main (the CI + controller-container workflows gate the PR) and on
 # version tags. The agent image is the AGENT_IMAGE the controller injects as each
 # run pod's init container; the controller image backs deploy/controller.yaml.
+#
+# Supply chain: each pushed image is signed with cosign (keyless, via the GitHub
+# OIDC token — no stored keys) and carries an SPDX SBOM + SLSA provenance
+# attestation. The immutable digest is written to the run summary; pin deploy/ to
+# it with scripts/pin-image-digests.sh.
 
 on:
   push:
@@ -14,6 +19,7 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write # keyless cosign signing via the GitHub OIDC token
 
 jobs:
   publish:
@@ -40,10 +46,24 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=tag
             type=sha
-      - uses: docker/build-push-action@v6
+      - id: build
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ matrix.file }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          sbom: true # SPDX SBOM attestation, attached to the image
+          provenance: mode=max # SLSA build provenance attestation
+      - uses: sigstore/cosign-installer@v3
+      - name: Sign the image by digest (keyless)
+        env:
+          IMAGE: ${{ matrix.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+      - name: Record the immutable digest
+        env:
+          IMAGE: ${{ matrix.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: echo "- \`${IMAGE}@${DIGEST}\`" >> "$GITHUB_STEP_SUMMARY"
