@@ -1,5 +1,6 @@
 module leaderelection;
 
+import core.thread : Thread;
 import core.time : seconds;
 import std.datetime.systime : Clock;
 import std.datetime.timezone : UTC;
@@ -24,12 +25,38 @@ enum leaseDurationSeconds = 15;
 /// standby re-checks the Lease this often.
 enum renewIntervalSeconds = 5;
 
-/// Leadership flag shared between the election loop (writer) and the reconcile
-/// loop (reader). Both run as vibe tasks on the one event-loop thread, so a plain
-/// field is race-free here — no atomics needed.
+/// Leadership flag the election loop (writer) shares with the reconcile loops
+/// (readers). They all run as cooperative vibe fibers on the one event-loop
+/// thread, so the unsynchronized flag is race-free — but only while that holds.
+/// The accessors bind the owning thread on first touch and assert every later
+/// access stays on it, so moving a loop onto a worker thread trips loudly in a
+/// debug/test build instead of silently becoming a data race (UB in D).
 final class Leadership
 {
-	bool isLeader;
+	private bool flag;
+	private Thread owner;
+
+	bool isLeader() nothrow
+	{
+		assertOwningThread();
+		return flag;
+	}
+
+	void isLeader(bool value) nothrow
+	{
+		assertOwningThread();
+		flag = value;
+	}
+
+	private void assertOwningThread() nothrow
+	{
+		auto current = Thread.getThis();
+		if (owner is null)
+			owner = current;
+		else
+			assert(owner is current,
+				"Leadership accessed off its event-loop thread: the flag is unsynchronized and single-thread-only");
+	}
 }
 
 /// One running leader election: its fixed collaborators (the Lease client, this
@@ -456,4 +483,28 @@ unittest
 	granted.sort();
 	used.sort();
 	granted.should.equal(used);
+}
+
+unittest
+{
+	import core.exception : AssertError;
+	import core.thread : Thread;
+
+	// issue #20: the leadership flag is unsynchronized and assumes every access stays
+	// on the one event-loop thread. It binds its owning thread on first touch, so a
+	// read from any other thread must trip loudly rather than silently racing.
+	auto leadership = new Leadership;
+	leadership.isLeader = false; // binds this thread as the owner
+
+	auto tripped = false;
+	auto intruder = new Thread(() {
+		try
+			cast(void) leadership.isLeader;
+		catch (AssertError)
+			tripped = true;
+	});
+	intruder.start();
+	intruder.join();
+
+	tripped.should.equal(true);
 }
