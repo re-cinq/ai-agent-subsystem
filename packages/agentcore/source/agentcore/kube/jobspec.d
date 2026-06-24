@@ -161,6 +161,9 @@ private JSONValue wirePodTemplate(JSONValue template_, JSONValue[] command, JSON
 	spec["volumes"] = withBundleVolume(spec);
 	spec["restartPolicy"] = JSONValue("Never");
 	spec["securityContext"] = podSecurity();
+	// The run needs no Kubernetes API access; don't mount a SA token into a pod that
+	// executes untrusted agent code.
+	spec["automountServiceAccountToken"] = JSONValue(false);
 
 	pod["spec"] = spec;
 	return pod;
@@ -515,6 +518,19 @@ unittest
 	labels["agents.re-cinq.com/component"].str.should.equal("job");
 	labels["agents.re-cinq.com/agent"].str.should.equal("bug-fixer-run-1");
 	labels["agents.re-cinq.com/station"].str.should.equal("bug-fixer-station");
+}
+
+unittest
+{
+	// The run pod must not mount a ServiceAccount token: the run needs no API access,
+	// and a mounted token is a live credential exposed to the untrusted agent code.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+
+	auto pod = buildJob(agent, station, definition, "img")["spec"]["template"]["spec"];
+	pod["automountServiceAccountToken"].boolean.should.equal(false);
 }
 
 unittest
