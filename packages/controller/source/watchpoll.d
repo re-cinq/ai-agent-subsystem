@@ -227,7 +227,13 @@ private void reconcileOne(HttpKubeClient client, string ns, Agent agent, string 
 		reconcileAgent(client, ns, agent, agentImage, nowRfc3339(), cached);
 		recordReconcile("success", elapsedSeconds(start));
 	}
-	catch (Exception error)
+	// Contain a single Agent's reconcile — including library-level `Error`s, not just
+	// `Exception`s — so one bad API interaction can never crash the HA controller. A
+	// concrete case: vibe-http's HTTP client asserts (an `AssertError`) when reading
+	// the body of a response it treats as bodyless; uncaught, it escaped this nothrow
+	// boundary and killed the process. Log, count it, and let the next tick retry
+	// (this is what controller-runtime does with a per-reconcile recover()).
+	catch (Throwable error)
 	{
 		recordReconcile("error", elapsedSeconds(start));
 		logError("reconcile %s: %s", agent.metadata.name, error.msg);
