@@ -30,8 +30,12 @@ status.
 
 Run pods get an **egress-only** NetworkPolicy. Ingress is denied; egress is limited to:
 
-- **DNS** (so service names resolve), and
-- **HTTPS** (so the agent can reach its model provider, source forges, and registries).
+- **DNS to the in-cluster resolver only** (CoreDNS/kube-dns) — so untrusted code can't tunnel data
+  out through an arbitrary external resolver. This assumes the standard
+  `kube-system` / `k8s-app=kube-dns` labels; adjust it for a non-standard DNS setup.
+- **HTTPS to the public internet** (model provider, source forges, registries), **excluding** RFC1918
+  private ranges and link-local `169.254.0.0/16` — so the agent can't reach cluster-internal services
+  (SSRF) or steal credentials from the cloud metadata endpoint `169.254.169.254`.
 
 The policy selects run pods by the `agents.re-cinq.com/component: job` label the
 controller stamps on every run pod. It also adds `agents.re-cinq.com/agent` and
@@ -40,12 +44,14 @@ controller stamps on every run pod. It also adds `agents.re-cinq.com/agent` and
 
 ```mermaid
 flowchart LR
-    POD["run pod"] -->|53 UDP/TCP| DNS["cluster DNS"]
-    POD -->|443| NET["model provider / git / registry"]
+    POD["run pod"] -->|53 UDP/TCP| DNS["cluster DNS only"]
+    POD -->|"443 (public, no RFC1918 / metadata)"| NET["model provider / git / registry"]
+    POD -. blocked .-> INT["cluster-internal / 169.254.169.254"]
     X(("ingress")) -. denied .-> POD
 ```
 
-Tighten the HTTPS egress to specific CIDRs or an egress proxy if your environment requires it.
+Tighten the HTTPS egress further — to specific provider CIDRs or through an egress proxy — if your
+environment allows.
 
 Run pods also run with `automountServiceAccountToken: false`: the run needs no
 Kubernetes API access, so the untrusted agent code never receives a mountable API
