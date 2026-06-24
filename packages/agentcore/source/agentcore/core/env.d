@@ -4,11 +4,11 @@ module agentcore.core.env;
 // the supervisor reads. Shared here so the Job builder and the supervisor never
 // drift apart.
 
-enum envPrompt = "LORE_PROMPT";
-enum envModel = "LORE_MODEL";
-enum envNotifyUrl = "LORE_NOTIFY_URL";
+enum envPrompt = "AGENT_PROMPT";
+enum envModel = "AGENT_MODEL";
+enum envNotifyUrl = "AGENT_NOTIFY_URL";
 enum envSinks = "AGENT_SINKS";
-enum envParameters = "LORE_PARAMETERS";
+enum envParameters = "AGENT_PARAMETERS";
 
 // HTTP sink delivery retry: a transient POST failure is retried with capped
 // exponential backoff before the event is dropped (never fatal to the run).

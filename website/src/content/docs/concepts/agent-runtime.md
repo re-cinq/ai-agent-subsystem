@@ -13,7 +13,7 @@ agent needs.
 flowchart TB
     subgraph POD["Agent Pod (restartPolicy: Never)"]
         direction TB
-        INIT["initContainer: ai-agent-init"] -->|"clone repos + install CLI + supervisor"| VOL[("emptyDir: /lore")]
+        INIT["initContainer: ai-agent-init"] -->|"clone repos + install CLI + supervisor"| VOL[("emptyDir: /agent")]
         VOL --> MAIN["main container<br/>entrypoint = supervisor"]
         MAIN --> PROC["agent process"]
         CREDS[("credentials volume")] -.-> MAIN
@@ -23,14 +23,14 @@ flowchart TB
     PROC --> HTTP["http sink (optional)"]
 ```
 
-1. **Init container** (`ai-agent-init`) prepares the shared `emptyDir` mounted at `/lore`: it clones
+1. **Init container** (`ai-agent-init`) prepares the shared `emptyDir` mounted at `/agent`: it clones
    the recipe's repos into the workspace, installs the agent CLI (Claude via the official installer),
    and self-bootstraps any missing prerequisites. See [The init container](#the-init-container).
 2. **Main container**: the Station's container, with its command overridden to run the supervisor
-   from `/lore`. Because the runtime is glibc-linked, the Station base image must be glibc-based.
+   from `/agent`. Because the runtime is glibc-linked, the Station base image must be glibc-based.
 3. **Security context**: the init container runs as **root** so it can install packages; the main
    container runs as a non-root user (`runAsNonRoot`, fixed UID/GID, `fsGroup`). Both share `HOME`
-   inside `/lore`, and `$HOME/.local/bin` (where the CLI installer drops `claude`) is on the main
+   inside `/agent`, and `$HOME/.local/bin` (where the CLI installer drops `claude`) is on the main
    container's `PATH`.
 
 ## What the controller injects into the container
@@ -40,8 +40,8 @@ by the agent adapter from the recipe (see [Pluggable agents](#pluggable-agents))
 environment variables:
 
 - `AGENT_SINKS`: the recipe's `output.sinks` as JSON (`http` + `file` destinations).
-- `LORE_NOTIFY_URL`: shorthand for a single `http` sink.
-- `LORE_PARAMETERS`: the run parameters as JSON, when present.
+- `AGENT_NOTIFY_URL`: shorthand for a single `http` sink.
+- `AGENT_PARAMETERS`: the run parameters as JSON, when present.
 - `AGENT_REPOS`: the recipe's `resources.repos` as JSON, for the init container to clone.
 - `WORKSPACE_DIR`: where the init container clones repos (defaults to `/workspace`).
 - `TARGET_REPO` / `BRANCH_NAME`: set when the Agent provides them.
@@ -60,7 +60,7 @@ itself whether the run needs it:
 
 | Tool | Active when | Does |
 | --- | --- | --- |
-| `supervisor` | always | copies the supervisor binary baked into the agent image into `/lore/bin`, so the main container can exec it as PID 1. Idempotent across init retries. |
+| `supervisor` | always | copies the supervisor binary baked into the agent image into `/agent/bin`, so the main container can exec it as PID 1. Idempotent across init retries. |
 | `git` | `resources.repos` is non-empty | clones each repo (full history) into `WORKSPACE_DIR`, checking out its `ref` (branch, tag, or SHA). Re-entrant across init retries. Private repos authenticate with `token_secret` (below). |
 | `claude` | the recipe's `model` resolves to Claude (same routing as [pluggable agents](#pluggable-agents)) | installs the Claude CLI via the official installer (`curl -fsSL https://claude.ai/install.sh \| bash`). |
 
@@ -76,7 +76,7 @@ Before running the tools it **self-bootstraps prerequisites**: any executable a 
 from the distro (`apt`/`dnf`/`apk`). On a base image that already ships these, nothing is installed.
 
 Throughout, the init reports its own lifecycle (`started`, per-tool `running`, `succeeded`,
-`failed`) to the **same `output.sinks`** as the agent (`AGENT_SINKS` + `LORE_NOTIFY_URL`), using the
+`failed`) to the **same `output.sinks`** as the agent (`AGENT_SINKS` + `AGENT_NOTIFY_URL`), using the
 same `{"source": {…}, "event": …}` envelope, so init progress is observable on the same channel and
 correlates with the agent's events. A non-zero exit fails the Pod before the supervisor starts.
 

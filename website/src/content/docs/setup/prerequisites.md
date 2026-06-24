@@ -32,4 +32,4 @@ to provide them:
   the recipe's `resources.secrets` (e.g. `{name: ANTHROPIC_API_KEY, ref: ANTHROPIC_API_KEY}`); the
   controller injects it as an env var via `secretKeyRef`.
 - **Subscription auth (local dev):** mount your host `~/.claude` into the run container at
-  `/lore/.claude` (the agent's `HOME` is `/lore`) via the Station template; no API key needed.
+  `/agent/.claude` (the agent's `HOME` is `/agent`) via the Station template; no API key needed.

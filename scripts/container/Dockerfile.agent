@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 #
 # The ai-agent runtime image (AGENT_IMAGE). Its init container — ai-agent-init,
-# the ENTRYPOINT — provisions each run pod's shared /lore bundle: it stages the
+# the ENTRYPOINT — provisions each run pod's shared /agent bundle: it stages the
 # supervisor binary into the bundle, clones the recipe's repos, and installs the
 # Claude CLI. The supervisor is baked in at a fixed path (matching
 # agentcore.bundle.supervisorStageSource) and copied into the emptyDir at run

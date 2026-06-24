@@ -49,7 +49,7 @@ erDiagram
     Pod {
         string initContainer "inject bundle"
         string mainContainer "supervisor"
-        string bundleVolume "emptyDir /lore"
+        string bundleVolume "emptyDir /agent"
     }
 ```
 
@@ -76,7 +76,7 @@ flowchart LR
 
     subgraph POD["Agent Pod"]
         direction TB
-        INIT["initContainer<br/>inject-agent"] -->|copies runtime + CLI + supervisor| VOL[("emptyDir /lore")]
+        INIT["initContainer<br/>inject-agent"] -->|copies runtime + CLI + supervisor| VOL[("emptyDir /agent")]
         VOL --> SUP["main container<br/>supervisor"]
         SUP --> PROC["agent process"]
         CREDS[("credentials volume")] -.-> SUP

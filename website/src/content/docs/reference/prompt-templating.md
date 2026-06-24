@@ -4,7 +4,7 @@ description: How an AgentDefinition prompt is rendered from an Agent's parameter
 ---
 
 The recipe's `prompt` is a template. At reconcile time the controller fills `{placeholder}` tokens
-from the Agent's `spec.parameters` and passes the result to the agent as `LORE_PROMPT`.
+from the Agent's `spec.parameters` and passes the result to the agent as `AGENT_PROMPT`.
 
 ## Rules
 

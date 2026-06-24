@@ -6,13 +6,13 @@ module agentcore.kube.bundle;
 // the path the init stages to can never diverge into separate string literals.
 
 /// Mount point of the shared bundle emptyDir; the agent container's HOME.
-enum bundleRoot = "/lore";
+enum bundleRoot = "/agent";
 
 /// Directory in the bundle the init stages executables into.
-enum bundleBinDir = "/lore/bin";
+enum bundleBinDir = "/agent/bin";
 
 /// Where the init drops the supervisor and where the main container execs it.
-enum supervisorPath = "/lore/bin/ai-agent-supervisor";
+enum supervisorPath = "/agent/bin/ai-agent-supervisor";
 
 /// Where the supervisor binary is baked into the agent image; the init copies it
 /// from here into the bundle at run start.

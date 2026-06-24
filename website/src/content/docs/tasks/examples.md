@@ -5,6 +5,13 @@ description: "Two worked end-to-end examples: a code-editing bug-fixer and a pur
 
 Two complete examples show the range: one edits code with tools, the other just generates text.
 
+:::tip[Ready to apply]
+These are available as runnable files in the
+[`examples/`](https://github.com/re-cinq/ai-agent-subsystem/tree/main/examples) directory, with a
+`run-agent.sh` launcher and an `http`-sink listener. Grab them and
+`kubectl apply -f examples/story-writer.yaml`.
+:::
+
 ## Bug-fixer (code editing)
 
 A recipe that fixes a referenced ticket, with tool permissions scoped to reading, editing, and

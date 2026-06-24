@@ -4,12 +4,12 @@
 # supervisor execs this as the agent; it emits a few newline-delimited JSON events
 # and exits 0, which drives the run to Succeeded. POSIX sh (Alpine-safe).
 
-# Credential-path check: when a scenario wires a secret in (LORE_EXPECT_API_KEY set
+# Credential-path check: when a scenario wires a secret in (AGENT_EXPECT_API_KEY set
 # via resources.env), prove the VALUE reached this agent child. ANTHROPIC_API_KEY
 # arrives by a different channel (secretKeyRef -> kubelet -> pod -> supervisor), so
 # equality proves the whole chain. Unset -> chain broken; mismatch -> wrong key.
-if [ -n "${LORE_EXPECT_API_KEY:-}" ]; then
-	[ "${ANTHROPIC_API_KEY:-}" = "$LORE_EXPECT_API_KEY" ] || {
+if [ -n "${AGENT_EXPECT_API_KEY:-}" ]; then
+	[ "${ANTHROPIC_API_KEY:-}" = "$AGENT_EXPECT_API_KEY" ] || {
 		printf '%s\n' "mock-codex: ANTHROPIC_API_KEY mismatch (len=${#ANTHROPIC_API_KEY})" >&2
 		exit 7
 	}

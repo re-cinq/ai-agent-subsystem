@@ -100,7 +100,7 @@ spec: { stationRef: auth-check-station }
 ```
 
 The Station base must be **glibc-based** (so the injected supervisor runs) with Node present; the
-init container installs the Claude CLI into `/lore/.local/bin` (on the run `PATH`). No `~/.claude`
+init container installs the Claude CLI into `/agent/.local/bin` (on the run `PATH`). No `~/.claude`
 mount is added, so the key can only come from the Secret.
 
 ```sh

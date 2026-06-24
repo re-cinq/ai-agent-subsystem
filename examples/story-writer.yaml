@@ -1,0 +1,70 @@
+# Story writer — a pure-text example: prompt in, prose out. No repo, no tools.
+# The simplest thing to try first.
+#
+#   kubectl apply -f examples/story-writer.yaml
+#   examples/run-agent.sh story-writer title="The Last Lighthouse"
+#   kubectl -n ai-agents get agents -w
+#
+# Auth: this Station mounts your local ~/.claude (subscription auth) — no API key.
+# On minikube (docker driver) first bridge the dir into the node, kept running:
+#   minikube -p minikube mount ~/.claude:/host-claude
+# Prefer an API key instead? Drop the volume below and create the `agent-secrets`
+# Secret (see examples/README.md).
+---
+apiVersion: agents.re-cinq.com/v1alpha1
+kind: AgentDefinition
+metadata:
+  name: story-writer
+  namespace: ai-agents
+spec:
+  description: Writes a short opening scene for a given title.
+  model: claude-sonnet-4-6
+  # {title} is filled per run from the Agent's parameters.
+  prompt: |
+    Write a vivid ~150-word opening scene for a tale titled "{title}".
+    Set the tone, introduce one character, and end on a hook. Prose only.
+  permission_mode: bypass   # pure text — no tools needed
+  max_turns: 1
+  output:
+    format: stream-json
+    sinks:
+      - type: stdout
+      # Stream every event to a local listener (run examples/notify-listener.mjs on
+      # your host). On minikube the host is reachable at host.minikube.internal;
+      # adjust the URL for your cluster.
+      - type: http
+        url: http://host.minikube.internal:8099/notify
+---
+apiVersion: agents.re-cinq.com/v1alpha1
+kind: Station
+metadata:
+  name: story-writer
+  namespace: ai-agents
+spec:
+  agentDefRef: story-writer
+  deadlineMinutes: 5
+  successfulRunsHistoryLimit: 5
+  failedRunsHistoryLimit: 10
+  # The controller injects the agent runtime + supervisor into the container named
+  # "agent" via an init container. The base only needs to be glibc-based with Node
+  # so the init container can install the Claude CLI.
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: agent
+          image: node:22-bookworm
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { cpu: "1", memory: 1Gi }
+          # Subscription auth: the agent's HOME is /agent, so creds live at /agent/.claude.
+          volumeMounts:
+            - name: claude-config
+              mountPath: /agent/.claude
+      volumes:
+        # /host-claude is what `minikube mount ~/.claude:/host-claude` exposes in the
+        # node. On a real cluster, replace this with your own credential source.
+        - name: claude-config
+          hostPath:
+            path: /host-claude
+            type: Directory

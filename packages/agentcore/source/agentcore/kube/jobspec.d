@@ -19,7 +19,7 @@ import agentcore.agents.prompt : renderPrompt;
 enum crApiVersion = "agents.re-cinq.com/v1alpha1";
 enum agentContainerName = "agent";
 enum initContainerName = "init";
-enum bundleVolume = "lore";
+enum bundleVolume = "agent";
 
 /// How long a finished Job (and its pod) lingers before the TTL-after-finished GC
 /// removes it. The controller reads the pod's exit code + captured stdout back into
@@ -206,16 +206,21 @@ private JSONValue podSecurity()
 	return JSONValue(security);
 }
 
-/// Modest requests/limits for the init container so it is Burstable, not
-/// BestEffort — a BestEffort init is the kernel OOM-killer's first target under
-/// node memory pressure. It only stages files and installs prerequisites.
+/// Requests/limits for the init container so it is Burstable, not BestEffort — a
+/// BestEffort init is the kernel OOM-killer's first target under node memory
+/// pressure. The limit must cover the real agent's prerequisite install: the
+/// Claude CLI installer (curl https://claude.ai/install.sh | bash) runs a native
+/// binary whose `install` step embeds a JS runtime and peaks past 512Mi, so the
+/// request stays modest while the limit gives that transient spike real headroom.
+/// The mock agent bakes its CLI in and never installs, which is why CI did not
+/// surface the OOM.
 private JSONValue initResources()
 {
 	JSONValue[string] requests;
 	requests["cpu"] = JSONValue("50m");
-	requests["memory"] = JSONValue("64Mi");
+	requests["memory"] = JSONValue("128Mi");
 	JSONValue[string] limits;
-	limits["memory"] = JSONValue("256Mi");
+	limits["memory"] = JSONValue("2Gi");
 	JSONValue[string] resources;
 	resources["requests"] = JSONValue(requests);
 	resources["limits"] = JSONValue(limits);
@@ -282,7 +287,7 @@ private JSONValue runEnv(Agent agent, Station station, AgentDefinitionSpec recip
 	foreach (secret; recipe.resources.secrets)
 		secretVar(secret.name, secret.ref_);
 	strVar("HOME", bundleRoot);
-	strVar("PATH", "/lore/.local/bin:/usr/local/bin:/usr/bin:/bin");
+	strVar("PATH", "/agent/.local/bin:/usr/local/bin:/usr/bin:/bin");
 	return JSONValue(env);
 }
 
@@ -455,7 +460,7 @@ unittest
 	pod["initContainers"][0]["image"].str.should.equal("ghcr.io/re-cinq/ai-agent:latest");
 	pod["initContainers"][0]["securityContext"]["runAsUser"].integer.should.equal(0);
 	// The init must not be BestEffort, or the kernel OOM-kills it first under pressure.
-	pod["initContainers"][0]["resources"]["requests"]["memory"].str.should.equal("64Mi");
+	pod["initContainers"][0]["resources"]["requests"]["memory"].str.should.equal("128Mi");
 	pod["volumes"][0]["name"].str.should.equal(bundleVolume);
 
 	auto container = agentContainer(job);
@@ -483,7 +488,7 @@ unittest
 
 	envValue(container, "AGENT_NAME").should.equal("bug-fixer-run-1");
 	envValue(container, "STATION_NAME").should.equal("bug-fixer-station");
-	envValue(container, "LORE_MODEL").should.equal("claude-sonnet-4-6"); // init routes the agent CLI off this
+	envValue(container, "AGENT_MODEL").should.equal("claude-sonnet-4-6"); // init routes the agent CLI off this
 	envValue(container, "TASK_ID").should.equal("T-1");
 	envValue(container, "TARGET_REPO").should.equal("octo/app");
 	envValue(container, "BRANCH_NAME").should.equal("fix/eng-1");

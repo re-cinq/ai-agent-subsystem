@@ -1,0 +1,54 @@
+# Bug fixer — a code-editing example: the agent reads, edits, and runs tests with a
+# scoped tool allowlist. The prompt is a TEMPLATE; {placeholders} are filled per run.
+#
+#   kubectl apply -f examples/bug-fixer.yaml
+#   examples/run-agent.sh node-fixer ticket=ENG-417 repo=re-cinq/ai-agent-subsystem branch=fix/eng-417
+#   kubectl -n ai-agents get agents -w
+#
+# Needs an `agent-secrets` Secret with ANTHROPIC_API_KEY (see examples/README.md).
+# To actually clone and push to a repo, add `resources.repos` with a `token_secret`
+# and set the Agent's `targetRepo`/`branch` — see the AgentDefinition reference.
+---
+apiVersion: agents.re-cinq.com/v1alpha1
+kind: AgentDefinition
+metadata:
+  name: bug-fixer
+  namespace: ai-agents
+spec:
+  description: Fix a referenced bug on a repository branch with the smallest change.
+  model: claude-sonnet-4-6
+  prompt: |
+    Fix bug {ticket} on repository {repo}, branch {branch}.
+    Make the smallest change that resolves the issue and keep the tests green.
+  permission_mode: auto     # enforce the allow/deny lists below
+  max_turns: 40
+  allowed_tools:
+    - Read
+    - Edit
+    - Bash(npm run test:*)
+  disallowed_tools:
+    - Bash(rm *)
+  output:
+    format: stream-json
+    sinks:
+      - type: stdout
+---
+apiVersion: agents.re-cinq.com/v1alpha1
+kind: Station
+metadata:
+  name: node-fixer
+  namespace: ai-agents
+spec:
+  agentDefRef: bug-fixer
+  deadlineMinutes: 15
+  successfulRunsHistoryLimit: 3
+  failedRunsHistoryLimit: 3
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: agent
+          image: node:22-bookworm
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { cpu: "1", memory: 1Gi }

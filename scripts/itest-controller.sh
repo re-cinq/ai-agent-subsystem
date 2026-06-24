@@ -21,7 +21,7 @@ set -euo pipefail
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo"
 
-cluster="${CLUSTER:-lore-itest}"
+cluster="${CLUSTER:-agent-itest}"
 cluster_tool="${CLUSTER_TOOL:-kind}"
 controller_image="${CONTROLLER_IMAGE:-ghcr.io/re-cinq/ai-agent-controller:itest}"
 agent_image="${AGENT_IMAGE:-ai-agent:dev}"
@@ -170,9 +170,9 @@ echo "== Scenario B: credential path (agent-secrets -> ANTHROPIC_API_KEY -> agen
 # Prove the production credential chain end to end with a FAKE key and no network:
 # the controller injects ANTHROPIC_API_KEY from the `agent-secrets` Secret via
 # secretKeyRef, the kubelet resolves it, the supervisor inherits it and passes it to
-# the agent child. The mock `codex` (LORE_EXPECT_API_KEY set below) exits non-zero
+# the agent child. The mock `codex` (AGENT_EXPECT_API_KEY set below) exits non-zero
 # unless the value it sees equals the one the Secret carried, so Succeeded proves the
-# whole chain. Cross-channel by design: LORE_EXPECT_API_KEY arrives as a literal env,
+# whole chain. Cross-channel by design: AGENT_EXPECT_API_KEY arrives as a literal env,
 # ANTHROPIC_API_KEY via the Secret -> equality is a real check, not a tautology. Keep
 # model gpt-mock: a real claude-* model would make the init container install the real
 # CLI from the network, breaking hermeticity.
@@ -188,7 +188,7 @@ spec:
   prompt: "say hello"
   resources:
     secrets: [{ name: ANTHROPIC_API_KEY, ref: ANTHROPIC_API_KEY }]
-    env: [{ name: LORE_EXPECT_API_KEY, value: $fake_key }]
+    env: [{ name: AGENT_EXPECT_API_KEY, value: $fake_key }]
   output: { format: stream-json, sinks: [{ type: stdout }] }
 ---
 apiVersion: agents.re-cinq.com/v1alpha1

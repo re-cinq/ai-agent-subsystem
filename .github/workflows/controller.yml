@@ -36,9 +36,9 @@ jobs:
       - uses: actions/checkout@v6
       - uses: helm/kind-action@v1
         with:
-          cluster_name: lore-itest
+          cluster_name: agent-itest
       - name: Controller integration test
         env:
-          CLUSTER: lore-itest
+          CLUSTER: agent-itest
           KEEP: '1' # the kind cluster is managed by kind-action
         run: ./scripts/itest-controller.sh

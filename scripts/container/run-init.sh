@@ -24,7 +24,7 @@ if command -v git >/dev/null 2>&1; then
 else
 	sink=/tmp/sink-git.jsonl
 	: >"$sink"
-	LORE_MODEL=gpt-5-codex \
+	AGENT_MODEL=gpt-5-codex \
 		WORKSPACE_DIR=/workspace \
 		AGENT_SINKS="[{\"type\":\"file\",\"path\":\"$sink\"}]" \
 		AGENT_NAME=ctest POD_NAME=ctest-pod \
@@ -48,7 +48,7 @@ if [ "${CTEST_CLAUDE:-0}" = "1" ]; then
 	fi
 	if curl -fsSI https://downloads.claude.ai/ >/dev/null 2>&1; then
 		export HOME=/root
-		LORE_MODEL=claude-sonnet-4-6 WORKSPACE_DIR=/workspace ai-agent-init
+		AGENT_MODEL=claude-sonnet-4-6 WORKSPACE_DIR=/workspace ai-agent-init
 		rc=$?
 		chk "claude install exits 0" "$([ $rc -eq 0 ] && echo 0 || echo 1)"
 		chk "claude binary installed to ~/.local/bin" "$([ -x "$HOME/.local/bin/claude" ] && echo 0 || echo 1)"

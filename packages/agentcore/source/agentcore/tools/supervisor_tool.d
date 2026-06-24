@@ -50,7 +50,7 @@ version (unittest) import std.algorithm.searching : canFind;
 	steps[0][1].should.equal("-c");
 	// The guarded script stages from the image path to the shared bundle path.
 	steps[0][2].canFind("[ -f /usr/local/lib/ai-agent/ai-agent-supervisor ]").should.equal(true);
-	steps[0][2].canFind("cp /usr/local/lib/ai-agent/ai-agent-supervisor /lore/bin/ai-agent-supervisor")
+	steps[0][2].canFind("cp /usr/local/lib/ai-agent/ai-agent-supervisor /agent/bin/ai-agent-supervisor")
 		.should.equal(true);
 
 	// Staged on every run, whatever the model.

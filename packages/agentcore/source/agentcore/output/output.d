@@ -50,7 +50,7 @@ SinkSpec[] parseSinks(string json)
 }
 
 /// The run's configured sinks, read from the env the controller injects: the
-/// recipe's `AGENT_SINKS`, plus a single http sink from the `LORE_NOTIFY_URL`
+/// recipe's `AGENT_SINKS`, plus a single http sink from the `AGENT_NOTIFY_URL`
 /// shorthand when set. Shared by the supervisor and the initializer so init and
 /// agent output land on the same channel.
 SinkSpec[] sinksFromEnv()
@@ -159,13 +159,13 @@ unittest
 unittest
 {
 	environment["AGENT_SINKS"] = `[{"type":"file","path":"/tmp/out"}]`;
-	environment["LORE_NOTIFY_URL"] = "http://collector/n";
+	environment["AGENT_NOTIFY_URL"] = "http://collector/n";
 	scope (exit)
 	{
 		environment.remove("AGENT_SINKS");
-		environment.remove("LORE_NOTIFY_URL");
+		environment.remove("AGENT_NOTIFY_URL");
 	}
-	// the LORE_NOTIFY_URL shorthand is appended as an http sink after AGENT_SINKS
+	// the AGENT_NOTIFY_URL shorthand is appended as an http sink after AGENT_SINKS
 	auto sinks = sinksFromEnv();
 	sinks.length.should.equal(2);
 	sinks[0].type.should.equal(SinkType.file);

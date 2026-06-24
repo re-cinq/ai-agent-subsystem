@@ -197,7 +197,7 @@ private void httpSink()
 	listener.listen(8);
 
 	auto pipes = pipeProcess([supervisor, "--", mock], Redirect.stdout,
-		withSource(["MOCK_LINES": "3", "LORE_NOTIFY_URL": "http://127.0.0.1:18099/notify"]));
+		withSource(["MOCK_LINES": "3", "AGENT_NOTIFY_URL": "http://127.0.0.1:18099/notify"]));
 
 	// 5 posts: the `agent started` lifecycle event, the 3 agent outputs, then the
 	// `agent succeeded` lifecycle event — the same stream the init container produces.
@@ -259,7 +259,7 @@ private void agentCrash()
 private void deadSinkLogs()
 {
 	writeln("dead sink: failure logged, run unaffected");
-	auto r = run(["MOCK_LINES": "1", "LORE_NOTIFY_URL": "http://127.0.0.1:1/notify"]);
+	auto r = run(["MOCK_LINES": "1", "AGENT_NOTIFY_URL": "http://127.0.0.1:1/notify"]);
 	check("output still streamed", emitted(r.lines, `"i":0`));
 	check("dead sink does not fail the run (exit 0)", r.code == 0);
 	check("sink failure logged to stderr", r.err.canFind("sink failed"));

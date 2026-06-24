@@ -4,7 +4,7 @@
 # clone, idempotent retry, lifecycle notifications to a file sink, and a clean
 # non-zero on a bad repo. The Claude installer and package-manager installs are
 # not exercised here (network/root); their argv is covered by agentcore unittests.
-# LORE_MODEL is a codex model so the Claude tool stays inactive.
+# AGENT_MODEL is a codex model so the Claude tool stays inactive.
 set -uo pipefail
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
@@ -33,7 +33,7 @@ check() { # check <name> <condition-rc>
 }
 
 run() { # run <workspace> <sink-file> <repos-json>  -> sets rc
-	LORE_MODEL=gpt-5-codex \
+	AGENT_MODEL=gpt-5-codex \
 		WORKSPACE_DIR="$1" \
 		AGENT_SINKS="[{\"type\":\"file\",\"path\":\"$2\"}]" \
 		AGENT_NAME=itest-agent POD_NAME=itest-pod \
@@ -62,7 +62,7 @@ sink_auth="$work/sink-auth.jsonl"
 : >"$sink_auth"
 secret="s3cr3t-token-abc123"
 GH_TOKEN="$secret" \
-	LORE_MODEL=gpt-5-codex \
+	AGENT_MODEL=gpt-5-codex \
 	WORKSPACE_DIR="$ws_auth" \
 	AGENT_SINKS="[{\"type\":\"file\",\"path\":\"$sink_auth\"}]" \
 	AGENT_NAME=itest-agent POD_NAME=itest-pod \
