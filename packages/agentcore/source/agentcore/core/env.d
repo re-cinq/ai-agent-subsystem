@@ -21,6 +21,13 @@ enum envRepos = "AGENT_REPOS";
 enum envWorkspace = "WORKSPACE_DIR";
 enum envSelect = "AGENT_SELECT";
 
+// After the agent emits its terminal event, how long the supervisor waits for the
+// process to exit on its own before escalating SIGTERM -> SIGKILL. Some agent CLIs
+// finish their work but leave a lingering worker that keeps the process (and its
+// stdout) open, so process exit alone is not a reliable "run is done" signal.
+enum envExitGraceMs = "AGENT_EXIT_GRACE_MS";
+enum defaultExitGraceMs = 5000;
+
 // Identity the controller stamps onto the run so every emitted event can be
 // traced back to its agent + pod in a workflow. `POD_*` come from the downward
 // API; the rest from the resolved Station / AgentDefinition / Agent.

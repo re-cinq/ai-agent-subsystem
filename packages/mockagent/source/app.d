@@ -5,17 +5,20 @@ module app;
 //
 //   MOCK_LINES  number of `{"i":N}` lines to emit on stdout (default 0)
 //   MOCK_EXIT   process exit code (default 0)
-//   MOCK_MODE   "emit" (default) | "signal" | "crash" | "orphan"
+//   MOCK_MODE   "emit" (default) | "signal" | "crash" | "orphan" | "linger"
 //                 signal: emit `{"started":1}`, wait for SIGTERM/SIGINT, then
 //                         emit `{"signal":N}` and exit MOCK_EXIT
 //                 crash:  emit `{"started":1}`, then die from SIGKILL
 //                 orphan: spawn a child that inherits stdout and outlives us
+//                 linger: emit a Claude-style terminal `result`, then ignore
+//                         SIGTERM and hang forever — like a real agent CLI that
+//                         finishes its work but never exits
 
 import std.conv : to;
 import std.process : Config, environment, spawnProcess;
 import std.stdio : stderr, stdin, stdout;
 
-import core.stdc.signal : signal;
+import core.stdc.signal : signal, SIG_IGN;
 import core.sys.posix.signal : kill, SIGINT, SIGKILL, SIGTERM;
 import core.sys.posix.unistd : getpid;
 import core.thread : Thread;
@@ -62,6 +65,12 @@ int main()
 		// never reaches EOF on its own.
 		spawnProcess(["sleep", "30"], stdin, stdout, stderr, null, Config.detached);
 		break;
+	case "linger":
+		if (environment.get("MOCK_IGNORE_TERM", "") == "1")
+			signal(SIGTERM, SIG_IGN);
+		emit(`{"type":"result","subtype":"success","is_error":false}`);
+		while (true)
+			Thread.sleep(60.msecs);
 	default:
 		break;
 	}
