@@ -47,6 +47,7 @@ export default defineConfig({
 						{ label: 'Prerequisites', slug: 'setup/prerequisites' },
 						{ label: 'Local cluster', slug: 'setup/local-cluster' },
 						{ label: 'Install', slug: 'setup/install' },
+						{ label: 'Uninstall', slug: 'setup/uninstall' },
 					],
 				},
 				{
