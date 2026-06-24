@@ -13,7 +13,7 @@ Set them on the `Station`. The controller wires the container named `agent` (com
 env, mounts) but **preserves whatever else you set on it**, including `resources`.
 
 ```yaml
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1
 kind: Station
 metadata:
   name: node-fixer

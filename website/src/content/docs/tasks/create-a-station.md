@@ -8,7 +8,7 @@ A [Station](/concepts/station/) pairs an
 controller injects the agent runtime, so the container image only needs to be glibc-based.
 
 ```yaml
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1
 kind: Station
 metadata:
   name: node-fixer

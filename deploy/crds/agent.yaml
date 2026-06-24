@@ -12,9 +12,85 @@ spec:
     shortNames:
       - agt
   versions:
-    - name: v1alpha1
+    - name: v1
       served: true
       storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Station
+          type: string
+          jsonPath: .spec.stationRef
+        - name: Job
+          type: string
+          jsonPath: .status.jobName
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: "One run of a recipe in a Station."
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - stationRef
+              properties:
+                stationRef:
+                  type: string
+                  description: "The Station to run in (which selects the recipe)."
+                taskId:
+                  type: string
+                  description: "External id for correlation."
+                targetRepo:
+                  type: string
+                  description: "GitHub repo in owner/name form."
+                branch:
+                  type: string
+                parameters:
+                  type: object
+                  description: "Per-run values; fill the prompt {placeholder} tokens and pass to the agent."
+                  additionalProperties:
+                    type: string
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum:
+                    - Pending
+                    - Running
+                    - Succeeded
+                    - Failed
+                jobName:
+                  type: string
+                startedAt:
+                  type: string
+                  format: date-time
+                  description: "RFC3339 timestamp when the run began."
+                completedAt:
+                  type: string
+                  format: date-time
+                  description: "RFC3339 timestamp when the run ended."
+                exitCode:
+                  type: integer
+                output:
+                  type: string
+                failureReason:
+                  type: string
+                prUrl:
+                  type: string
+    - name: v1alpha1
+      served: true
+      storage: false
+      deprecated: true
+      deprecationWarning: "agents.re-cinq.com/v1alpha1 is deprecated; migrate to agents.re-cinq.com/v1"
       subresources:
         status: {}
       additionalPrinterColumns:

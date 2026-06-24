@@ -3,10 +3,16 @@ title: AgentDefinition CRD
 description: Full field reference for the AgentDefinition custom resource.
 ---
 
-**Group/Version:** `agents.re-cinq.com/v1alpha1` · **Kind:** `AgentDefinition` · **Scope:**
+**Group/Version:** `agents.re-cinq.com/v1` · **Kind:** `AgentDefinition` · **Scope:**
 Namespaced · **Short names:** `agentdef`, `ad`
 
 The recipe. It has a `spec` and no `status`.
+
+:::note[API version]
+`v1` is the stored, stable version. The previous `v1alpha1` is still **served but deprecated**, so
+existing clients keep working; the API server converts between them automatically (the schemas are
+identical), so existing objects need no migration. Use `agents.re-cinq.com/v1` in new manifests.
+:::
 
 ## `spec`
 
