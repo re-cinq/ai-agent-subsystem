@@ -44,9 +44,9 @@ The pure core, with no process of its own:
 
 The operator. It watches `Agent` resources, resolves each one's `Station` and `AgentDefinition`,
 builds and creates a `Job`, polls the Job's outcome, and patches the Agent's `status`. It also
-prunes old runs beyond the Station's history limits, and exposes `/healthz` plus a Prometheus
-`/metrics` endpoint (reconcile counts and latency, agents by phase, watch reconnects, Kubernetes
-API latency, and leader status).
+prunes old runs beyond the Station's history limits, and exposes `/healthz` (liveness), `/readyz`
+(readiness), plus a Prometheus `/metrics` endpoint (reconcile counts and latency, agents by phase,
+watch reconnects, Kubernetes API latency, and leader status).
 
 It combines a low-latency **watch** with a ~15s **poll** over one shared in-memory cache, so
 reconcile work is O(changed) and a dropped watch event is still caught by the next poll. Two replicas
