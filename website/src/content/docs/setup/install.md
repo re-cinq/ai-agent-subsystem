@@ -54,7 +54,7 @@ The controller image `install.yaml` pins is signed in CI with [cosign](https://d
 (keyless, via the GitHub OIDC token). Confirm the signature before trusting a release:
 
 ```sh
-cosign verify ghcr.io/re-cinq/ai-agent-controller@sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789 \
+cosign verify ghcr.io/re-cinq/ai-agent-controller@sha256:127f548800e2682752b84757d0f294433486026a868ddbb5320f36c592b57838 \
   --certificate-identity-regexp '^https://github.com/re-cinq/ai-agent-subsystem/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
