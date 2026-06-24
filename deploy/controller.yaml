@@ -49,7 +49,7 @@ spec:
             # Image whose init container injects the agent runtime + supervisor
             # into each run pod. Override with ai-agent:dev for local clusters.
             - name: AGENT_IMAGE
-              value: ghcr.io/re-cinq/ai-agent:latest
+              value: ghcr.io/re-cinq/ai-agent@sha256:8c22f5dbbcb60ed4cbb91382a664437c00b7ee5076385f43ee4a3bb210e4f47b
             # Bytes of run-pod log kept in status.output (the tail). Bounds the
             # Agent object under etcd's ~1.5 MB per-object limit. Default 256 KiB.
             - name: MAX_OUTPUT_BYTES
