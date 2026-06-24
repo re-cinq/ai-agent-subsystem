@@ -12,6 +12,7 @@ import vibe.core.log : logError, logInfo;
 
 import httpkube : LeaseClient, LeaseRecord;
 import metrics : recordLeadership;
+import readiness : Readiness;
 
 /// Fixed Lease the controller's replicas contend for. Whoever holds it reconciles;
 /// every standby stays idle. One Lease per controller Deployment.
@@ -78,6 +79,7 @@ struct Election
 	Leadership leadership;
 	Observation observation;
 	int renewFailures; /// consecutive transient renew failures while we hold the Lease
+	Readiness readiness; /// readiness flag: set from each tick's API reachability (optional in tests)
 }
 
 /// What this replica should do with the Lease this tick.
@@ -176,9 +178,11 @@ private JSONValue leaseSpec(string identity, long durationSeconds, string timest
 /// renewal race steps us down at once; a transient renew error is tolerated for a
 /// few ticks (see electionTickGuarded) so a momentary blip does not make us flap.
 /// Runs as a vibe task; never returns.
-void runLeaderElection(LeaseClient client, string ns, string identity, Leadership leadership) nothrow
+void runLeaderElection(LeaseClient client, string ns, string identity, Leadership leadership,
+	Readiness readiness = null) nothrow
 {
 	auto election = Election(client, ns, identity, leadership);
+	election.readiness = readiness;
 	for (;;)
 	{
 		// Only the clock reads can throw here; electionTickGuarded handles its own
@@ -189,6 +193,7 @@ void runLeaderElection(LeaseClient client, string ns, string identity, Leadershi
 		{
 			logError("election: %s", error.msg);
 			setLeader(election.leadership, election.identity, false);
+			markReady(election.readiness, false);
 		}
 		backoff(renewIntervalSeconds);
 	}
@@ -208,6 +213,10 @@ void electionTickGuarded(ref Election election, long now, string timestamp) noth
 	}
 	catch (Exception error)
 	{
+		// The tick couldn't reach the API (or the clock failed): not ready. Every
+		// replica runs this loop, so it is the readiness signal for leader and standby
+		// alike — unlike the reconcile sync, which only the leader runs.
+		markReady(election.readiness, false);
 		logError("election: %s", error.msg);
 		if (!election.leadership.isLeader)
 			return;
@@ -223,6 +232,8 @@ void electionTickGuarded(ref Election election, long now, string timestamp) noth
 void electionTick(ref Election election, long now, string timestamp)
 {
 	const record = election.client.getLease(election.ns, leaseName);
+	// The getLease succeeded, so this replica (leader or standby) can reach the API.
+	markReady(election.readiness, true);
 	election.observation = observe(election.observation, record.exists, record.holder, record.renewTime, now);
 	const decision = electionDecide(election.observation, election.identity, now, leaseDurationSeconds);
 	const won = decision.leader && act(election, decision, record, timestamp);
@@ -256,6 +267,14 @@ private void setLeader(Leadership leadership, string identity, bool won) nothrow
 		logInfo("election: %s lost leadership", identity);
 	leadership.isLeader = won;
 	recordLeadership(won);
+}
+
+/// Set the readiness flag if one is wired (the election tests construct an Election
+/// without it). Null-safe so the pure tick logic stays testable on its own.
+private void markReady(Readiness readiness, bool value) nothrow
+{
+	if (readiness !is null)
+		readiness.ready = value;
 }
 
 private long nowUnix()
@@ -418,6 +437,27 @@ unittest
 	leadership.isLeader.should.equal(true);
 	client.writes.should.equal(["create", "patch"]);
 	client.record.renewTime.should.equal("ts-2");
+}
+
+unittest
+{
+	// Readiness (#46): a standby that reaches the API is ready even though it never
+	// reconciles — readiness is driven by the election tick (every replica), not the
+	// reconcile sync (leader only). A tick that can't reach the API marks it not-ready.
+	auto client = new FakeLeaseClient;
+	client.record = LeaseRecord(true, "peer", "ts-x", "7", 2);
+	auto leadership = new Leadership;
+	auto readiness = new Readiness;
+	auto election = Election(client, "ns", "me", leadership);
+	election.readiness = readiness;
+
+	electionTick(election, 100, "ts-1");
+	leadership.isLeader.should.equal(false); // standing by behind a live peer
+	readiness.ready.should.equal(true); // ...but ready: it can reach the API
+
+	client.getThrows = 1;
+	electionTickGuarded(election, 105, "ts-2");
+	readiness.ready.should.equal(false); // API unreachable -> not ready
 }
 
 unittest

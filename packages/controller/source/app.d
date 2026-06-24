@@ -10,6 +10,7 @@ import httpkube : HttpKubeClient;
 import health : startHealthServer;
 import incluster : loadClusterConfig;
 import leaderelection : Leadership, runLeaderElection;
+import readiness : Readiness;
 import watchpoll : runControlLoop;
 
 version (unittest)
@@ -31,13 +32,14 @@ else
 		auto config = loadClusterConfig();
 		auto client = new HttpKubeClient(config);
 		auto leadership = new Leadership();
+		auto readiness = new Readiness();
 
 		logInfo("ai-agent-controller: namespace=%s identity=%s health=:%s agentImage=%s",
 			config.namespace, config.identity, healthPort, agentImage);
 
-		startHealthServer(healthPort);
+		startHealthServer(healthPort, readiness);
 		runTask(() nothrow {
-			runLeaderElection(client, config.namespace, config.identity, leadership);
+			runLeaderElection(client, config.namespace, config.identity, leadership, readiness);
 		});
 		runTask(() nothrow { runControlLoop(client, config.namespace, agentImage, leadership); });
 		return runEventLoop();
