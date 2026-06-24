@@ -21,6 +21,15 @@ enum agentContainerName = "agent";
 enum initContainerName = "init";
 enum bundleVolume = "agent";
 
+/// Labels stamped on every run pod. `component=job` is the selector the
+/// `agent-job-egress` NetworkPolicy matches on — without it the policy matches no
+/// pods and the untrusted agent code gets unrestricted egress. The agent/station
+/// labels make a run's pod traceable with `kubectl get pods -l`.
+enum labelComponent = "agents.re-cinq.com/component";
+enum labelAgent = "agents.re-cinq.com/agent";
+enum labelStation = "agents.re-cinq.com/station";
+enum componentJob = "job";
+
 /// How long a finished Job (and its pod) lingers before the TTL-after-finished GC
 /// removes it. The controller reads the pod's exit code + captured stdout back into
 /// the Agent status on the terminal transition, so this is the window it has to
@@ -60,6 +69,7 @@ JSONValue buildJob(Agent agent, Station station, AgentDefinition definition, str
 	auto env = runEnv(agent, station, recipe);
 
 	auto template_ = wirePodTemplate(deepCopy(station.spec.template_), commandFor(argv), env, agentImage);
+	template_ = withRunLabels(template_, agent, station);
 
 	JSONValue[string] spec;
 	spec["ttlSecondsAfterFinished"] = JSONValue(jobTtlSeconds);
@@ -78,6 +88,22 @@ JSONValue buildJob(Agent agent, Station station, AgentDefinition definition, str
 private JSONValue deepCopy(JSONValue value)
 {
 	return parseJSON(value.toString());
+}
+
+/// Merge the run labels into the pod template's `metadata.labels`, preserving any
+/// labels the Station's template already carries (ours win on the run keys).
+private JSONValue withRunLabels(JSONValue template_, Agent agent, Station station)
+{
+	auto pod = template_;
+	JSONValue meta = ("metadata" in pod.object) ? pod["metadata"] : parseJSON("{}");
+	JSONValue labels = (meta.type == JSONType.object && ("labels" in meta.object))
+		? meta["labels"] : parseJSON("{}");
+	labels[labelComponent] = JSONValue(componentJob);
+	labels[labelAgent] = JSONValue(agent.metadata.name);
+	labels[labelStation] = JSONValue(station.metadata.name);
+	meta["labels"] = labels;
+	pod["metadata"] = meta;
+	return pod;
 }
 
 private JSONValue jobMeta(Agent agent)
@@ -473,6 +499,22 @@ unittest
 	// A concrete non-root UID/GID is required, else the kubelet rejects a root image.
 	container["securityContext"]["runAsUser"].integer.should.equal(1000);
 	pod["securityContext"]["fsGroup"].integer.should.equal(1000);
+}
+
+unittest
+{
+	// The run pod must carry the `component: job` label the NetworkPolicy selects on,
+	// or the policy matches nothing and untrusted agent code gets unrestricted egress.
+	// The agent/station identifiers make a run's pod traceable from `kubectl get pods -l`.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+
+	auto labels = buildJob(agent, station, definition, "img")["spec"]["template"]["metadata"]["labels"];
+	labels["agents.re-cinq.com/component"].str.should.equal("job");
+	labels["agents.re-cinq.com/agent"].str.should.equal("bug-fixer-run-1");
+	labels["agents.re-cinq.com/station"].str.should.equal("bug-fixer-station");
 }
 
 unittest
