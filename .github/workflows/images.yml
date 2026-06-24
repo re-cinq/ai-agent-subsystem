@@ -1,9 +1,10 @@
 name: Publish images
 
-# Build and push the controller and agent runtime images to GHCR. Runs after a
-# merge to main (the CI + controller-container workflows gate the PR) and on
-# version tags. The agent image is the AGENT_IMAGE the controller injects as each
-# run pod's init container; the controller image backs deploy/controller.yaml.
+# Build and push the controller and agent runtime images to GHCR. On main this runs
+# only after the CI workflow succeeds on the merged commit (workflow_run gate), so a
+# red build never produces a signed image; version tags and manual dispatch publish
+# directly. The agent image is the AGENT_IMAGE the controller injects as each run
+# pod's init container; the controller image backs deploy/controller.yaml.
 #
 # Supply chain: each pushed image is signed with cosign (keyless, via the GitHub
 # OIDC token — no stored keys) and carries an SPDX SBOM + SLSA provenance
@@ -16,8 +17,11 @@ name: Publish images
 # never ships a floating :latest. See README "Releases".
 
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
+  push:
     tags: ['v*']
   workflow_dispatch:
 
@@ -28,6 +32,9 @@ permissions:
 
 jobs:
   publish:
+    # On main, only publish if the CI workflow that triggered us passed; tag
+    # releases and manual dispatch (no workflow_run context) always run.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -40,6 +47,10 @@ jobs:
             key: agent
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          # On the workflow_run path, build the exact commit CI validated; otherwise
+          # the tag / dispatch ref.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       # docker-container driver — the runner's default `docker` driver can't emit
       # the SBOM/provenance attestations the build step requests below.
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
