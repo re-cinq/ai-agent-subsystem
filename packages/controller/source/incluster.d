@@ -14,7 +14,8 @@ import agentcore.core.env : envMaxOutputBytes, defaultMaxOutputBytes;
 struct ClusterConfig
 {
 	string apiBase; /// e.g. "https://10.0.0.1:443"
-	string token; /// service-account bearer token
+	string token; /// service-account bearer token (the initial / out-of-cluster value)
+	string tokenPath; /// file to re-read the token from (rotated in place); "" out of cluster
 	string caFile; /// path to the CA bundle the API server's cert is signed by
 	string namespace; /// the Pod's own namespace
 	size_t maxOutputBytes = defaultMaxOutputBytes; /// tail of a run pod's log kept in status.output
@@ -52,6 +53,7 @@ ClusterConfig loadClusterConfig()
 	ClusterConfig config;
 	config.apiBase = resolveApiBase(environment.get("KUBE_API_URL", ""), host, port);
 	config.token = exists(tokenPath) ? readText(tokenPath).strip : environment.get("KUBE_API_TOKEN", "");
+	config.tokenPath = exists(tokenPath) ? tokenPath : "";
 	config.caFile = caPath;
 	config.namespace = exists(namespacePath) ? readText(namespacePath)
 		.strip : environment.get("NAMESPACE", "ai-agents");
