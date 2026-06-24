@@ -1,6 +1,6 @@
 module httpkube;
 
-import core.time : MonoTime;
+import core.time : Duration, MonoTime, seconds;
 import std.algorithm.searching : canFind;
 import std.conv : to;
 import std.exception : enforce;
@@ -87,22 +87,33 @@ interface LeaseClient
 final class HttpKubeClient : KubeClient, LeaseClient
 {
 	private ClusterConfig config;
-	private HTTPClientSettings settings;
+	private HTTPClientSettings settings; /// normal requests: short read timeout
+	private HTTPClientSettings watchSettings; /// the watch long poll: read timeout > server-side close
 	private string cachedToken; /// last good bearer token; re-read from the SA token file each request
 
 	this(ClusterConfig config)
 	{
 		this.config = config;
 		this.cachedToken = config.token;
-		this.settings = new HTTPClientSettings;
-		const ca = config.caFile;
-		this.settings.tlsContextSetup = (TLSContext ctx) @safe nothrow {
+		this.settings = makeSettings(config.caFile, apiReadTimeout);
+		this.watchSettings = makeSettings(config.caFile, watchReadTimeout);
+	}
+
+	/// Build client settings with connect + read timeouts and the in-cluster CA, so a
+	/// stalled API server fails fast instead of blocking the fiber forever.
+	private static HTTPClientSettings makeSettings(string ca, Duration readTimeout)
+	{
+		auto s = new HTTPClientSettings;
+		s.connectTimeout = apiConnectTimeout;
+		s.readTimeout = readTimeout;
+		s.tlsContextSetup = (TLSContext ctx) @safe nothrow {
 			try
 				() @trusted { ctx.useTrustedCertificateFile(ca); }();
 			catch (Exception)
 			{
 			}
 		};
+		return s;
 	}
 
 	override Station getStation(string ns, string name)
@@ -209,7 +220,7 @@ final class HttpKubeClient : KubeClient, LeaseClient
 					if (line.length)
 						onLine(line);
 				}
-			}, settings);
+			}, watchSettings);
 	}
 
 	/// Read the leader-election Lease. A 404 means none has been created yet,
@@ -437,6 +448,13 @@ private JSONValue* leaseSection(JSONValue lease, string section, string key)
 /// blocked on a dead socket until OS TCP keepalive fires (hours).
 enum watchTimeoutSeconds = 300;
 
+/// Client timeouts. Normal requests fail fast if the API server stalls; the watch is
+/// a long poll, so its read timeout sits above the server-side close (a real idle
+/// watch stays open) but still breaks a half-open connection that never sends FIN.
+enum apiConnectTimeout = 10.seconds;
+enum apiReadTimeout = 30.seconds;
+enum watchReadTimeout = (watchTimeoutSeconds + 60).seconds;
+
 /// The watch query string: stream changes since `resourceVersion`, asking the server
 /// to end the long poll after `timeoutSeconds`. Free + pure so it is unit-testable.
 private string watchQuery(string resourceVersion, int timeoutSeconds)
@@ -484,6 +502,19 @@ unittest
 	// The watch asks the server to close the long poll after timeoutSeconds, so a
 	// silently dropped (half-open) connection can't wedge the watch indefinitely.
 	watchQuery("12345", 300).should.equal("?watch=1&resourceVersion=12345&timeoutSeconds=300");
+}
+
+unittest
+{
+	// Every request carries connect + read timeouts so a stalled API server can't
+	// wedge a reconcile fiber (and starve Lease renewal) forever. The watch gets a
+	// read timeout longer than its server-side long poll, so it survives idle periods
+	// but a half-open (silently dropped) connection still breaks instead of blocking
+	// for hours.
+	auto client = new HttpKubeClient(ClusterConfig("https://api:443", "tok", "", "/ca", "ai-agents"));
+	client.settings.connectTimeout.should.equal(apiConnectTimeout);
+	client.settings.readTimeout.should.equal(apiReadTimeout);
+	(client.watchSettings.readTimeout > client.settings.readTimeout).should.equal(true);
 }
 
 unittest
