@@ -40,12 +40,17 @@ stateDiagram-v2
 4. After any terminal transition, prune history.
 
 If the run pod was already garbage-collected when the controller reads back (so its captured stdout
-is gone), the Agent still reaches its terminal phase but `failureReason` records
-`run output unavailable: pod garbage-collected` instead of leaving `output` silently empty. If the
-**Job itself** was garbage-collected first (the controller was down or backlogged past
-`ttlSecondsAfterFinished`), the outcome is unrecoverable, so the Agent is reported `Failed` with
+is gone), reading it back is best-effort: the Agent still reaches its terminal phase — keeping any
+Job-level failure reason, or recording `run output unavailable: pod garbage-collected` when there is
+none — instead of leaving `output` silently empty or letting the read error leave the Agent stuck in
+`Running`. If the **Job itself** was garbage-collected first (the controller was down or backlogged
+past `ttlSecondsAfterFinished`), the outcome is unrecoverable, so the Agent is reported `Failed` with
 `run record unavailable: Job garbage-collected before its result was observed` rather than being left
 stuck in `Running`.
+
+`exitCode` always agrees with the phase: a `Failed` run reports a non-zero code even when the pod's
+container status reads back as `0` (a GC race can leave it unpopulated), and a `Succeeded` run
+reports `0`.
 
 **Terminal → terminal** is a no-op; reconciling a finished Agent does nothing.
 

@@ -9,7 +9,7 @@ import agentcore.kube.jobspec : buildJob;
 import agentcore.kube.jsonbody : statusPatch;
 import agentcore.kube.kubeclient : KubeClient, NotFound, PodResult;
 import agentcore.reconcile.prune : agentsToPrune;
-import agentcore.reconcile.reconcile : ActionKind, decide, JobOutcome, JobState;
+import agentcore.reconcile.reconcile : ActionKind, coherentExitCode, decide, JobOutcome, JobState;
 import agentcore.core.types : Phase;
 
 /// Status reason when the run Job was garbage-collected before the controller could
@@ -114,16 +114,32 @@ private JobOutcome observeJob(KubeClient client, string ns, string jobName)
 /// empty (a Job-level failure reason already present is kept).
 private void enrichFromPod(KubeClient client, string ns, string jobName, ref JobOutcome outcome)
 {
-	const podName = client.podNameForJob(ns, jobName);
-	if (podName.length == 0)
+	try
 	{
-		if (outcome.reason.length == 0)
-			outcome.reason = runOutputUnavailable;
-		return;
+		const podName = client.podNameForJob(ns, jobName);
+		if (podName.length == 0)
+			return markOutputUnavailable(outcome);
+		const pod = client.podResult(ns, podName);
+		outcome.exitCode = coherentExitCode(outcome.state, pod.exitCode);
+		outcome.output = pod.log;
 	}
-	const pod = client.podResult(ns, podName);
-	outcome.exitCode = pod.exitCode;
-	outcome.output = pod.log;
+	catch (Exception)
+	{
+		// The pod was GC'd between reads, or the log fetch failed: enrichment is
+		// best-effort, so degrade to the Job-level outcome instead of re-throwing —
+		// which would propagate up and leave the Agent stuck Running forever.
+		markOutputUnavailable(outcome);
+	}
+}
+
+/// Record that the run pod's output couldn't be read back (it was GC'd), keeping any
+/// Job-level failure reason already present, and keep the exit code coherent with the
+/// Job state so a failed run never reports the placeholder 0.
+private void markOutputUnavailable(ref JobOutcome outcome)
+{
+	if (outcome.reason.length == 0)
+		outcome.reason = runOutputUnavailable;
+	outcome.exitCode = coherentExitCode(outcome.state, outcome.exitCode);
 }
 
 private bool resolveRefs(KubeClient client, string ns, Agent agent, ref Station station,
@@ -168,6 +184,7 @@ version (unittest)
 		bool jobMissing;
 		string podNameValue;
 		PodResult podResultValue;
+		bool podReadThrows; /// simulate the pod being GC'd between podNameForJob and podResult
 
 		JSONValue[] createdJobs;
 		JSONValue[] statusPatches;
@@ -217,6 +234,8 @@ version (unittest)
 
 		override PodResult podResult(string ns, string podName)
 		{
+			if (podReadThrows)
+				throw new NotFound("pod " ~ podName ~ " not found");
 			return podResultValue;
 		}
 	}
@@ -384,6 +403,54 @@ unittest
 	client.statusPatches[0]["status"]["phase"].str.should.equal("Succeeded");
 	client.statusPatches[0]["status"]["output"].str.should.equal("");
 	client.statusPatches[0]["status"]["failureReason"].str.should.equal(runOutputUnavailable);
+}
+
+unittest
+{
+	// Running + Job failed, but the pod was GC'd between podNameForJob and podResult
+	// (podResult throws) -> still reported terminal Failed (never left stuck Running),
+	// keeping the Job-level reason and a non-zero exit code.
+	auto client = new FakeKubeClient;
+	client.outcome = JobOutcome(JobState.failed, 1, "BackoffLimitExceeded", "");
+	client.podNameValue = "agent-job-run-9-xyz";
+	client.podReadThrows = true;
+	client.station.metadata.name = "stn";
+
+	Agent agent;
+	agent.metadata.name = "run-9";
+	agent.spec.stationRef = "stn";
+	agent.status.phase = Phase.running;
+	agent.status.jobName = "agent-job-run-9";
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null);
+
+	client.statusPatches[0]["status"]["phase"].str.should.equal("Failed");
+	client.statusPatches[0]["status"]["failureReason"].str.should.equal("BackoffLimitExceeded");
+	client.statusPatches[0]["status"]["exitCode"].integer.should.equal(1);
+}
+
+unittest
+{
+	// Running + Job failed but the pod's container exit code reads back as 0 (a GC
+	// race leaves it unpopulated) -> status must not contradict itself with "Failed,
+	// exitCode 0"; report a non-zero code while keeping the captured log.
+	auto client = new FakeKubeClient;
+	client.outcome = JobOutcome(JobState.failed, 1, "DeadlineExceeded", "");
+	client.podNameValue = "agent-job-run-10-xyz";
+	client.podResultValue = PodResult(0, "partial log");
+	client.station.metadata.name = "stn";
+
+	Agent agent;
+	agent.metadata.name = "run-10";
+	agent.spec.stationRef = "stn";
+	agent.status.phase = Phase.running;
+	agent.status.jobName = "agent-job-run-10";
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null);
+
+	client.statusPatches[0]["status"]["phase"].str.should.equal("Failed");
+	client.statusPatches[0]["status"]["exitCode"].integer.should.equal(1);
+	client.statusPatches[0]["status"]["output"].str.should.equal("partial log");
 }
 
 unittest

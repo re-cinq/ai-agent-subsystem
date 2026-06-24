@@ -19,6 +19,23 @@ struct JobOutcome
 	string output;
 }
 
+/// Reconcile the Job-level state with a pod-reported exit code so `status` never
+/// contradicts itself. A failed run must report a non-zero code even when the pod's
+/// container status reads back as 0 (a GC race can leave it unpopulated), and a
+/// succeeded run always reports 0.
+int coherentExitCode(JobState state, int podExitCode) @safe pure nothrow
+{
+	final switch (state)
+	{
+	case JobState.succeeded:
+		return 0;
+	case JobState.failed:
+		return podExitCode != 0 ? podExitCode : 1;
+	case JobState.running:
+		return podExitCode;
+	}
+}
+
 /// What the controller should do for an Agent, decided purely from inputs.
 enum ActionKind
 {
@@ -75,6 +92,16 @@ Decision decide(Phase current, bool refsResolved, bool hasOutcome, JobOutcome ou
 }
 
 version (unittest) import fluent.asserts;
+
+@safe unittest
+{
+	// Exit code stays coherent with the Job state: a failed run never reports 0 (a
+	// GC race can leave the pod's container exit code unset), a succeeded run is 0.
+	coherentExitCode(JobState.failed, 0).should.equal(1);
+	coherentExitCode(JobState.failed, 42).should.equal(42);
+	coherentExitCode(JobState.succeeded, 0).should.equal(0);
+	coherentExitCode(JobState.succeeded, 9).should.equal(0);
+}
 
 @safe unittest
 {
