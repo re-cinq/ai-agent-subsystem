@@ -46,3 +46,7 @@ flowchart LR
 ```
 
 Tighten the HTTPS egress to specific CIDRs or an egress proxy if your environment requires it.
+
+Run pods also run with `automountServiceAccountToken: false`: the run needs no
+Kubernetes API access, so the untrusted agent code never receives a mountable API
+credential.
