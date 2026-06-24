@@ -33,6 +33,11 @@ Run pods get an **egress-only** NetworkPolicy. Ingress is denied; egress is limi
 - **DNS** (so service names resolve), and
 - **HTTPS** (so the agent can reach its model provider, source forges, and registries).
 
+The policy selects run pods by the `agents.re-cinq.com/component: job` label the
+controller stamps on every run pod. It also adds `agents.re-cinq.com/agent` and
+`agents.re-cinq.com/station` labels, so a run's pod is traceable with
+`kubectl get pods -l agents.re-cinq.com/agent=<name>`.
+
 ```mermaid
 flowchart LR
     POD["run pod"] -->|53 UDP/TCP| DNS["cluster DNS"]
