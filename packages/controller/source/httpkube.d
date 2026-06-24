@@ -181,7 +181,7 @@ final class HttpKubeClient : KubeClient, LeaseClient
 	/// cursor.
 	void watchAgents(string ns, string resourceVersion, scope void delegate(string line) onLine)
 	{
-		const url = crCollectionUrl(ns, "agents") ~ "?watch=1&resourceVersion=" ~ resourceVersion;
+		const url = crCollectionUrl(ns, "agents") ~ watchQuery(resourceVersion, watchTimeoutSeconds);
 		requestHTTP(url,
 			(scope HTTPClientRequest req) { authorize(req); },
 			(scope HTTPClientResponse res) {
@@ -417,6 +417,19 @@ private JSONValue* leaseSection(JSONValue lease, string section, string key)
 	return key in sec.object;
 }
 
+/// Server-side watch timeout: the API server closes the long poll after this many
+/// seconds, forcing the inform loop to reconnect (and resume from its last
+/// resourceVersion). Without it a silently dropped connection leaves the watch fiber
+/// blocked on a dead socket until OS TCP keepalive fires (hours).
+enum watchTimeoutSeconds = 300;
+
+/// The watch query string: stream changes since `resourceVersion`, asking the server
+/// to end the long poll after `timeoutSeconds`. Free + pure so it is unit-testable.
+private string watchQuery(string resourceVersion, int timeoutSeconds)
+{
+	return "?watch=1&resourceVersion=" ~ resourceVersion ~ "&timeoutSeconds=" ~ timeoutSeconds.to!string;
+}
+
 version (unittest) import fluent.asserts;
 
 unittest
@@ -434,6 +447,13 @@ unittest
 		"https://api:443/api/v1/namespaces/ai-agents/pods/p1/log?tailLines=10000");
 	client.leaseUrl("ai-agents", "agent-controller").should.equal(
 		"https://api:443/apis/coordination.k8s.io/v1/namespaces/ai-agents/leases/agent-controller");
+}
+
+unittest
+{
+	// The watch asks the server to close the long poll after timeoutSeconds, so a
+	// silently dropped (half-open) connection can't wedge the watch indefinitely.
+	watchQuery("12345", 300).should.equal("?watch=1&resourceVersion=12345&timeoutSeconds=300");
 }
 
 unittest

@@ -4,6 +4,7 @@ import core.time : MonoTime, seconds;
 import std.datetime.systime : Clock;
 import std.datetime.timezone : UTC;
 import std.json : JSONType, JSONValue, parseJSON;
+import std.random : uniform;
 
 import vibe.core.core : runTask, sleep;
 import vibe.core.log : logError, logInfo;
@@ -102,13 +103,15 @@ private void informLoop(HttpKubeClient client, string ns, string agentImage, Lea
 {
 	string resourceVersion;
 	bool firstWatch = true;
+	int errorAttempt = 0;
 	for (;;)
 	{
 		if (!leadership.isLeader)
 		{
 			resourceVersion = "";
 			firstWatch = true;
-			backoff(2);
+			errorAttempt = 0;
+			backoff(watchBackoffBaseSeconds);
 			continue;
 		}
 		try
@@ -119,16 +122,23 @@ private void informLoop(HttpKubeClient client, string ns, string agentImage, Lea
 				recordWatchReconnect();
 			firstWatch = false;
 			resourceVersion = watch(client, ns, agentImage, leadership, cache, resourceVersion);
+			errorAttempt = 0;
+			backoff(watchBackoffBaseSeconds);
 		}
 		catch (WatchExpired expired)
 		{
 			logInfo("watch expired, resyncing: %s", expired.msg);
 			resourceVersion = "";
+			errorAttempt = 0;
+			backoff(watchBackoffBaseSeconds);
 		}
 		catch (Exception error)
+		{
+			// A real failure (API blip, TLS, 5xx): back off exponentially with jitter
+			// instead of hammering a degraded API server every 2s.
 			logError("inform: %s", error.msg);
-
-		backoff(2);
+			errorBackoff(++errorAttempt);
+		}
 	}
 }
 
@@ -259,12 +269,58 @@ private void backoff(int secs) nothrow
 	}
 }
 
+/// Base and cap (seconds) for the inform loop's error backoff.
+enum watchBackoffBaseSeconds = 2;
+enum watchBackoffCapSeconds = 60;
+
+/// Exponential backoff ceiling for the Nth consecutive error: base * 2^attempt,
+/// capped at `cap`. Pure so the schedule is testable; the loop layers jitter on top
+/// (a random delay up to the ceiling) so replicas don't retry in lockstep.
+int backoffCeiling(int attempt, int base, int cap) @safe pure nothrow
+{
+	long delay = base;
+	foreach (_; 0 .. attempt)
+	{
+		delay *= 2;
+		if (delay >= cap)
+			return cap;
+	}
+	return cast(int) delay;
+}
+
+/// Sleep before retrying after `attempt` consecutive errors: at least the base
+/// delay, plus jitter up to the exponential ceiling, so a persistent failure backs
+/// off instead of hot-looping and N replicas don't synchronize their retries.
+private void errorBackoff(int attempt) nothrow
+{
+	const ceiling = backoffCeiling(attempt, watchBackoffBaseSeconds, watchBackoffCapSeconds);
+	int secs = ceiling;
+	try
+		secs = watchBackoffBaseSeconds + uniform(0, ceiling - watchBackoffBaseSeconds + 1);
+	catch (Exception)
+	{
+	}
+	backoff(secs);
+}
+
 private string nowRfc3339()
 {
 	return Clock.currTime(UTC()).toISOExtString();
 }
 
 version (unittest) import fluent.asserts;
+
+@safe unittest
+{
+	// Exponential growth from the base, doubling each attempt, capped.
+	backoffCeiling(0, 2, 60).should.equal(2);
+	backoffCeiling(1, 2, 60).should.equal(4);
+	backoffCeiling(2, 2, 60).should.equal(8);
+	backoffCeiling(3, 2, 60).should.equal(16);
+	// Past the cap it stays at the cap, never unbounded.
+	backoffCeiling(10, 2, 60).should.equal(60);
+	backoffCeiling(100, 2, 60).should.equal(60);
+}
 
 unittest
 {

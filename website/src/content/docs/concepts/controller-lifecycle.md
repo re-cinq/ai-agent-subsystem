@@ -106,7 +106,11 @@ Agents. The watch seeds the cache and its starting `resourceVersion` with a full
 (`?limit=&continue=`), then resumes from that `resourceVersion`, applying each event to the cache
 (`ADDED`/`MODIFIED` upsert, `DELETED` evict) and reconciling the changed Agent. When the watch
 closes it resumes from the last `resourceVersion` seen — it does not replay the whole collection. A
-`410 Gone` (the change history was compacted past our cursor) triggers a fresh paginated re-list.
+`410 Gone` (the change history was compacted past our cursor) triggers a fresh paginated re-list. The
+watch carries a server-side `timeoutSeconds`, so the API server periodically ends the long poll and
+the loop reconnects — a silently dropped (half-open) connection can't leave it blocked on a dead
+socket. On a real error (API blip, TLS, 5xx) the loop backs off **exponentially with jitter** rather
+than retrying every couple of seconds, so a degraded API server isn't hammered in lockstep.
 
 The **poll** runs independently every ~15s: a full paginated LIST that refreshes the cache and
 reconciles every Agent. This is the safety net — it guarantees an Agent whose watch event was missed
