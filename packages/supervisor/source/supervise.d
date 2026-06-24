@@ -2,6 +2,7 @@ module supervise;
 
 import core.stdc.signal : signal, SIG_IGN, SIGINT, SIGTERM;
 import core.sys.posix.signal : kill, SIGKILL, SIGPIPE;
+import core.sys.posix.unistd : _exit;
 import core.sys.posix.sys.types : pid_t;
 import core.time : Duration, msecs;
 
@@ -90,7 +91,7 @@ int supervise(string[] agentArgv)
 	// Stream stdout in its own task so the agent's *process exit* ends the run,
 	// not stdout EOF: a stray child that inherits and holds stdout open would
 	// otherwise keep the pipe from ever reaching EOF and hang the loop.
-	auto reader = runTask(() nothrow {
+	runTask(() nothrow {
 		try
 		{
 			while (!pipes.stdout.empty)
@@ -121,7 +122,7 @@ int supervise(string[] agentArgv)
 	// event without blocking on a process that may never exit on its own.
 	int processCode = 1;
 	bool processExited = false;
-	auto waiter = runTask(() nothrow {
+	runTask(() nothrow {
 		try
 			processCode = pipes.process.wait();
 		catch (Exception)
@@ -131,21 +132,20 @@ int supervise(string[] agentArgv)
 
 	const code = awaitOutcome(grace, processExited, processCode, terminalSeen, runOk);
 
-	// The reader normally finishes as stdout EOFs right after the agent exits.
-	// Give it a brief grace to drain buffered output, then stop it if a stray
-	// child is still holding stdout open.
+	// Brief grace for the reader to flush output buffered right up to the terminal
+	// event (emitEvent writes + flushes stdout per event as it reads).
 	sleep(100.msecs);
-	if (reader.running)
-		reader.interrupt();
-	reader.join();
-	waiter.join();
-
-	// Release our end of the pipe so eventcore doesn't warn about a still-open
-	// handle when a stray child kept the write end open.
-	pipes.stdout.close();
-
 	emit(sinks, source, agentExit(code).toJson);
-	return code;
+
+	// Hard-exit instead of joining the reader/waiter and unwinding the event loop.
+	// A stray grandchild of the agent (the real Claude CLI spawns workers) can inherit
+	// and hold the stdout pipe open, so the reader never reaches EOF and a join would
+	// block until the Job's activeDeadlineSeconds — the run pod then never terminates
+	// even though the work is done (#58). _exit guarantees PID 1 dies so the pod and
+	// Job finish promptly; stdout is already flushed per event, and any grandchildren
+	// die with the container once PID 1 is gone.
+	_exit(code);
+	assert(0, "unreachable");
 }
 
 /// Block until the agent's run is over, returning the exit code to report. The run
