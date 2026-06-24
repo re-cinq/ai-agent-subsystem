@@ -14,15 +14,26 @@
 ARG BUILDER_IMAGE=rockylinux:9
 ARG RUNTIME_IMAGE=debian:bookworm-slim
 ARG LDC_VERSION=1.40.0
+ARG LDC_SHA256=0da61ed2ea96583aa0ccbeb00f8d78983b23d1e87b84a6f2098eb12059475b27
 
 FROM ${BUILDER_IMAGE} AS builder
 ARG LDC_VERSION
+ARG LDC_SHA256
 RUN set -eu; \
 	dnf install -y --setopt=install_weak_deps=False \
-		curl-minimal xz tar gzip gcc glibc-devel zlib-devel openssl-devel libxml2 git ca-certificates; \
+		curl-minimal xz tar gzip coreutils gcc glibc-devel zlib-devel openssl-devel libxml2 git ca-certificates; \
 	dnf clean all
-RUN curl -fsS https://dlang.org/install.sh | bash -s "ldc-${LDC_VERSION}" -p /opt/dlang
-ENV PATH="/opt/dlang/ldc-${LDC_VERSION}/bin:${PATH}"
+# Pinned, checksum-verified official LDC release tarball — no curl|bash of an
+# unverified installer. The version and hash move together.
+RUN set -eu; \
+	tarball="ldc2-${LDC_VERSION}-linux-x86_64.tar.xz"; \
+	curl -fsSL -o "/tmp/${tarball}" \
+		"https://github.com/ldc-developers/ldc/releases/download/v${LDC_VERSION}/${tarball}"; \
+	echo "${LDC_SHA256}  /tmp/${tarball}" | sha256sum -c -; \
+	mkdir -p /opt/dlang; \
+	tar -C /opt/dlang -xf "/tmp/${tarball}"; \
+	rm -f "/tmp/${tarball}"
+ENV PATH="/opt/dlang/ldc2-${LDC_VERSION}-linux-x86_64/bin:${PATH}"
 WORKDIR /src
 COPY . .
 RUN DFLAGS="-link-defaultlib-shared=false -L-lz" dub build :controller --compiler=ldc2
