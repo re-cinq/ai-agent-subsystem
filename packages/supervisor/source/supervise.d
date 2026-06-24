@@ -1,25 +1,30 @@
 module supervise;
 
 import core.stdc.signal : signal, SIG_IGN, SIGINT, SIGTERM;
-import core.sys.posix.signal : kill, SIGPIPE;
+import core.sys.posix.signal : kill, SIGKILL, SIGPIPE;
 import core.sys.posix.sys.types : pid_t;
-import core.time : msecs;
+import core.time : Duration, msecs;
 
 import vibe.core.core : disableDefaultSignalHandlers, runTask, sleep;
 import vibe.core.process : pipeProcess, Redirect, ProcessPipes;
 import vibe.stream.operations : readLine;
 
+import std.conv : to;
 import std.process : environment;
 
 import agentcore.agents.agentselect : agentForModel;
-import agentcore.core.env : envModel, envSelect;
+import agentcore.core.env : defaultExitGraceMs, envExitGraceMs, envModel, envSelect;
 import agentcore.output.event : sourceFromEnv;
 import agentcore.core.exec : findExecutable;
 import agentcore.output.lifecycle : LifecycleEvent, Phase, Status, toJson;
 import agentcore.core.log : logError;
 import agentcore.output.output : sinksFromEnv;
 import agentcore.output.selectmatcher : parseSelectors, selected;
+import agentcore.output.terminal : terminalFor;
 import sink : emit;
+
+/// How often the wait loop polls the agent's exit / terminal-event state.
+private enum pollInterval = 20.msecs;
 
 /// PID of the spawned agent, shared with the signal handler.
 private __gshared pid_t g_childPid = 0;
@@ -53,6 +58,7 @@ int supervise(string[] agentArgv)
 	const source = sourceFromEnv();
 	const selectors = parseSelectors(environment.get(envSelect, ""));
 	const provider = agentForModel(environment.get(envModel, "")).name;
+	const grace = exitGraceFromEnv();
 
 	if (findExecutable(agentArgv[0]).length == 0)
 	{
@@ -74,6 +80,13 @@ int supervise(string[] agentArgv)
 	g_childPid = pipes.process.pid;
 	emit(sinks, source, LifecycleEvent(Phase.agent, Status.started).toJson);
 
+	// The agent's terminal event, observed on stdout. Some agent CLIs emit this
+	// final event and then fail to exit (a lingering worker keeps the process
+	// alive), so the terminal event — not process exit — is the authoritative
+	// "work done" signal.
+	bool terminalSeen = false;
+	bool runOk = false;
+
 	// Stream stdout in its own task so the agent's *process exit* ends the run,
 	// not stdout EOF: a stray child that inherits and holds stdout open would
 	// otherwise keep the pipe from ever reaching EOF and hang the loop.
@@ -87,6 +100,15 @@ int supervise(string[] agentArgv)
 					continue;
 				const payload = cast(string) raw.idup;
 				emit(sinks, source, payload, selected(selectors, provider, payload));
+				if (!terminalSeen)
+				{
+					const terminal = terminalFor(provider, payload);
+					if (terminal.reached)
+					{
+						terminalSeen = true;
+						runOk = terminal.ok;
+					}
+				}
 			}
 		}
 		catch (Exception)
@@ -95,7 +117,19 @@ int supervise(string[] agentArgv)
 		}
 	});
 
-	const code = pipes.process.wait();
+	// Reap the agent in its own task so the wait loop can react to the terminal
+	// event without blocking on a process that may never exit on its own.
+	int processCode = 1;
+	bool processExited = false;
+	auto waiter = runTask(() nothrow {
+		try
+			processCode = pipes.process.wait();
+		catch (Exception)
+			processCode = 1;
+		processExited = true;
+	});
+
+	const code = awaitOutcome(grace, processExited, processCode, terminalSeen, runOk);
 
 	// The reader normally finishes as stdout EOFs right after the agent exits.
 	// Give it a brief grace to drain buffered output, then stop it if a stray
@@ -104,6 +138,7 @@ int supervise(string[] agentArgv)
 	if (reader.running)
 		reader.interrupt();
 	reader.join();
+	waiter.join();
 
 	// Release our end of the pipe so eventcore doesn't warn about a still-open
 	// handle when a stray child kept the write end open.
@@ -111,6 +146,72 @@ int supervise(string[] agentArgv)
 
 	emit(sinks, source, agentExit(code).toJson);
 	return code;
+}
+
+/// Block until the agent's run is over, returning the exit code to report. The run
+/// ends when the process exits on its own (the normal path — its real exit code is
+/// used) or when the agent emits its terminal event but the process lingers. In the
+/// latter case the process is given `grace` to exit cleanly, then SIGTERM and finally
+/// SIGKILL force it down so the pod can terminate, and the code reflects the agent's
+/// own success/failure rather than the signal that killed it.
+private int awaitOutcome(Duration grace, ref bool processExited, ref int processCode,
+	ref bool terminalSeen, ref bool runOk)
+{
+	while (!processExited && !terminalSeen)
+		sleep(pollInterval);
+
+	// The process exited on its own (the normal path, and the mock/Codex path):
+	// its real exit code is authoritative.
+	if (processExited)
+		return processCode;
+
+	// The agent signalled it is done but the process is still up. Give it the grace
+	// window to exit cleanly first — if it does, that exit code is still its own.
+	if (waitExit(processExited, grace))
+		return processCode;
+
+	// It is lingering. Force it down (SIGTERM, then SIGKILL) so the pod can
+	// terminate. Any exit code now reflects the signal we sent, not the agent's
+	// work, so the terminal event's success/failure is authoritative.
+	if (g_childPid > 0)
+		kill(g_childPid, SIGTERM);
+	if (!waitExit(processExited, grace) && g_childPid > 0)
+		kill(g_childPid, SIGKILL);
+	cast(void) waitExit(processExited, grace);
+	return runOk ? 0 : 1;
+}
+
+/// Poll `processExited` up to `limit`, yielding between checks; true if the process
+/// exited within the window.
+private bool waitExit(ref bool processExited, Duration limit)
+{
+	Duration waited;
+	while (!processExited && waited < limit)
+	{
+		sleep(pollInterval);
+		waited += pollInterval;
+	}
+	return processExited;
+}
+
+/// The terminal-event grace window from the environment, falling back to the
+/// default when unset or unparseable.
+private Duration exitGraceFromEnv()
+{
+	try
+	{
+		const raw = environment.get(envExitGraceMs, "");
+		if (raw.length)
+		{
+			const ms = raw.to!int;
+			if (ms > 0)
+				return ms.msecs;
+		}
+	}
+	catch (Exception)
+	{
+	}
+	return defaultExitGraceMs.msecs;
 }
 
 /// An agent-phase `failed` event the supervisor itself raises (the agent never ran):

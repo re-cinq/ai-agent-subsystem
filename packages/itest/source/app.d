@@ -126,6 +126,7 @@ int main(string[] args)
 	agentCrash();
 	deadSinkLogs();
 	orphanRobustness();
+	terminalShutdown();
 	badArgv();
 
 	writeln(failures == 0 ? "ALL PASSED" : failures.to!string ~ " CHECK(S) FAILED");
@@ -271,6 +272,31 @@ private void orphanRobustness()
 	auto r = run(["MOCK_MODE": "orphan", "MOCK_LINES": "2", "MOCK_EXIT": "0"]);
 	check("both events streamed", payloadCount(r.lines) == 2);
 	check("exit 0 without hanging", r.code == 0);
+}
+
+/// A real agent CLI can emit its terminal result and then never exit. The
+/// supervisor must treat the terminal event as the end of the run and force the
+/// lingering process down instead of blocking until the Job deadline (issue #58).
+private void terminalShutdown()
+{
+	// The agent ignores SIGTERM (like a real CLI wedged on a lingering worker), so
+	// the supervisor must escalate to SIGKILL — and still report the agent's own
+	// success, not the signal that killed it.
+	writeln("terminal event force-kills a wedged agent (SIGKILL escalation)");
+	auto k = run(["MOCK_MODE": "linger", "MOCK_IGNORE_TERM": "1", "MOCK_LINES": "2",
+			"AGENT_EXIT_GRACE_MS": "200"]);
+	check("agent outputs streamed before the terminal event", payloadCount(k.lines) == 2);
+	check("terminal result forwarded", emitted(k.lines, `"is_error":false`));
+	check("exit 0 after SIGKILL (not a deadline)", k.code == 0);
+	check("agent succeeded lifecycle event raised",
+		emitted(k.lines, `"status":"succeeded"`) && emitted(k.lines, `"exitCode":0`));
+
+	// The agent dies on SIGTERM: the supervisor must report the agent's result
+	// (exit 0), not the SIGTERM termination code.
+	writeln("terminal event shuts a lingering agent down (SIGTERM, success preserved)");
+	auto t = run(["MOCK_MODE": "linger", "MOCK_LINES": "1", "AGENT_EXIT_GRACE_MS": "200"]);
+	check("exit 0 from the agent's successful result, not the kill signal", t.code == 0);
+	check("agent succeeded lifecycle event raised", emitted(t.lines, `"status":"succeeded"`));
 }
 
 private void badArgv()
