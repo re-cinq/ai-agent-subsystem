@@ -29,7 +29,7 @@ jobs:
     name: Build portable ai-agent-init
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Build (static D runtime, dynamic glibc) on old glibc
         run: |
           docker run --rm -v "$PWD:/src" -w /src debian:bullseye sh -euc '
@@ -39,7 +39,7 @@ jobs:
             DFLAGS="-link-defaultlib-shared=false -L-lz" dub build :initializer --compiler=ldc2
           '
           cp packages/initializer/ai-agent-init ai-agent-init
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ai-agent-init
           path: ai-agent-init
@@ -58,8 +58,8 @@ jobs:
           - rockylinux:9
           - amazonlinux:2023
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: ai-agent-init
       - name: Build a throwaway origin repo (on the runner)
@@ -82,7 +82,7 @@ jobs:
     name: alpine:3.20
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Build + run init container on Alpine (native musl)
         run: |
           docker run --rm -v "$PWD:/src" -w /src alpine:3.20 sh -euc '
