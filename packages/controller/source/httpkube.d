@@ -4,7 +4,9 @@ import core.time : MonoTime;
 import std.algorithm.searching : canFind;
 import std.conv : to;
 import std.exception : enforce;
+import std.file : readText;
 import std.json : JSONType, JSONValue, parseJSON;
+import std.string : strip;
 
 import vibe.core.log : logInfo;
 import vibe.http.client : HTTPClientRequest, HTTPClientResponse, HTTPClientSettings, requestHTTP;
@@ -86,10 +88,12 @@ final class HttpKubeClient : KubeClient, LeaseClient
 {
 	private ClusterConfig config;
 	private HTTPClientSettings settings;
+	private string cachedToken; /// last good bearer token; re-read from the SA token file each request
 
 	this(ClusterConfig config)
 	{
 		this.config = config;
+		this.cachedToken = config.token;
 		this.settings = new HTTPClientSettings;
 		const ca = config.caFile;
 		this.settings.tlsContextSetup = (TLSContext ctx) @safe nothrow {
@@ -341,8 +345,9 @@ final class HttpKubeClient : KubeClient, LeaseClient
 
 	private void authorize(scope HTTPClientRequest req)
 	{
-		if (config.token.length)
-			req.headers["Authorization"] = "Bearer " ~ config.token;
+		cachedToken = refreshToken(config.tokenPath, cachedToken);
+		if (cachedToken.length)
+			req.headers["Authorization"] = "Bearer " ~ cachedToken;
 	}
 
 	private string crUrl(string ns, string plural, string name)
@@ -439,6 +444,22 @@ private string watchQuery(string resourceVersion, int timeoutSeconds)
 	return "?watch=1&resourceVersion=" ~ resourceVersion ~ "&timeoutSeconds=" ~ timeoutSeconds.to!string;
 }
 
+/// The current bearer token, re-read from `path` so a rotated projected
+/// service-account token is picked up — the kubelet swaps the file in place and the
+/// token expires within ~1h, so a token read once at startup eventually 401s every
+/// request. Falls back to `fallback` (the last good value) when no path is set
+/// (out-of-cluster) or the file can't be read this instant (e.g. mid-rotation), so a
+/// transient read never drops auth.
+private string refreshToken(string path, string fallback)
+{
+	if (path.length == 0)
+		return fallback;
+	try
+		return readText(path).strip;
+	catch (Exception)
+		return fallback;
+}
+
 version (unittest) import fluent.asserts;
 
 unittest
@@ -463,6 +484,25 @@ unittest
 	// The watch asks the server to close the long poll after timeoutSeconds, so a
 	// silently dropped (half-open) connection can't wedge the watch indefinitely.
 	watchQuery("12345", 300).should.equal("?watch=1&resourceVersion=12345&timeoutSeconds=300");
+}
+
+unittest
+{
+	import std.file : write, remove, tempDir;
+	import std.path : buildPath;
+
+	// No path configured (out-of-cluster) -> keep the static fallback token.
+	refreshToken("", "static-tok").should.equal("static-tok");
+
+	// A rotated token file is re-read; a trailing newline is stripped.
+	const path = buildPath(tempDir, "ai-agent-token-test");
+	write(path, "rotated-tok\n");
+	scope (exit)
+		remove(path);
+	refreshToken(path, "old-tok").should.equal("rotated-tok");
+
+	// An unreadable path falls back to the last good token (never drops auth).
+	refreshToken("/no/such/token/file", "old-tok").should.equal("old-tok");
 }
 
 unittest
