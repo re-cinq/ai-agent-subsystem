@@ -50,3 +50,9 @@ Tighten the HTTPS egress to specific CIDRs or an egress proxy if your environmen
 Run pods also run with `automountServiceAccountToken: false`: the run needs no
 Kubernetes API access, so the untrusted agent code never receives a mountable API
 credential.
+
+The agent container is hardened beyond the non-root UID: `seccompProfile:
+RuntimeDefault`, all Linux capabilities dropped, and `allowPrivilegeEscalation:
+false`. When the Station template sets no `resources` on the agent container, the
+controller fills in a default request/limit so the run is memory-bounded (not
+BestEffort) and can't starve the node; set `resources` on the Station to override.

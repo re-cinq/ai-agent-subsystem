@@ -150,6 +150,8 @@ private JSONValue wirePodTemplate(JSONValue template_, JSONValue[] command, JSON
 			container["env"] = env;
 			container["volumeMounts"] = withBundleMount(container);
 			container["securityContext"] = nonRootSecurity();
+			if (!("resources" in container.object))
+				container["resources"] = agentResources();
 			wired = true;
 		}
 		containers ~= container;
@@ -220,11 +222,16 @@ private JSONValue initContainer(string agentImage, JSONValue env)
 
 private JSONValue nonRootSecurity()
 {
+	JSONValue[string] caps;
+	caps["drop"] = JSONValue([JSONValue("ALL")]);
+
 	JSONValue[string] security;
 	security["runAsNonRoot"] = JSONValue(true);
 	security["runAsUser"] = JSONValue(agentUid);
 	security["runAsGroup"] = JSONValue(agentGid);
 	security["allowPrivilegeEscalation"] = JSONValue(false);
+	security["capabilities"] = JSONValue(caps);
+	security["seccompProfile"] = runtimeDefaultSeccomp();
 	return JSONValue(security);
 }
 
@@ -232,7 +239,33 @@ private JSONValue podSecurity()
 {
 	JSONValue[string] security;
 	security["fsGroup"] = JSONValue(agentGid);
+	security["seccompProfile"] = runtimeDefaultSeccomp();
 	return JSONValue(security);
+}
+
+private JSONValue runtimeDefaultSeccomp()
+{
+	JSONValue[string] seccomp;
+	seccomp["type"] = JSONValue("RuntimeDefault");
+	return JSONValue(seccomp);
+}
+
+/// Default requests/limits for the agent container when the Station template sets
+/// none, so an untrusted run is Burstable (not BestEffort) and memory-bounded — it
+/// cannot starve the node. An operator overrides by setting `resources` on the
+/// Station's agent container. No CPU limit: a memory limit gives OOM protection
+/// without throttling legitimate agent work.
+private JSONValue agentResources()
+{
+	JSONValue[string] requests;
+	requests["cpu"] = JSONValue("100m");
+	requests["memory"] = JSONValue("256Mi");
+	JSONValue[string] limits;
+	limits["memory"] = JSONValue("2Gi");
+	JSONValue[string] resources;
+	resources["requests"] = JSONValue(requests);
+	resources["limits"] = JSONValue(limits);
+	return JSONValue(resources);
 }
 
 /// Requests/limits for the init container so it is Burstable, not BestEffort — a
@@ -531,6 +564,43 @@ unittest
 
 	auto pod = buildJob(agent, station, definition, "img")["spec"]["template"]["spec"];
 	pod["automountServiceAccountToken"].boolean.should.equal(false);
+}
+
+unittest
+{
+	// The untrusted agent container is hardened: seccomp RuntimeDefault, every Linux
+	// capability dropped, and (when the Station sets none) default resource bounds so
+	// it is Burstable, not BestEffort, and cannot starve the node.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+
+	auto job = buildJob(agent, station, definition, "img");
+	auto container = agentContainer(job);
+	auto podSec = job["spec"]["template"]["spec"]["securityContext"];
+
+	container["securityContext"]["seccompProfile"]["type"].str.should.equal("RuntimeDefault");
+	container["securityContext"]["capabilities"]["drop"][0].str.should.equal("ALL");
+	podSec["seccompProfile"]["type"].str.should.equal("RuntimeDefault");
+
+	container["resources"]["requests"]["memory"].str.should.equal("256Mi");
+	container["resources"]["limits"]["memory"].str.should.equal("2Gi");
+}
+
+unittest
+{
+	// A Station that sets the agent container's resources keeps them — the default
+	// only fills in when the operator specified none.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	station.spec.template_ = parseJSON(
+		`{"spec":{"containers":[{"name":"agent","image":"node:22","resources":{"limits":{"memory":"512Mi"}}}]}}`);
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img"));
+	container["resources"]["limits"]["memory"].str.should.equal("512Mi");
 }
 
 unittest
