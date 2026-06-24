@@ -16,7 +16,7 @@ import agentcore.core.types : Phase;
 /// included, per JSON merge-patch semantics. The caller supplies `jobName` (the
 /// Job it created) and `timestamp` (an RFC3339 "now") so this stays pure: it
 /// stamps `startedAt` on a start and `completedAt` on a terminal transition.
-JSONValue statusPatch(Decision decision, string jobName, string timestamp)
+JSONValue statusPatch(Decision decision, string jobName, string timestamp, string resourceVersion = "")
 {
 	JSONValue[string] status;
 	status["phase"] = JSONValue(cast(string) decision.phase);
@@ -43,7 +43,13 @@ JSONValue statusPatch(Decision decision, string jobName, string timestamp)
 		break;
 	}
 
-	return JSONValue(["status": JSONValue(status)]);
+	JSONValue[string] patch;
+	patch["status"] = JSONValue(status);
+	// Include the read's resourceVersion so the API server rejects (409) a write
+	// computed from a stale snapshot instead of clobbering a newer update.
+	if (resourceVersion.length)
+		patch["metadata"] = JSONValue(["resourceVersion": JSONValue(resourceVersion)]);
+	return JSONValue(patch);
 }
 
 /// Parse a Kubernetes Agent object into the typed struct. Unknown/missing fields
@@ -59,6 +65,7 @@ Agent parseAgent(JSONValue value)
 	agent.metadata.name = childString(meta, "name");
 	agent.metadata.namespace = childString(meta, "namespace");
 	agent.metadata.uid = childString(meta, "uid");
+	agent.metadata.resourceVersion = childString(meta, "resourceVersion");
 	agent.spec.stationRef = childString(spec, "stationRef");
 	agent.spec.taskId = childString(spec, "taskId");
 	agent.spec.targetRepo = childString(spec, "targetRepo");
@@ -310,6 +317,20 @@ unittest
 	patch["status"]["phase"].str.should.equal("Running");
 	patch["status"]["jobName"].str.should.equal("agent-job-x");
 	patch["status"]["startedAt"].str.should.equal("2026-06-22T12:00:00Z");
+}
+
+unittest
+{
+	// A resourceVersion is carried as an optimistic-concurrency precondition, so a
+	// write computed from a stale read is rejected (409) instead of clobbering a newer
+	// update. With none, no metadata is sent (an unconditional patch).
+	auto guarded = statusPatch(Decision(ActionKind.startRun, Phase.running), "agent-job-x",
+		"2026-06-22T12:00:00Z", "12345");
+	guarded["metadata"]["resourceVersion"].str.should.equal("12345");
+
+	auto plain = statusPatch(Decision(ActionKind.startRun, Phase.running), "agent-job-x",
+		"2026-06-22T12:00:00Z");
+	(("metadata" in plain.object) is null).should.equal(true);
 }
 
 unittest

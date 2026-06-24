@@ -39,6 +39,12 @@ stateDiagram-v2
 3. On failure, patch `phase = Failed` with `exitCode`, `failureReason`, and `output` (the truncated tail).
 4. After any terminal transition, prune history.
 
+Every status patch carries the Agent's `resourceVersion` as a precondition, so a write computed from
+a stale read is rejected (`409 Conflict`) instead of clobbering a newer update. The watch and the poll
+reconcile from independent snapshots, so this optimistic-concurrency guard is what keeps them from
+lost-updating each other: a conflicted write is dropped and the next reconcile recomputes from fresh
+state.
+
 If the run pod was already garbage-collected when the controller reads back (so its captured stdout
 is gone), reading it back is best-effort: the Agent still reaches its terminal phase — keeping any
 Job-level failure reason, or recording `run output unavailable: pod garbage-collected` when there is

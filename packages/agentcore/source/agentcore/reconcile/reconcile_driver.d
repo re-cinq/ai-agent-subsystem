@@ -70,20 +70,21 @@ void reconcileAgent(KubeClient client, string ns, Agent agent, string agentImage
 	case ActionKind.startRun:
 		client.createJob(ns, buildJob(agent, station, definition, agentImage));
 		client.patchAgentStatus(ns, agent.metadata.name,
-			statusPatch(decision, jobNameFor(agent.metadata.name), now));
+			statusPatch(decision, jobNameFor(agent.metadata.name), now, agent.metadata.resourceVersion));
 		return;
 	case ActionKind.replaceRun:
 		client.deleteAgent(ns, oldestRunningRun(cached, agent.spec.stationRef));
 		client.createJob(ns, buildJob(agent, station, definition, agentImage));
 		client.patchAgentStatus(ns, agent.metadata.name,
-			statusPatch(decision, jobNameFor(agent.metadata.name), now));
+			statusPatch(decision, jobNameFor(agent.metadata.name), now, agent.metadata.resourceVersion));
 		return;
 	case ActionKind.failMissingRef:
-		client.patchAgentStatus(ns, agent.metadata.name, statusPatch(decision, "", now));
+		client.patchAgentStatus(ns, agent.metadata.name,
+			statusPatch(decision, "", now, agent.metadata.resourceVersion));
 		return;
 	case ActionKind.complete:
 		client.patchAgentStatus(ns, agent.metadata.name,
-			statusPatch(decision, agent.status.jobName, now));
+			statusPatch(decision, agent.status.jobName, now, agent.metadata.resourceVersion));
 		pruneHistory(client, ns, agent.spec.stationRef, cached);
 		return;
 	}
@@ -268,6 +269,26 @@ unittest
 	client.statusPatches[0]["status"]["phase"].str.should.equal("Running");
 	client.statusPatches[0]["status"]["jobName"].str.should.equal("agent-job-run-1");
 	client.statusPatches[0]["status"]["startedAt"].str.should.equal("2026-06-22T12:00:00Z");
+}
+
+unittest
+{
+	// The Agent's resourceVersion flows into the status patch as an optimistic-
+	// concurrency precondition, so two reconcilers racing off different snapshots
+	// can't lost-update each other (the stale write 409s).
+	auto client = new FakeKubeClient;
+	client.station.metadata.name = "stn";
+	client.station.spec.agentDefRef = "def";
+	client.station.spec.template_ = parseJSON(
+		`{"spec":{"containers":[{"name":"agent","image":"node:22"}]}}`);
+	client.definition.spec.model = "claude-sonnet-4-6";
+	client.definition.spec.prompt = "Fix it";
+
+	auto agent = pendingAgent("run-1", "stn");
+	agent.metadata.resourceVersion = "4242";
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null);
+
+	client.statusPatches[0]["metadata"]["resourceVersion"].str.should.equal("4242");
 }
 
 unittest
