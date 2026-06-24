@@ -1,5 +1,6 @@
-# Run pods get egress only: DNS resolution + outbound HTTPS (model provider,
-# git forges, registries). All ingress is denied.
+# Run pods get egress only: DNS to the in-cluster resolver + outbound HTTPS to the
+# public internet (model provider, git forges, registries), but NOT to the
+# cluster-internal network or the cloud metadata endpoint. All ingress is denied.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -14,11 +15,34 @@ spec:
     - Egress
   ingress: []
   egress:
-    - ports:
+    # DNS only to the in-cluster resolver (CoreDNS/kube-dns), so untrusted agent code
+    # can't tunnel data out through an arbitrary external resolver. NOTE: assumes the
+    # standard kube-system / k8s-app=kube-dns labels — adjust for a non-standard DNS.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
         - protocol: UDP
           port: 53
         - protocol: TCP
           port: 53
-    - ports:
+    # HTTPS to the public internet, but excluding RFC1918 private ranges and
+    # link-local (169.254.0.0/16, which covers the cloud metadata endpoint
+    # 169.254.169.254) — this blocks SSRF to internal services and credential theft
+    # from instance metadata. Tighten `cidr` to specific provider ranges, or route
+    # egress through a proxy, if your environment allows.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+      ports:
         - protocol: TCP
           port: 443
