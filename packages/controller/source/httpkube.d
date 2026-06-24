@@ -6,6 +6,7 @@ import std.conv : to;
 import std.exception : enforce;
 import std.json : JSONType, JSONValue, parseJSON;
 
+import vibe.core.log : logInfo;
 import vibe.http.client : HTTPClientRequest, HTTPClientResponse, HTTPClientSettings, requestHTTP;
 import vibe.http.common : HTTPMethod, httpMethodString;
 import vibe.stream.operations : readAllUTF8, readLine;
@@ -123,8 +124,16 @@ final class HttpKubeClient : KubeClient, LeaseClient
 
 	override void patchAgentStatus(string ns, string name, JSONValue statusPatch)
 	{
-		send(HTTPMethod.PATCH, crUrl(ns, "agents", name) ~ "/status", statusPatch,
-			"application/merge-patch+json", [200]);
+		const status = send(HTTPMethod.PATCH, crUrl(ns, "agents", name) ~ "/status", statusPatch,
+			"application/merge-patch+json", [200, 409]);
+		if (status == 409)
+		{
+			// The patch carried a resourceVersion precondition and the Agent changed
+			// since we read it: drop this stale write. The next watch/poll reconcile
+			// recomputes from fresh state — optimistic concurrency, no lost update.
+			logInfo("status patch conflict for %s: superseded, will reconcile again", name);
+			return;
+		}
 		recordStatusPatch();
 	}
 

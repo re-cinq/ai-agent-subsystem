@@ -7,6 +7,7 @@ struct ObjectMeta
 	string generateName;
 	string namespace;
 	string uid;
+	string resourceVersion;
 	string[string] labels;
 	string[string] annotations;
 }
