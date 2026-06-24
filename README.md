@@ -77,8 +77,10 @@ npm run build    # production build
 
 ## Status
 
-This phase delivers the documentation and scaffold; the D implementation follows, guided by the
-docs. See the [roadmap](https://glowing-garbanzo-y7ek98q.pages.github.io/contribute/roadmap/).
+Active development. The controller, supervisor, initializer, and the `agentcore` library are
+implemented and covered by unit + integration tests, and tagged releases publish signed, SBOM'd
+images plus a one-command `install.yaml`. The CRD APIs are `v1alpha1` (pre-GA) and may still change.
+See the [roadmap](https://glowing-garbanzo-y7ek98q.pages.github.io/contribute/roadmap/) for direction.
 
 ## Releases
 
