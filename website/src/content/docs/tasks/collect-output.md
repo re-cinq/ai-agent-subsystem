@@ -51,12 +51,9 @@ for how the supervisor produces these events.
 
 A failed POST is retried with capped exponential backoff before the event is dropped — a
 transient blip in your listener does not lose events, while a persistently unreachable sink
-never blocks or fails the run (the pod logs remain the source of truth). Tune the retry with
-these env vars on the run container (defaults: 3 attempts, 200 ms base, 5 s cap); set
-`AGENT_SINK_RETRY_ATTEMPTS=1` to restore pure fire-and-forget:
+never blocks or fails the run (the pod logs remain the source of truth).
 
-| Env var | Default | Meaning |
-| --- | --- | --- |
-| `AGENT_SINK_RETRY_ATTEMPTS` | `3` | Total delivery attempts per event (minimum 1). |
-| `AGENT_SINK_RETRY_BASE_MS` | `200` | Base backoff, doubled each retry. |
-| `AGENT_SINK_RETRY_MAX_MS` | `5000` | Cap on the backoff between retries. |
+For the exact wire format your listener receives (the event envelope, lifecycle and
+`stream-json` payloads, the HTTP contract, and the retry env vars), see the
+[Notification API](/reference/notification-api/) reference. For a step-by-step setup with the
+example listener, see [Receive notifications](/tasks/receive-notifications/).
