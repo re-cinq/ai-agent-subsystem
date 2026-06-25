@@ -2,7 +2,7 @@
 	"name": "ai-agent-subsystem",
 	"description": "Run autonomous coding agents as Kubernetes resources.",
 	"authors": ["re-cinq"],
-	"license": "AGPL-3.0",
+	"license": "Apache-2.0",
 	"targetType": "none",
 	"subPackages": [
 		"./packages/agentcore/",

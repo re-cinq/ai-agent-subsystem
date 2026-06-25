@@ -1,7 +1,7 @@
 {
 	"name": "initializer",
 	"description": "The in-pod init container: provisions the agent's environment (clone repos, install the agent CLI) before the supervisor runs.",
-	"license": "AGPL-3.0",
+	"license": "Apache-2.0",
 	"targetType": "executable",
 	"targetName": "ai-agent-init",
 	"dependencies": {

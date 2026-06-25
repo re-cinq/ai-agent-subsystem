@@ -1,7 +1,7 @@
 {
 	"name": "mockagent",
 	"description": "A configurable mock agent binary for supervisor integration tests.",
-	"license": "AGPL-3.0",
+	"license": "Apache-2.0",
 	"targetType": "executable",
 	"targetName": "ai-agent-mock"
 }

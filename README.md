@@ -105,4 +105,4 @@ never ship a floating `:latest`. The local equivalent is `scripts/pin-image-dige
 
 ## License
 
-[AGPL-3.0](LICENSE).
+[Apache-2.0](LICENSE).
