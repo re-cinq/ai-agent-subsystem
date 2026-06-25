@@ -21,6 +21,7 @@ dub.selections.json.bak
 # Node / Astro (docs site)
 node_modules/
 dist/
+coverage/
 .astro/
 website/node_modules/
 website/dist/
@@ -30,3 +31,4 @@ website/.astro/
 .DS_Store
 *.log
 *.lst
+packages/tsgen/ai-agent-tsgen

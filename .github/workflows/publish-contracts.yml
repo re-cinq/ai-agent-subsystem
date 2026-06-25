@@ -1,0 +1,42 @@
+name: Publish agent-contracts
+
+# On a v* tag, build + test the @re-cinq/agent-contracts package and publish it to
+# npm with provenance. The TS types are regenerated from the D model first and the
+# drift check guards that the committed output matches the structs.
+#
+# Requires the NPM_TOKEN secret (an npm automation token for the @re-cinq scope).
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # npm provenance via the GitHub OIDC token
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: dlang-community/setup-dlang@d7d85fcde7c4cd5f9a6618fce1bccc316e1e910b # v2
+        with:
+          compiler: dmd-latest
+      - name: Contracts drift check (types match the D model)
+        run: ./scripts/check-contracts-drift.sh
+      - uses: actions/setup-node@v4 # TODO: pin to a digest to match the repo's SHA-pinned actions
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Install, test (100% coverage gate), build
+        working-directory: packages/agent-contracts
+        run: |
+          npm ci
+          npm run test:coverage
+          npm run build
+      - name: Publish to npm
+        working-directory: packages/agent-contracts
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

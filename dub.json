@@ -9,6 +9,7 @@
 		"./packages/controller/",
 		"./packages/supervisor/",
 		"./packages/crdgen/",
+		"./packages/tsgen/",
 		"./packages/initializer/",
 		"./packages/mockagent/",
 		"./packages/itest/"
