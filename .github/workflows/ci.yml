@@ -24,15 +24,36 @@ jobs:
         run: dub test :agentcore
       - name: Unit tests (controller)
         run: dub test :controller
+      - name: Unit tests (tsgen)
+        run: dub test :tsgen
       - name: Build binaries
         run: |
           dub build :controller
           dub build :supervisor
           dub build :crdgen
+          dub build :tsgen
           dub build :initializer
       - name: CRD drift check
         run: ./scripts/check-crd-drift.sh
+      - name: Contracts drift check
+        run: ./scripts/check-contracts-drift.sh
       - name: Supervisor integration tests
         run: ./scripts/itest-supervisor.sh
       - name: Initializer integration tests
         run: ./scripts/itest-initializer.sh
+
+  agent-contracts:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/agent-contracts
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-node@v4 # TODO: pin to a digest to match the repo's SHA-pinned actions
+        with:
+          node-version: '20'
+      - run: npm ci
+      - name: Test (100% coverage gate)
+        run: npm run test:coverage
+      - name: Build
+        run: npm run build

@@ -1,0 +1,27 @@
+{
+	"name": "tsgen",
+	"description": "Dev/CI tool: generate the @re-cinq/agent-contracts TypeScript types from the agentcore structs.",
+	"license": "Apache-2.0",
+	"targetType": "executable",
+	"targetName": "ai-agent-tsgen",
+	"dependencies": {
+		"ai-agent-subsystem:agentcore": "*",
+		"describe-d": "~>1.0.3"
+	},
+	"buildTypes": {
+		"static": {
+			"buildOptions": ["releaseMode", "optimize", "inline"]
+		}
+	},
+	"configurations": [
+		{
+			"name": "application"
+		},
+		{
+			"name": "unittest",
+			"dependencies": {
+				"fluent-asserts": "~>2.0.5"
+			}
+		}
+	]
+}
