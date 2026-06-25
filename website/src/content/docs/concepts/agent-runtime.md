@@ -65,7 +65,7 @@ itself whether the run needs it:
 | `claude` | the recipe's `model` resolves to Claude (same routing as [pluggable agents](#pluggable-agents)) | installs the Claude CLI via the official installer (`curl -fsSL https://claude.ai/install.sh \| bash`). |
 
 A repo's `token_secret` names the **environment variable** holding its access token (the controller
-populates it from the secret store, the same way [secrets](/concepts/agentdefinition/) become env
+populates it from the secret store, the same way [secrets](./agentdefinition.md) become env
 vars). The clone authenticates through a git credential helper that reads that variable **by name**
 at clone time, so the token value never appears in an argv or a log line; only the git child that
 inherits the environment ever sees it. The env-var name is validated before use, and the repo url is
@@ -103,7 +103,7 @@ It runs on vibe's event loop and uses vibe's HTTP client for http sinks.
 
 The agent CLI is **not hardcoded**. `agentcore.agent.Agent` is a small interface (`name()` and
 `command(recipe, renderedPrompt)`) that each provider implements, mapping the
-[`AgentDefinition`](/concepts/agentdefinition/) recipe (model, tools, permission mode, max turns) to
+[`AgentDefinition`](./agentdefinition.md) recipe (model, tools, permission mode, max turns) to
 the provider's argv. The controller's job-builder picks the adapter from the recipe's `model` and
 bakes the resulting command into the Job; the supervisor just runs it.
 
@@ -125,7 +125,7 @@ one new `Agent` implementation plus a `model` match; nothing else changes.
   `MAX_OUTPUT_BYTES` (default 256 KiB, tail-preserving) so the Agent object stays under etcd's
   ~1.5 MB per-object limit. If the pod was already garbage-collected by the time the controller reads
   back, the Agent still reaches a terminal phase but `status.failureReason` records why the output is
-  missing (see the [controller lifecycle](/concepts/controller-lifecycle/)) rather than leaving it
+  missing (see the [controller lifecycle](./controller-lifecycle.md)) rather than leaving it
   silently empty. It also goes to every sink
   the recipe declares: `http` (POST per event) and `file` (append per event). When `output.select` is
   set, sink delivery is filtered to the listed event types; each provider event is normalized to the

@@ -46,7 +46,7 @@ output:
 ```
 
 The supervisor POSTs each `stream-json` line to that URL. This is how a UI or an
-indexer consumes runs in real time. See [Agent runtime](/concepts/agent-runtime/)
+indexer consumes runs in real time. See [Agent runtime](../concepts/agent-runtime.md)
 for how the supervisor produces these events.
 
 A failed POST is retried with capped exponential backoff before the event is dropped — a
@@ -55,5 +55,5 @@ never blocks or fails the run (the pod logs remain the source of truth).
 
 For the exact wire format your listener receives (the event envelope, lifecycle and
 `stream-json` payloads, the HTTP contract, and the retry env vars), see the
-[Notification API](/reference/notification-api/) reference. For a step-by-step setup with the
-example listener, see [Receive notifications](/tasks/receive-notifications/).
+[Notification API](../reference/notification-api.md) reference. For a step-by-step setup with the
+example listener, see [Receive notifications](./receive-notifications.md).

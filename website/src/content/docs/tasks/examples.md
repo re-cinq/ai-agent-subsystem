@@ -117,4 +117,4 @@ EOF
 ```
 
 Watch either run with `kubectl get agents -w` and collect results as described in
-[Collect output](/tasks/collect-output/).
+[Collect output](./collect-output.md).

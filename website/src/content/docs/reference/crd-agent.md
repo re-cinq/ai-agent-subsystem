@@ -32,4 +32,4 @@ One run. It has a `spec` (your desired run) and a `status` (owned by the control
 | `prUrl` | string | Pull-request URL when applicable. |
 
 Phase transitions are driven by the
-[controller lifecycle](/concepts/controller-lifecycle/).
+[controller lifecycle](../concepts/controller-lifecycle.md).

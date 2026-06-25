@@ -5,7 +5,7 @@ description: The event envelope, lifecycle and stream-json payloads, and HTTP de
 
 How external code receives events from a run. A run emits a stream of JSON events — wrap them in an envelope, deliver one per request to each configured sink, and a listener sees the agent's progress in real time. This is the primary integration surface for the subsystem.
 
-You declare *where* events go in a recipe's `spec.output.sinks` ([AgentDefinition CRD](/reference/crd-agentdefinition/)); this page is the *wire format* of what arrives. For a hands-on walkthrough, see [Receive notifications](/tasks/receive-notifications/).
+You declare *where* events go in a recipe's `spec.output.sinks` ([AgentDefinition CRD](./crd-agentdefinition.md)); this page is the *wire format* of what arrives. For a hands-on walkthrough, see [Receive notifications](../tasks/receive-notifications.md).
 
 ## Delivery
 
@@ -173,8 +173,8 @@ The controller derives the run container's environment from the recipe. You don'
 
 ## Filtering
 
-A recipe can filter which events reach its sinks with `spec.output.select` — events that don't match are still echoed to stdout but not delivered to the sinks. See the `spec.output` field table in the [AgentDefinition CRD](/reference/crd-agentdefinition/) reference for the selector schema.
+A recipe can filter which events reach its sinks with `spec.output.select` — events that don't match are still echoed to stdout but not delivered to the sinks. See the `spec.output` field table in the [AgentDefinition CRD](./crd-agentdefinition.md) reference for the selector schema.
 
 ## Example listener
 
-A zero-dependency Node.js listener that prints every POSTed event lives in the repository at `examples/notify-listener.mjs`. Run it with `node examples/notify-listener.mjs` (default port `8099`) and point a recipe's http sink at it — see [Receive notifications](/tasks/receive-notifications/) for the end-to-end walkthrough.
+A zero-dependency Node.js listener that prints every POSTed event lives in the repository at `examples/notify-listener.mjs`. Run it with `node examples/notify-listener.mjs` (default port `8099`) and point a recipe's http sink at it — see [Receive notifications](../tasks/receive-notifications.md) for the end-to-end walkthrough.

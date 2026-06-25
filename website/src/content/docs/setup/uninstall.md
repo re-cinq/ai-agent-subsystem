@@ -3,7 +3,7 @@ title: Uninstall
 description: Tear the subsystem down with a single kubectl delete, and verify nothing is left behind.
 ---
 
-Uninstalling is the inverse of [Install](/setup/install/): the same `install.yaml` (or the `deploy/`
+Uninstalling is the inverse of [Install](./install.md): the same `install.yaml` (or the `deploy/`
 kustomization) that stood the subsystem up also tears it down, so one `kubectl delete` removes the
 controller, its RBAC and NetworkPolicy, the Custom Resource Definitions, and the namespace.
 
@@ -57,7 +57,7 @@ kubectl -n ai-agents delete deploy/agent-controller
 ```
 
 Re-applying `install.yaml` brings the controller back, and it reconciles whatever Agents it finds —
-[Kubernetes is the only state](/concepts/architecture/#kubernetes-as-the-control-plane).
+[Kubernetes is the only state](../concepts/architecture.md#kubernetes-as-the-control-plane).
 
 ## Verify removal
 

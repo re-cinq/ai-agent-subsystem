@@ -28,7 +28,7 @@ stateDiagram-v2
 
 1. Resolve `Station` by `spec.stationRef`; if missing, set `phase = Failed` with a reason and stop.
 2. Resolve `AgentDefinition` by `station.spec.agentDefRef`; if missing, fail the same way.
-3. Build the Job (see [Agent runtime](/concepts/agent-runtime/)) and create it.
+3. Build the Job (see [Agent runtime](./agent-runtime.md)) and create it.
    Creation is idempotent. An already-existing Job is fine.
 4. Patch `status`: `phase = Running`, `jobName`, `startedAt`.
 
@@ -128,7 +128,7 @@ exposes `controller_resyncs_total` (full LISTs) and `controller_watch_reconnects
 ## Leader election
 
 The controller runs **two replicas** for availability, but only **one** reconciles at a time. The
-replicas contend for a single [`coordination.k8s.io/v1` Lease](/reference/rbac-and-network/) named
+replicas contend for a single [`coordination.k8s.io/v1` Lease](../reference/rbac-and-network.md) named
 `agent-controller`; the holder is the leader and runs the watch + poll loop, while standbys stay
 idle.
 

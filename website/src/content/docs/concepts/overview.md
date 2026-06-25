@@ -37,6 +37,6 @@ Stations do not need to bake the agent toolchain into their image. An init conta
 agent runtime (the language runtime, the agent CLI, and a supervisor) into a shared volume, and the
 main container runs the supervisor as its entrypoint. Any glibc-based image can be a station.
 
-See [How the pieces relate](/concepts/relationships/) for the full schema, the
-[Architecture](/concepts/architecture/) for the component design, or [Agent
-runtime](/concepts/agent-runtime/) for what runs inside the Pod.
+See [How the pieces relate](./relationships.md) for the full schema, the
+[Architecture](./architecture.md) for the component design, or [Agent
+runtime](./agent-runtime.md) for what runs inside the Pod.

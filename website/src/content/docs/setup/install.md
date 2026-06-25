@@ -35,7 +35,7 @@ kubectl apply -k deploy
 ```
 
 The controller runs least-privilege: it can watch and patch Agents, read Stations and
-AgentDefinitions, manage Jobs, and read pod logs. See [RBAC & network](/reference/rbac-and-network/).
+AgentDefinitions, manage Jobs, and read pod logs. See [RBAC & network](../reference/rbac-and-network.md).
 
 ## Verify the deployment
 
@@ -66,5 +66,5 @@ and SLSA provenance attestation; see [Releases](https://github.com/re-cinq/ai-ag
 
 ## Next
 
-Define your first recipe in [Define a recipe](/tasks/define-a-recipe/), or jump
-straight to the [Examples](/tasks/examples/).
+Define your first recipe in [Define a recipe](../tasks/define-a-recipe.md), or jump
+straight to the [Examples](../tasks/examples.md).

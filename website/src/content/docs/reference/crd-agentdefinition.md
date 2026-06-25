@@ -43,4 +43,4 @@ The recipe. It has a `spec` and no `status`.
 
 The events delivered to these `sinks` — their envelope, lifecycle and `stream-json` payloads,
 and the HTTP delivery contract — are documented in the
-[Notification API](/reference/notification-api/) reference.
+[Notification API](./notification-api.md) reference.

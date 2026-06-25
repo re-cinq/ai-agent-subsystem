@@ -53,7 +53,7 @@ library).
 ## Static linking
 
 The goal is binaries that ship with **no D runtime dependency** — only the system C library stays
-dynamic, and any glibc-based image (which the [injected runtime](/concepts/agent-runtime/) already
+dynamic, and any glibc-based image (which the [injected runtime](../concepts/agent-runtime.md) already
 requires) provides it. The default `dub` + LDC build links the D runtime (druntime + Phobos)
 *shared*, so the static link is requested explicitly. Built on an *old* glibc base (e.g.
 `debian:bullseye`, glibc 2.31) with
@@ -154,5 +154,5 @@ On some very new host kernels kind's containerd balloons the init container's me
 before the run starts (it does not reproduce under plain Docker or in CI); on such hosts run it with
 `CLUSTER_TOOL=minikube` (the docker runtime), which is unaffected. The real-CLI half of the
 credential path (an actual Claude authentication) is a manual repro documented under
-[Launch an agent](/tasks/launch-an-agent/#verify-api-key-auth-end-to-end), kept out of CI so no job
+[Launch an agent](../tasks/launch-an-agent.md#verify-api-key-auth-end-to-end), kept out of CI so no job
 spends real API credits.

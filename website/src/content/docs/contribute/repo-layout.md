@@ -40,16 +40,16 @@ supervisor's end-to-end behaviour is covered by an integration suite
 
 | Artifact | Produced by | Documented in |
 | --- | --- | --- |
-| `agentcore` (lib) | `packages/agentcore/` | [Architecture](/concepts/architecture/) |
-| `ai-agent-controller` | `packages/controller/` | [Controller lifecycle](/concepts/controller-lifecycle/) |
-| `ai-agent-init` | `packages/initializer/` | [Agent runtime](/concepts/agent-runtime/) |
-| `ai-agent-supervisor` | `packages/supervisor/` | [Agent runtime](/concepts/agent-runtime/) |
+| `agentcore` (lib) | `packages/agentcore/` | [Architecture](../concepts/architecture.md) |
+| `ai-agent-controller` | `packages/controller/` | [Controller lifecycle](../concepts/controller-lifecycle.md) |
+| `ai-agent-init` | `packages/initializer/` | [Agent runtime](../concepts/agent-runtime.md) |
+| `ai-agent-supervisor` | `packages/supervisor/` | [Agent runtime](../concepts/agent-runtime.md) |
 | `ai-agent-crdgen` | `packages/crdgen/` | dev tool, generates `deploy/crds` |
-| CRDs / RBAC | `deploy/` | [Reference](/reference/crd-agent/) |
+| CRDs / RBAC | `deploy/` | [Reference](../reference/crd-agent.md) |
 
 :::note
 Bootstrapped so far: the CRD model (with attribute metadata), prompt templating, the pure reconcile
 state machine, thin binaries that link the library, and the `crdgen` tool that generates
 `deploy/crds` from the model. The Kubernetes client, Job builder, and the supervisor's process
-handling are next; see the [roadmap](/contribute/roadmap/).
+handling are next; see the [roadmap](./roadmap.md).
 :::

@@ -51,8 +51,8 @@ watch reconnects, Kubernetes API latency, and leader status).
 It combines a low-latency **watch** with a ~15s **poll** over one shared in-memory cache, so
 reconcile work is O(changed) and a dropped watch event is still caught by the next poll. Two replicas
 run with Lease-based leader election, so only the leader reconciles. See [Watch + poll +
-cache](/concepts/controller-lifecycle/#watch--poll--cache) and [leader
-election](/concepts/controller-lifecycle/#leader-election) for the mechanics.
+cache](./controller-lifecycle.md#watch--poll--cache) and [leader
+election](./controller-lifecycle.md#leader-election) for the mechanics.
 
 ### `initializer`: binary 2
 
@@ -61,7 +61,7 @@ from what the recipe declares: cloning the `resources.repos` into the workspace 
 agent CLI (e.g. Claude via the official installer), self-bootstrapping any missing prerequisites
 (git, curl, sha256sum) through the distro's package manager first, and reporting its lifecycle to the
 same output sinks as the agent. New provisioning tools and distros are added behind the `Tool` and
-`PackageManager` interfaces. See [Agent runtime](/concepts/agent-runtime/) for the full model.
+`PackageManager` interfaces. See [Agent runtime](./agent-runtime.md) for the full model.
 
 ### `supervisor`: binary 3
 
@@ -74,7 +74,7 @@ and exits with the agent's exit code.
 All three binaries are compiled with **LDC** with the D runtime linked statically, so they ship as
 self-contained executables with no language runtime to install. The initializer and supervisor can
 be injected into any glibc-based Station image, and run unchanged across the common Kubernetes base
-distros (Debian, Ubuntu, RHEL-family, Amazon Linux, Alpine). See [Building](/contribute/building/)
+distros (Debian, Ubuntu, RHEL-family, Amazon Linux, Alpine). See [Building](../contribute/building.md)
 for the dub configuration and link flags.
 
 ## Kubernetes as the control plane

@@ -17,7 +17,7 @@ flowchart LR
 ## What it carries
 
 - **`prompt`**: the task template. Supports `{placeholder}` tokens filled from an Agent's
-  `parameters` at run time (see [Prompt templating](/reference/prompt-templating/)).
+  `parameters` at run time (see [Prompt templating](../reference/prompt-templating.md)).
 - **`model`**: the model id (for example `claude-sonnet-4-6`). If omitted, the runtime default is
   used.
 - **`allowed_tools` / `disallowed_tools`**: permission rules, e.g. `Bash(npm run test:*)` or
@@ -33,8 +33,8 @@ flowchart LR
 ## Why it is separate
 
 Because the recipe holds nothing environment-specific, the same `AgentDefinition` can run unchanged
-across many [Stations](/concepts/station/) (a dev kind cluster, a CI namespace,
+across many [Stations](./station.md) (a dev kind cluster, a CI namespace,
 or production) by pairing it with a different Pod template.
 
 The full field reference is in
-[AgentDefinition CRD](/reference/crd-agentdefinition/).
+[AgentDefinition CRD](../reference/crd-agentdefinition.md).
