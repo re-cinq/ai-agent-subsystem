@@ -4,7 +4,11 @@ name: Publish agent-contracts
 # npm with provenance. The TS types are regenerated from the D model first and the
 # drift check guards that the committed output matches the structs.
 #
-# Requires the NPM_TOKEN secret (an npm automation token for the @re-cinq scope).
+# Auth is tokenless via npm Trusted Publishing (OIDC): no NPM_TOKEN secret. It needs
+# `id-token: write` (below), npm >= 11.5.1 (upgraded below), and a trusted publisher
+# configured for @re-cinq/agent-contracts on npmjs.com pointing at this repo and the
+# publish-contracts.yml workflow. The package's first-ever publish must be done once
+# with a token before the trusted publisher can be registered on npmjs.com.
 
 on:
   push:
@@ -29,6 +33,8 @@ jobs:
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
+      - name: Upgrade npm for OIDC trusted publishing
+        run: npm install -g npm@^11.5.1
       - name: Install, test (100% coverage gate), build
         working-directory: packages/agent-contracts
         run: |
@@ -38,5 +44,3 @@ jobs:
       - name: Publish to npm
         working-directory: packages/agent-contracts
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

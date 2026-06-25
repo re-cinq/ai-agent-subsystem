@@ -3,6 +3,11 @@
   "version": "0.3.0",
   "description": "TypeScript types + client for the ai-agent-subsystem CRDs (Agent / Station / AgentDefinition). Types are generated from the D source so they cannot drift.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/re-cinq/ai-agent-subsystem.git",
+    "directory": "packages/agent-contracts"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
