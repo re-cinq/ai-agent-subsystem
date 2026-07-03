@@ -41,4 +41,9 @@ COPY --from=builder /src/packages/initializer/ai-agent-init /usr/local/bin/ai-ag
 COPY --from=builder /origin /origin
 COPY scripts/container/run-init.sh /usr/local/bin/run-init.sh
 RUN chmod +x /usr/local/bin/run-init.sh
+# A stub `codex` on PATH so Test A (offline git self-bootstrap, gpt-5-codex model)
+# does not trigger the real Codex CLI network install — the installer's `command -v`
+# guard finds this and skips. Mirrors the controller itest's mock agent; the real
+# installers are the opt-in, network Test B concern.
+RUN printf '#!/bin/sh\nexit 0\n' > /usr/local/bin/codex && chmod +x /usr/local/bin/codex
 ENTRYPOINT ["/usr/local/bin/run-init.sh"]

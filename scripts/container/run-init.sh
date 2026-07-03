@@ -4,6 +4,11 @@
 # provisions for real. Test A (git clone) always runs; Test B (the real Claude
 # install) is opt-in via CTEST_CLAUDE=1 and skips itself when claude.ai is
 # unreachable. POSIX sh (no bashisms) so it runs on Alpine's busybox shell too.
+#
+# Test A's gpt-5-codex model routes to the Codex CLI installer; a stub `codex` is
+# staged on PATH in the image (see Dockerfile), so its `command -v` guard skips the
+# real network install and Test A stays focused on the git self-bootstrap path. The
+# real vendor installers are the opt-in, network Test B concern.
 set -u
 fail=0
 chk() { if [ "$2" -eq 0 ]; then echo "  PASS  $1"; else echo "  FAIL  $1"; fail=1; fi; }
@@ -24,7 +29,10 @@ if command -v git >/dev/null 2>&1; then
 else
 	sink=/tmp/sink-git.jsonl
 	: >"$sink"
-	AGENT_MODEL=gpt-5-codex \
+	# HOME must be set and writable: every run now provisions an agent CLI, and the
+	# installers write under $HOME (the guarded codex step no-ops here, but the
+	# precondition still applies).
+	HOME=/tmp AGENT_MODEL=gpt-5-codex \
 		WORKSPACE_DIR=/workspace \
 		AGENT_SINKS="[{\"type\":\"file\",\"path\":\"$sink\"}]" \
 		AGENT_NAME=ctest POD_NAME=ctest-pod \
