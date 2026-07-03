@@ -5,6 +5,7 @@ import vibe.data.json : Json, parseJsonString;
 
 import agentcore.crds.enums : SelectEvent, SelectRole;
 import agentcore.crds.output_selector : OutputSelector;
+import agentcore.crds.serialization : fromJson;
 
 /// A provider event normalized to the recipe's vocabulary: its `SelectEvent` type
 /// plus the tool name and text needed to evaluate a selector's `tool`/`contains`.
@@ -52,8 +53,10 @@ bool selected(const OutputSelector[] selectors, string provider, string payload)
 }
 
 /// Parse the `AGENT_SELECT` env var (the recipe's `output.select` the controller
-/// injected as JSON) back into selectors. Mirrors `parseSinks`: a malformed
-/// document yields an empty list rather than throwing.
+/// injected as JSON) back into the `OutputSelector` CRD structs — the same type the
+/// controller serialized, so no field is dropped here. An entry missing its `event` is
+/// skipped (the controller never emits one); a malformed document yields an empty list
+/// rather than throwing.
 OutputSelector[] parseSelectors(string json)
 {
 	if (json.length == 0)
@@ -63,39 +66,12 @@ OutputSelector[] parseSelectors(string json)
 	try
 	{
 		foreach (entry; parseJsonString(json).get!(Json[]))
-		{
-			auto event = "event" in entry;
-			if (event is null)
-				continue;
-			OutputSelector selector;
-			selector.event = toSelectEvent((*event).get!string);
-			if (auto tool = "tool" in entry)
-				selector.tool = (*tool).get!string;
-			if (auto contains = "contains" in entry)
-				selector.contains = (*contains).get!string;
-			selectors ~= selector;
-		}
+			if ("event" in entry)
+				selectors ~= fromJson!OutputSelector(entry);
 	}
 	catch (Exception)
 		return null;
 	return selectors;
-}
-
-private SelectEvent toSelectEvent(string name)
-{
-	switch (name)
-	{
-	case "tool_call":
-		return SelectEvent.toolCall;
-	case "tool_result":
-		return SelectEvent.toolResult;
-	case "message":
-		return SelectEvent.message;
-	case "usage":
-		return SelectEvent.usage;
-	default:
-		return SelectEvent.result;
-	}
 }
 
 /// Normalize one provider event to the `SelectEvent` vocabulary. Both mappings are

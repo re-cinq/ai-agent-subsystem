@@ -26,6 +26,12 @@ jobs:
         run: dub test :controller
       - name: Unit tests (tsgen)
         run: dub test :tsgen
+      - name: Unit tests (supervisor)
+        run: dub test :supervisor
+      - name: Unit tests (initializer)
+        run: dub test :initializer
+      - name: Unit tests (crdgen)
+        run: dub test :crdgen
       - name: Build binaries
         run: |
           dub build :controller
@@ -49,7 +55,7 @@ jobs:
         working-directory: packages/agent-contracts
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-      - uses: actions/setup-node@v4 # TODO: pin to a digest to match the repo's SHA-pinned actions
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
       - run: npm ci
@@ -57,3 +63,13 @@ jobs:
         run: npm run test:coverage
       - name: Build
         run: npm run build
+
+  website:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: Build with Astro (PR gate for docs)
+        uses: withastro/action@b7d53628f8b666036b0238aadb0b984a2a489f26 # v6
+        with:
+          path: ./website
+          node-version: 22

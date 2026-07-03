@@ -8,8 +8,10 @@ import agentcore.crds.agent_definition : AgentDefinition;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 import agentcore.crds.output_selector : OutputSelector;
 import agentcore.crds.output_sink : OutputSink;
+import agentcore.crds.enums : SinkType;
 import agentcore.crds.repo_ref : RepoRef;
 import agentcore.crds.station : Station;
+import agentcore.crds.serialization : toJson;
 import agentcore.vendors.select : agentForModel;
 import agentcore.kube.bundle : bundleRoot, supervisorPath;
 import agentcore.core.env;
@@ -328,6 +330,17 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 	}
 
 	strVar(envSinks, sinksJson(recipe.output.sinks));
+	// An http sink's `headers_secret` names a key in the agent-secrets Secret holding
+	// the auth headers; inject that key as an env var of the same name so the pod's
+	// sink delivery can resolve it. Dedup so multiple sinks sharing a secret inject once.
+	bool[string] headerSecretsInjected;
+	foreach (sink; recipe.output.sinks)
+		if (sink.type == SinkType.http && sink.headersSecret.length
+			&& sink.headersSecret !in headerSecretsInjected)
+		{
+			secretVar(sink.headersSecret, sink.headersSecret);
+			headerSecretsInjected[sink.headersSecret] = true;
+		}
 	strVar(envRepos, reposJson(recipe.resources.repos));
 	if (recipe.output.select.length)
 		strVar(envSelect, selectJson(recipe.output.select));
@@ -344,64 +357,56 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 	strVar(envTaskId, agent.spec.taskId);
 	fieldVar(envPodName, "metadata.name");
 	fieldVar(envPodNamespace, "metadata.namespace");
+	// Recipe env/secrets come last, but a recipe entry that reuses a controller-owned
+	// name would emit a duplicate the kubelet resolves last-wins — silently redirecting
+	// output (AGENT_SINKS), spoofing run identity (AGENT_NAME), or breaking the workspace.
+	// Skip any such collision so the controller's value always wins.
 	foreach (variable; recipe.resources.env)
-		strVar(variable.name, variable.value);
+		if (!isReservedEnvName(variable.name))
+			strVar(variable.name, variable.value);
 	foreach (secret; recipe.resources.secrets)
-		secretVar(secret.name, secret.ref_);
-	strVar("HOME", bundleRoot);
-	strVar("PATH", "/agent/.local/bin:/usr/local/bin:/usr/bin:/bin");
+		if (!isReservedEnvName(secret.name))
+			secretVar(secret.name, secret.ref_);
+	strVar(homeEnv, bundleRoot);
+	strVar(pathEnv, "/agent/.local/bin:/usr/local/bin:/usr/bin:/bin");
 	return Json(env);
 }
 
+/// Env var names the controller owns in a run container. A recipe may not override
+/// these — a collision is dropped so the controller's injected value stands.
+enum homeEnv = "HOME";
+enum pathEnv = "PATH";
+
+bool isReservedEnvName(string name) @safe pure nothrow
+{
+	static immutable string[] reserved = [
+		envSinks, envRepos, envSelect, envWorkspace, envParameters, envTargetRepo,
+		envBranch, envModel, envAgentName, envStationName, envTaskId, envPodName,
+		envPodNamespace, homeEnv, pathEnv,
+	];
+	foreach (owned; reserved)
+		if (name == owned)
+			return true;
+	return false;
+}
+
+// The controller→pod env wire (AGENT_SINKS / AGENT_SELECT / AGENT_REPOS) is produced
+// straight from the CRD structs via the policy serializer, so it is exactly the shape
+// the pod's `fromJson` parsers read back — no hand-maintained field list to drift, which
+// is how `headers_secret` and `role` were previously dropped at this seam.
 private string sinksJson(const OutputSink[] sinks)
 {
-	Json[] array;
-	foreach (sink; sinks)
-	{
-		Json[string] object;
-		object["type"] = Json(cast(string) sink.type);
-		if (sink.url.length)
-			object["url"] = Json(sink.url);
-		if (sink.path.length)
-			object["path"] = Json(sink.path);
-		array ~= Json(object);
-	}
-	return Json(array).toString();
+	return toJson(sinks).toString();
 }
 
 private string selectJson(const OutputSelector[] selectors)
 {
-	Json[] array;
-	foreach (selector; selectors)
-	{
-		Json[string] object;
-		object["event"] = Json(cast(string) selector.event);
-		if (selector.tool.length)
-			object["tool"] = Json(selector.tool);
-		if (selector.contains.length)
-			object["contains"] = Json(selector.contains);
-		array ~= Json(object);
-	}
-	return Json(array).toString();
+	return toJson(selectors).toString();
 }
 
 private string reposJson(const RepoRef[] repos)
 {
-	Json[] array;
-	foreach (repo; repos)
-	{
-		Json[string] object;
-		object["name"] = Json(repo.name);
-		object["url"] = Json(repo.url);
-		if (repo.ref_.length)
-			object["ref"] = Json(repo.ref_);
-		if (repo.path.length)
-			object["path"] = Json(repo.path);
-		if (repo.tokenSecret.length)
-			object["token_secret"] = Json(repo.tokenSecret);
-		array ~= Json(object);
-	}
-	return Json(array).toString();
+	return toJson(repos).toString();
 }
 
 private string parametersJson(const string[string] parameters)
@@ -415,7 +420,7 @@ private string parametersJson(const string[string] parameters)
 version (unittest)
 {
 	import fluent.asserts;
-	import agentcore.crds.enums : SinkType, SelectEvent;
+	import agentcore.crds.enums : SelectEvent;
 	import agentcore.crds.env_var : EnvVar;
 	import agentcore.crds.output_selector : OutputSelector;
 	import agentcore.crds.secret_ref : SecretRef;
@@ -652,6 +657,26 @@ unittest
 
 unittest
 {
+	// An http sink's headers_secret survives the controller→pod seam both ways: it
+	// round-trips on AGENT_SINKS, and its named Secret key is injected as an env var of
+	// the same name so the pod's sink delivery can resolve the auth headers at runtime.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.output.sinks = [OutputSink(SinkType.http, "http://collector", "SINK_HEADERS")];
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img"));
+
+	auto sinks = parseSinks(envValue(container, "AGENT_SINKS"));
+	sinks.length.should.equal(1);
+	sinks[0].headersSecret.should.equal("SINK_HEADERS");
+	// The header Secret key is injected as an env var so deliverSinks can read it.
+	envSecretKey(container, "SINK_HEADERS").should.equal("SINK_HEADERS");
+}
+
+unittest
+{
 	// Round-trip across the parse/build seam: API-shaped JSON through the
 	// production parsers into buildJob. The run pod must carry the recipe's
 	// secretKeyRef env, literal env, and AGENT_SELECT — the exact fields a
@@ -679,4 +704,37 @@ unittest
 	envSecretKey(container, "ANTHROPIC_API_KEY").should.equal("ANTHROPIC_API_KEY");
 	envValue(container, "AGENT_EXPECT_API_KEY").should.equal("sk-ant-itest");
 	parseSelectors(envValue(container, "AGENT_SELECT")).length.should.equal(1);
+}
+
+unittest
+{
+	// A recipe may not override a controller-owned env name: a collision is dropped so
+	// the controller's value (here the real sinks, not the recipe's "[]") always wins.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.resources.env = [EnvVar("AGENT_SINKS", "[]"), EnvVar("LOG_LEVEL", "debug")];
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img"));
+
+	// Exactly one AGENT_SINKS entry, and it carries the real sink, not the recipe's.
+	int sinksEntries;
+	foreach (entry; container["env"].get!(Json[]))
+		if (entry["name"].get!string == "AGENT_SINKS")
+			sinksEntries++;
+	sinksEntries.should.equal(1);
+	parseSinks(envValue(container, "AGENT_SINKS")).length.should.equal(1);
+	// A non-reserved recipe var is unaffected.
+	envValue(container, "LOG_LEVEL").should.equal("debug");
+}
+
+@safe unittest
+{
+	isReservedEnvName("AGENT_SINKS").should.equal(true);
+	isReservedEnvName("AGENT_NAME").should.equal(true);
+	isReservedEnvName("HOME").should.equal(true);
+	isReservedEnvName("PATH").should.equal(true);
+	isReservedEnvName("LOG_LEVEL").should.equal(false);
+	isReservedEnvName("ANTHROPIC_API_KEY").should.equal(false);
 }

@@ -5,6 +5,8 @@ import agentcore.pkgmanager.apt : Apt;
 import agentcore.pkgmanager.dnf : Dnf;
 import agentcore.pkgmanager.packagemanager : PackageManager;
 
+version (unittest) import fluent.asserts;
+
 /// Select a package manager by identifier. The initializer probes `PATH` for
 /// `apt-get`/`dnf`/`apk` and passes the match here; an unknown name yields null.
 PackageManager packageManagerByName(string name) @safe
@@ -24,8 +26,8 @@ PackageManager packageManagerByName(string name) @safe
 
 unittest
 {
-	assert(packageManagerByName("apt").name == "apt");
-	assert(packageManagerByName("dnf").name == "dnf");
-	assert(packageManagerByName("apk").name == "apk");
-	assert(packageManagerByName("zypper") is null);
+	packageManagerByName("apt").name.should.equal("apt");
+	packageManagerByName("dnf").name.should.equal("dnf");
+	packageManagerByName("apk").name.should.equal("apk");
+	(packageManagerByName("zypper") is null).should.equal(true);
 }

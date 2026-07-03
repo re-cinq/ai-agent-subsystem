@@ -2,6 +2,8 @@ module agentcore.pkgmanager.dnf;
 
 import agentcore.pkgmanager.packagemanager : PackageManager;
 
+version (unittest) import fluent.asserts;
+
 /// Fedora / RHEL / CentOS Stream.
 final class Dnf : PackageManager
 {
@@ -19,6 +21,6 @@ final class Dnf : PackageManager
 unittest
 {
 	auto dnf = new Dnf;
-	assert(dnf.name == "dnf");
-	assert(dnf.installSteps(["git"]) == [["dnf", "install", "-y", "git"]]);
+	dnf.name.should.equal("dnf");
+	dnf.installSteps(["git"]).should.equal([["dnf", "install", "-y", "git"]]);
 }

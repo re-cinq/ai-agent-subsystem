@@ -1,5 +1,7 @@
 module agentcore.pkgmanager.packagemanager;
 
+version (unittest) import fluent.asserts;
+
 /// A pluggable OS package manager, used by the init container to install missing
 /// prerequisites (git, curl, sha256sum, …). The initializer probes `PATH` to pick
 /// the implementation; new distros are added by implementing this interface.
@@ -27,7 +29,7 @@ string packageFor(string exe) @safe pure
 
 unittest
 {
-	assert(packageFor("git") == "git");
-	assert(packageFor("curl") == "curl");
-	assert(packageFor("sha256sum") == "coreutils");
+	packageFor("git").should.equal("git");
+	packageFor("curl").should.equal("curl");
+	packageFor("sha256sum").should.equal("coreutils");
 }

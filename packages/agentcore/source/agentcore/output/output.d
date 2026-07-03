@@ -5,43 +5,28 @@ import std.process : environment;
 import std.stdio : File, stdout;
 
 import agentcore.crds.enums : SinkType;
+import agentcore.crds.output_sink : OutputSink;
+import agentcore.crds.serialization : fromJson;
 import agentcore.core.env : envNotifyUrl, envSinks;
 import agentcore.output.event : EventSource, wrapEvent;
 import agentcore.core.log : logError;
 
-/// A resolved output sink: where the supervisor sends each emitted line. The
-/// controller builds these from the recipe's `output.sinks` and injects them as
-/// JSON (see `parseSinks`).
-struct SinkSpec
-{
-	SinkType type;
-	string url; /// for `http`
-	string path; /// for `file`
-}
-
-/// Parse a JSON array of sinks (the value of the `AGENT_SINKS` env var) into
-/// `SinkSpec`s. A malformed document yields an empty list rather than throwing.
-SinkSpec[] parseSinks(string json)
+/// Parse a JSON array of sinks (the value of the `AGENT_SINKS` env var) into the
+/// `OutputSink` CRD structs the controller serialized — the same type, so no field
+/// can be silently dropped at this seam. An entry missing its `type` is skipped (the
+/// controller never emits one); a malformed document yields an empty list rather
+/// than throwing.
+OutputSink[] parseSinks(string json)
 {
 	if (json.length == 0)
 		return null;
 
-	SinkSpec[] sinks;
+	OutputSink[] sinks;
 	try
 	{
 		foreach (entry; parseJsonString(json).get!(Json[]))
-		{
-			auto type = "type" in entry;
-			if (type is null)
-				continue;
-			SinkSpec s;
-			s.type = toSinkType((*type).get!string);
-			if (auto url = "url" in entry)
-				s.url = (*url).get!string;
-			if (auto path = "path" in entry)
-				s.path = (*path).get!string;
-			sinks ~= s;
-		}
+			if ("type" in entry)
+				sinks ~= fromJson!OutputSink(entry);
 	}
 	catch (Exception)
 		return null;
@@ -52,31 +37,34 @@ SinkSpec[] parseSinks(string json)
 /// recipe's `AGENT_SINKS`, plus a single http sink from the `AGENT_NOTIFY_URL`
 /// shorthand when set. Shared by the supervisor and the initializer so init and
 /// agent output land on the same channel.
-SinkSpec[] sinksFromEnv()
+OutputSink[] sinksFromEnv()
 {
 	auto sinks = parseSinks(environment.get(envSinks, ""));
 	const url = environment.get(envNotifyUrl, "");
 	if (url.length)
-		sinks ~= SinkSpec(SinkType.http, url);
+		sinks ~= OutputSink(SinkType.http, url);
 	return sinks;
 }
 
 /// How an http sink is delivered — supplied by the caller because it varies by
 /// package: the initializer shells out to `curl` (no event loop), the supervisor
-/// uses vibe's HTTP client. Must not throw.
-alias HttpSink = void function(string url, string line) nothrow;
+/// uses vibe's HTTP client. `headers` is the resolved auth-header block (newline-
+/// separated `Name: value` lines, empty when the sink has no `headers_secret`).
+/// Must not throw.
+alias HttpSink = void function(string url, string line, string headers) nothrow;
 
-/// Dispatch `line` to every configured sink: http via the caller's `postHttp`, file
-/// by appending, stdout a no-op (callers already echo to their own stdout). Fire-
-/// and-forget — a failing file sink is logged with `tag` and never disrupts the run.
-void deliverSinks(const SinkSpec[] sinks, string line, HttpSink postHttp, string tag) nothrow
+/// Dispatch `line` to every configured sink: http via the caller's `postHttp` (with
+/// the sink's resolved auth headers), file by appending, stdout a no-op (callers
+/// already echo to their own stdout). Fire-and-forget — a failing file sink is
+/// logged with `tag` and never disrupts the run.
+void deliverSinks(const OutputSink[] sinks, string line, HttpSink postHttp, string tag) nothrow
 {
 	foreach (s; sinks)
 	{
 		final switch (s.type)
 		{
 		case SinkType.http:
-			postHttp(s.url, line);
+			postHttp(s.url, line, sinkHeaders(s.headersSecret));
 			break;
 		case SinkType.file:
 			appendFile(s.path, line, tag);
@@ -87,12 +75,46 @@ void deliverSinks(const SinkSpec[] sinks, string line, HttpSink postHttp, string
 	}
 }
 
+/// Resolve a sink's `headers_secret` to its header block: the controller injects the
+/// referenced Secret key as an env var of the same name, so this reads it back. Empty
+/// (no headers) when unset or unresolvable — auth is never allowed to break the run.
+string sinkHeaders(string headersSecret) nothrow
+{
+	if (headersSecret.length == 0)
+		return "";
+	try
+		return environment.get(headersSecret, "");
+	catch (Exception)
+		return "";
+}
+
+/// Split a resolved header block into its individual `Name: value` lines, dropping
+/// blank ones. Shared by both http posters — the supervisor splits each line into a
+/// vibe request header, the initializer passes each straight to `curl -H`.
+string[] headerLines(string headers) @safe nothrow
+{
+	import std.string : splitLines, strip;
+
+	string[] lines;
+	try
+		foreach (line; headers.splitLines)
+		{
+			const trimmed = line.strip;
+			if (trimmed.length)
+				lines ~= trimmed;
+		}
+	catch (Exception)
+	{
+	}
+	return lines;
+}
+
 /// Emit one event: wrap `payload` in the run's envelope, echo it to stdout (pod logs),
 /// then fan it out to every configured sink. The single path the initializer and the
 /// supervisor both emit through — parameterised by the package's http poster, which
 /// varies (the initializer shells out to `curl`, the supervisor uses vibe). Fire-and-
 /// forget; never throws.
-void emitEvent(const SinkSpec[] sinks, in EventSource src, string payload,
+void emitEvent(const OutputSink[] sinks, in EventSource src, string payload,
 	HttpSink postHttp, string tag, bool toSinks = true) nothrow
 {
 	const line = wrapEvent(src, payload);
@@ -122,19 +144,6 @@ private void appendFile(string path, string line, string tag) nothrow
 	}
 	catch (Exception e)
 		logError(tag ~ " file sink failed: " ~ e.msg);
-}
-
-private SinkType toSinkType(string s)
-{
-	switch (s)
-	{
-	case "http":
-		return SinkType.http;
-	case "file":
-		return SinkType.file;
-	default:
-		return SinkType.stdout;
-	}
 }
 
 version (unittest) import fluent.asserts;
@@ -173,10 +182,12 @@ unittest
 }
 
 version (unittest) private __gshared string g_posted;
+version (unittest) private __gshared string g_postedHeaders;
 
-version (unittest) private void recordPost(string url, string line) nothrow
+version (unittest) private void recordPost(string url, string line, string headers) nothrow
 {
 	g_posted = url ~ " " ~ line;
+	g_postedHeaders = headers;
 }
 
 unittest
@@ -192,13 +203,32 @@ unittest
 			remove(path);
 
 	g_posted = "";
-	SinkSpec[] sinks = [
-		SinkSpec(SinkType.http, "http://x", ""),
-		SinkSpec(SinkType.file, "", path),
-		SinkSpec(SinkType.stdout, "", ""),
+	OutputSink[] sinks = [
+		OutputSink(SinkType.http, "http://x"),
+		OutputSink(SinkType.file, "", "", path),
+		OutputSink(SinkType.stdout),
 	];
 	deliverSinks(sinks, "hello", &recordPost, "[test]");
 
 	g_posted.should.equal("http://x hello");
 	readText(path).should.equal("hello\n");
+}
+
+unittest
+{
+	// An http sink's headers_secret names an env var (the controller injects the
+	// referenced Secret key under that name); deliverSinks resolves it and hands the
+	// header block to the poster. An unset secret resolves to no headers.
+	environment["SINK_HEADERS"] = "Authorization: Bearer tok\nX-Env: prod";
+	scope (exit)
+		environment.remove("SINK_HEADERS");
+
+	g_posted = "";
+	g_postedHeaders = "";
+	deliverSinks([OutputSink(SinkType.http, "http://x", "SINK_HEADERS")], "hi", &recordPost, "[test]");
+	g_postedHeaders.should.equal("Authorization: Bearer tok\nX-Env: prod");
+
+	g_postedHeaders = "sentinel";
+	deliverSinks([OutputSink(SinkType.http, "http://x")], "hi", &recordPost, "[test]");
+	g_postedHeaders.should.equal("");
 }

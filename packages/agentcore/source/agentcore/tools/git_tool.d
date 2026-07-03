@@ -6,6 +6,8 @@ import agentcore.crds.repo_ref : RepoRef;
 import agentcore.tools.initcontext : InitContext;
 import agentcore.tools.tool : Tool;
 
+version (unittest) import fluent.asserts;
+
 /// Expand a repo reference to a clone URL. A value that already looks like a URL
 /// (contains "://" or an scp-style "user@host:") is used as-is; a bare
 /// "owner/name" is expanded to a GitHub https URL.
@@ -111,43 +113,43 @@ final class GitTool : Tool
 
 unittest
 {
-	assert(repoUrl("o/app") == "https://github.com/o/app.git");
-	assert(repoUrl("https://github.com/o/app") == "https://github.com/o/app");
-	assert(repoUrl("git@github.com:o/app.git") == "git@github.com:o/app.git");
-	assert(repoUrl("") == "");
+	repoUrl("o/app").should.equal("https://github.com/o/app.git");
+	repoUrl("https://github.com/o/app").should.equal("https://github.com/o/app");
+	repoUrl("git@github.com:o/app.git").should.equal("git@github.com:o/app.git");
+	repoUrl("").should.equal("");
 }
 
 unittest
 {
 	auto git = new GitTool;
-	assert(git.name == "git");
-	assert(git.requires == ["git"]);
+	git.name.should.equal("git");
+	git.requires.should.equal(["git"]);
 
 	// no repos -> nothing to do
 	InitContext empty;
 	empty.workspaceDir = "/ws";
-	assert(git.steps(empty).length == 0);
+	git.steps(empty).length.should.equal(0);
 
 	// one repo, no ref: rm then clone, no checkout, no shell
 	InitContext one;
 	one.workspaceDir = "/ws";
 	one.repos = [RepoRef("app", "o/app")];
 	auto steps = git.steps(one);
-	assert(steps == [["rm", "-rf", "/ws/app"], ["git", "clone", "https://github.com/o/app.git", "/ws/app"]]);
-	assert(steps[1][0] == "git");
+	steps.should.equal([["rm", "-rf", "/ws/app"], ["git", "clone", "https://github.com/o/app.git", "/ws/app"]]);
+	steps[1][0].should.equal("git");
 
 	// a ref adds a checkout that works for branch, tag, or sha
 	InitContext withRef;
 	withRef.workspaceDir = "/ws";
 	withRef.repos = [RepoRef("app", "https://github.com/o/app", "v1.2.3")];
-	assert(git.steps(withRef)[2] == ["git", "-C", "/ws/app", "checkout", "v1.2.3"]);
+	git.steps(withRef)[2].should.equal(["git", "-C", "/ws/app", "checkout", "v1.2.3"]);
 
 	// an explicit absolute path overrides <workspaceDir>/<name>
 	InitContext withPath;
 	withPath.workspaceDir = "/ws";
 	withPath.repos = [RepoRef("app", "o/app")];
 	withPath.repos[0].path = "/custom/app";
-	assert(git.steps(withPath)[0] == ["rm", "-rf", "/custom/app"]);
+	git.steps(withPath)[0].should.equal(["rm", "-rf", "/custom/app"]);
 }
 
 unittest
@@ -162,24 +164,25 @@ unittest
 	authed.tokenSecret = "GH_TOKEN";
 	ctx.repos = [authed];
 	auto clone = git.steps(ctx)[1];
-	assert(clone[0] == "git" && clone[$ - 3 .. $] == ["clone", "https://github.com/o/app.git", "/ws/app"]);
-	assert(clone.canFind("credential.helper=")); // inherited helpers reset first
-	assert(clone.canFind!(a => a.canFind("username=x-access-token")));
-	assert(clone.canFind!(a => a.canFind("password=$GH_TOKEN")));
+	clone[0].should.equal("git");
+	clone[$ - 3 .. $].should.equal(["clone", "https://github.com/o/app.git", "/ws/app"]);
+	clone.canFind("credential.helper=").should.equal(true); // inherited helpers reset first
+	clone.canFind!(a => a.canFind("username=x-access-token")).should.equal(true);
+	clone.canFind!(a => a.canFind("password=$GH_TOKEN")).should.equal(true);
 
 	// a malformed env-var name can't inject: fall back to an unauthenticated clone
 	auto bad = RepoRef("app", "o/app");
 	bad.tokenSecret = "GH;rm -rf /";
 	ctx.repos = [bad];
-	assert(git.steps(ctx)[1] == ["git", "clone", "https://github.com/o/app.git", "/ws/app"]);
+	git.steps(ctx)[1].should.equal(["git", "clone", "https://github.com/o/app.git", "/ws/app"]);
 }
 
 unittest
 {
-	assert(isEnvName("GH_TOKEN"));
-	assert(isEnvName("_token"));
-	assert(!isEnvName(""));
-	assert(!isEnvName("9TOKEN"));
-	assert(!isEnvName("GH TOKEN"));
-	assert(!isEnvName("GH;rm"));
+	isEnvName("GH_TOKEN").should.equal(true);
+	isEnvName("_token").should.equal(true);
+	isEnvName("").should.equal(false);
+	isEnvName("9TOKEN").should.equal(false);
+	isEnvName("GH TOKEN").should.equal(false);
+	isEnvName("GH;rm").should.equal(false);
 }

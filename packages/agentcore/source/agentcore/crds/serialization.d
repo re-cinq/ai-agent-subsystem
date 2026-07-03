@@ -2,7 +2,7 @@ module agentcore.crds.serialization;
 
 import std.traits : OriginalType;
 import vibe.data.json : Json, JsonSerializer;
-import vibe.data.serialization : name, deserializeWithPolicy;
+import vibe.data.serialization : name, deserializeWithPolicy, serializeWithPolicy;
 
 import agentcore.crds.enums : PermissionMode;
 
@@ -65,4 +65,13 @@ alias wire = name!CrdPolicy;
 T fromJson(T)(Json src)
 {
 	return deserializeWithPolicy!(JsonSerializer, CrdPolicy, T)(src);
+}
+
+/// Serialize a CRD value under `CrdPolicy` — the inverse of `fromJson`, honouring the same
+/// `@wire` names and string-backed enum representation. The single entry point the Job
+/// builder uses so the controller→pod env wire (sinks/selectors/repos) is produced from the
+/// CRD structs themselves, never a hand-maintained field-by-field serializer that can drift.
+Json toJson(T)(T value)
+{
+	return serializeWithPolicy!(JsonSerializer, CrdPolicy)(value);
 }

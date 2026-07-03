@@ -19,6 +19,7 @@ import metrics : recordApiCall, recordJobCreated, recordStatusPatch;
 import agentcore.crds.agent : Agent;
 import agentcore.crds.agent_definition : AgentDefinition;
 import agentcore.crds.station : Station;
+import agentcore.kube.jobspec : agentContainerName;
 import agentcore.kube.jsonbody : AgentListPage, parseAgentDefinition, parseAgentListPage, parseJobOutcome, parseStation;
 import agentcore.kube.kubeclient : KubeClient, NotFound, PodResult;
 import agentcore.kube.outputcap : capOutput;
@@ -63,6 +64,22 @@ struct LeaseRecord
 	int transitions;
 }
 
+/// The Agent informer operations the reconcile loop needs on top of `KubeClient`: the
+/// full paginated LIST and the long-lived watch stream. Behind an interface so the
+/// watch/poll orchestration (leadership gating, resync, cache upkeep, concurrency
+/// accounting) is fake-testable — the same seam posture as `KubeClient`/`LeaseClient`.
+/// The real vibe-d implementation is `HttpKubeClient`.
+interface AgentInformerClient : KubeClient
+{
+	/// List every Agent in the namespace (following `continue` tokens), with the list's
+	/// `resourceVersion` for the watch to resume from.
+	AgentListPage listAllAgents(string ns);
+
+	/// Watch the Agent collection from `resourceVersion`, invoking `onLine` for each
+	/// streamed line until the server closes the connection.
+	void watchAgents(string ns, string resourceVersion, scope void delegate(string line) onLine);
+}
+
 /// The Lease operations the leader-election loop needs, behind an interface so the
 /// loop is fake-testable — the same seam posture as `KubeClient`. The real vibe-d
 /// implementation is `HttpKubeClient`.
@@ -84,7 +101,7 @@ interface LeaseClient
 /// bearer-token auth, the cluster CA added to the TLS trust store, and
 /// merge-patch for the status subresource. The long-lived watch stream
 /// (`watchAgents`) is controller-only and sits beside the interface.
-final class HttpKubeClient : KubeClient, LeaseClient
+final class HttpKubeClient : KubeClient, LeaseClient, AgentInformerClient
 {
 	private ClusterConfig config;
 	private HTTPClientSettings settings; /// normal requests: short read timeout
@@ -174,9 +191,23 @@ final class HttpKubeClient : KubeClient, LeaseClient
 		return all;
 	}
 
-	override void deleteAgent(string ns, string name)
+	override void deleteAgent(string ns, string name, string resourceVersion = "")
 	{
-		send(HTTPMethod.DELETE, crUrl(ns, "agents", name), Json.init, "", [200, 202, 404]);
+		Json body = Json.init;
+		string contentType = "";
+		if (resourceVersion.length)
+		{
+			Json preconditions = Json.emptyObject;
+			preconditions["resourceVersion"] = Json(resourceVersion);
+			body = Json.emptyObject;
+			body["apiVersion"] = Json("meta.k8s.io/v1");
+			body["kind"] = Json("DeleteOptions");
+			body["preconditions"] = preconditions;
+			contentType = "application/json";
+		}
+		// 409: the Agent changed since our cache snapshot — skip the delete rather than
+		// remove a newer object. 404: already gone. Both are non-errors for pruning.
+		send(HTTPMethod.DELETE, crUrl(ns, "agents", name), body, contentType, [200, 202, 404, 409]);
 	}
 
 	override string podNameForJob(string ns, string jobName)
@@ -321,7 +352,7 @@ final class HttpKubeClient : KubeClient, LeaseClient
 			if (container.type != Json.Type.object)
 				continue;
 			auto name = "name" in container;
-			if (name is null || name.get!string != "agent")
+			if (name is null || name.get!string != agentContainerName)
 				continue;
 			auto state = "state" in container;
 			if (state is null || state.type != Json.Type.object)
@@ -402,7 +433,11 @@ final class HttpKubeClient : KubeClient, LeaseClient
 
 	private string podLogUrl(string ns, string name)
 	{
-		return podUrl(ns, name) ~ "/log?tailLines=" ~ logTailLines.to!string;
+		// Name the container explicitly: a Station template with a sidecar makes an
+		// unqualified /log 400 ("a container name must be specified"), which would mark
+		// every run in that Station output-unavailable.
+		return podUrl(ns, name) ~ "/log?container=" ~ agentContainerName ~ "&tailLines="
+			~ logTailLines.to!string;
 	}
 
 	private string leasesUrl(string ns)
@@ -501,7 +536,7 @@ unittest
 	client.jobUrl("ai-agents", "agent-job-run-1").should.equal(
 		"https://api:443/apis/batch/v1/namespaces/ai-agents/jobs/agent-job-run-1");
 	client.podLogUrl("ai-agents", "p1").should.equal(
-		"https://api:443/api/v1/namespaces/ai-agents/pods/p1/log?tailLines=10000");
+		"https://api:443/api/v1/namespaces/ai-agents/pods/p1/log?container=agent&tailLines=10000");
 	client.leaseUrl("ai-agents", "agent-controller").should.equal(
 		"https://api:443/apis/coordination.k8s.io/v1/namespaces/ai-agents/leases/agent-controller");
 }

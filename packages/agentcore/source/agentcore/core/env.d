@@ -4,7 +4,6 @@ module agentcore.core.env;
 // the supervisor reads. Shared here so the Job builder and the supervisor never
 // drift apart.
 
-enum envPrompt = "AGENT_PROMPT";
 enum envModel = "AGENT_MODEL";
 enum envNotifyUrl = "AGENT_NOTIFY_URL";
 enum envSinks = "AGENT_SINKS";

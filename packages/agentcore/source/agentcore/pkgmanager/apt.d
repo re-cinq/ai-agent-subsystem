@@ -2,6 +2,8 @@ module agentcore.pkgmanager.apt;
 
 import agentcore.pkgmanager.packagemanager : PackageManager;
 
+version (unittest) import fluent.asserts;
+
 /// Debian / Ubuntu. Refresh the index, then install without recommends.
 final class Apt : PackageManager
 {
@@ -22,8 +24,8 @@ final class Apt : PackageManager
 unittest
 {
 	auto apt = new Apt;
-	assert(apt.name == "apt");
-	assert(apt.installSteps(["git", "curl"]) == [
+	apt.name.should.equal("apt");
+	apt.installSteps(["git", "curl"]).should.equal([
 		["apt-get", "update"],
 		["apt-get", "install", "--no-install-recommends", "-y", "git", "curl"]
 	]);

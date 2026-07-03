@@ -51,8 +51,10 @@ interface KubeClient
 	/// Merge-patch the Agent's `/status` subresource.
 	void patchAgentStatus(string ns, string name, Json statusPatch);
 
-	/// Delete a pruned Agent by name.
-	void deleteAgent(string ns, string name);
+	/// Delete a pruned Agent by name. A non-empty `resourceVersion` is sent as a
+	/// delete precondition, so a stale-cache delete of an Agent that has since changed
+	/// 409s instead of removing the newer object; empty means an unconditional delete.
+	void deleteAgent(string ns, string name, string resourceVersion = "");
 
 	/// Name of the pod backing a Job (label `job-name=<jobName>`), or "" if none
 	/// has been scheduled yet.

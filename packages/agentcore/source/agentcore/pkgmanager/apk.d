@@ -2,6 +2,8 @@ module agentcore.pkgmanager.apk;
 
 import agentcore.pkgmanager.packagemanager : PackageManager;
 
+version (unittest) import fluent.asserts;
+
 /// Alpine. (The D binaries are glibc-linked, so this only applies once a musl
 /// build exists — included for completeness and future-proofing.)
 final class Apk : PackageManager
@@ -20,6 +22,6 @@ final class Apk : PackageManager
 unittest
 {
 	auto apk = new Apk;
-	assert(apk.name == "apk");
-	assert(apk.installSteps(["git", "curl"]) == [["apk", "add", "--no-cache", "git", "curl"]]);
+	apk.name.should.equal("apk");
+	apk.installSteps(["git", "curl"]).should.equal([["apk", "add", "--no-cache", "git", "curl"]]);
 }
