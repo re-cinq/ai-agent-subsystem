@@ -50,6 +50,18 @@ else
 	chk "repo cloned into workspace" "$([ -f /workspace/app/README.md ] && echo 0 || echo 1)"
 	chk "checked out the pinned tag" "$( [ "$(git -C /workspace/app describe --tags --exact-match HEAD 2>/dev/null)" = "v1" ] && echo 0 || echo 1 )"
 	chk "succeeded event on the sink" "$(grep -q '"status":"succeeded"' "$sink" && echo 0 || echo 1)"
+
+	# Argv injection defense (issue #99) across this distro's git version: an
+	# option-shaped ref must be rejected as data, never switch HEAD to it. git's
+	# arg parsing varies by version, so this guards the fix on every base image.
+	HOME=/tmp AGENT_MODEL=gpt-5-codex \
+		WORKSPACE_DIR=/workspace-inject \
+		AGENT_NAME=ctest POD_NAME=ctest-pod \
+		AGENT_REPOS='[{"name":"app","url":"file:///origin","ref":"--orphan=pwned"}]' \
+		ai-agent-init >/dev/null 2>&1
+	chk "option-shaped ref fails the init" "$([ $? -ne 0 ] && echo 0 || echo 1)"
+	chk "option-shaped ref never switched HEAD to the injected branch" \
+		"$([ "$(git -C /workspace-inject/app symbolic-ref --short HEAD 2>/dev/null)" != "pwned" ] && echo 0 || echo 1)"
 fi
 
 # --- Test B (opt-in): real Claude CLI install -------------------------------
