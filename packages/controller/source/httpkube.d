@@ -315,8 +315,7 @@ final class HttpKubeClient : KubeClient, LeaseClient, AgentInformerClient
 	{
 		int status;
 		auto document = requestJson(url, status);
-		if (status == 404)
-			throw new NotFound(what ~ " not found");
+		enforce(status != 404, new NotFound(what ~ " not found"));
 		enforce(status == 200, what ~ ": unexpected status " ~ status.to!string);
 		return document;
 	}

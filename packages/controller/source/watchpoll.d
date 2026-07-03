@@ -3,6 +3,7 @@ module watchpoll;
 import core.time : MonoTime, seconds;
 import std.datetime.systime : Clock;
 import std.datetime.timezone : UTC;
+import std.exception : enforce;
 import vibe.data.json : Json, parseJsonString;
 import std.random : uniform;
 
@@ -204,8 +205,8 @@ private string watch(AgentInformerClient client, string ns, string agentImage, L
 		if (!leadership.isLeader)
 			return;
 		auto event = parseWatchLine(line);
-		if (event.type == "ERROR" && event.statusCode == 410)
-			throw new WatchExpired("watch ERROR event: resourceVersion too old (410 Gone)");
+		enforce(event.type != "ERROR" || event.statusCode != 410,
+			new WatchExpired("watch ERROR event: resourceVersion too old (410 Gone)"));
 		if (event.resourceVersion.length)
 			lastVersion = event.resourceVersion;
 		switch (event.type)

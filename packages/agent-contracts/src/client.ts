@@ -4,6 +4,7 @@
 // (fetch / @kubernetes/client-node) is supplied by the consumer (the Floor / UI).
 
 import type { Agent, AgentDefinition, Station, Phase } from "./types.generated.js";
+import { enforce, enforceHTTPSuccess } from "./enforce.js";
 
 export const GROUP = "agents.re-cinq.com";
 export const VERSION = "v1alpha1";
@@ -39,13 +40,6 @@ function namespacedPath(plural: string, namespace: string): string {
   return `/apis/${GROUP}/${VERSION}/namespaces/${namespace}/${plural}`;
 }
 
-function expectOk(res: KubeResponse): unknown {
-  if (res.status < 200 || res.status >= 300) {
-    throw new Error(`kube request failed (${res.status}): ${JSON.stringify(res.body)}`);
-  }
-  return res.body;
-}
-
 /** Typed client for the Agent / Station / AgentDefinition resources. */
 export class AgentContractsClient {
   constructor(
@@ -60,7 +54,7 @@ export class AgentContractsClient {
       path: namespacedPath("agents", this.namespace),
       body: { apiVersion: `${GROUP}/${VERSION}`, kind: "Agent", ...agent },
     });
-    return expectOk(res) as Agent;
+    return enforceHTTPSuccess(res) as Agent;
   }
 
   /** Read one Agent by name. */
@@ -69,7 +63,7 @@ export class AgentContractsClient {
       method: "GET",
       path: `${namespacedPath("agents", this.namespace)}/${name}`,
     });
-    return expectOk(res) as Agent;
+    return enforceHTTPSuccess(res) as Agent;
   }
 
   /** List Agents matching a Kubernetes label selector. */
@@ -79,7 +73,7 @@ export class AgentContractsClient {
       path: namespacedPath("agents", this.namespace),
       query: { labelSelector },
     });
-    const list = expectOk(res) as { items?: Agent[] };
+    const list = enforceHTTPSuccess(res) as { items?: Agent[] };
     return list.items ?? [];
   }
 
@@ -97,10 +91,7 @@ export class AgentContractsClient {
     plural: string,
     resource: { metadata?: { name?: string } },
   ): Promise<unknown> {
-    const name = resource.metadata?.name;
-    if (!name) {
-      throw new Error(`apply ${plural}: metadata.name is required`);
-    }
+    const name = enforce(resource.metadata?.name, `apply ${plural}: metadata.name is required`);
     const res = await this.transport.request({
       method: "PATCH",
       path: `${namespacedPath(plural, this.namespace)}/${name}`,
@@ -108,7 +99,7 @@ export class AgentContractsClient {
       body: resource,
       contentType: "application/apply-patch+yaml",
     });
-    return expectOk(res);
+    return enforceHTTPSuccess(res);
   }
 }
 
