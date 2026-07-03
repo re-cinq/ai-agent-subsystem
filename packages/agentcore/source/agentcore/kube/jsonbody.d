@@ -4,10 +4,10 @@ import std.json : JSONType, JSONValue;
 
 import agentcore.crds.agent : Agent;
 import agentcore.crds.agent_definition : AgentDefinition;
-import agentcore.crds.enums : ConcurrencyPolicy, PermissionMode, SinkType;
-import agentcore.crds.output_sink : OutputSink;
-import agentcore.crds.repo_ref : RepoRef;
+import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
+import agentcore.crds.schema : jsonNameOf;
 import agentcore.crds.station : Station;
+import agentcore.crds.station_spec : StationSpec;
 import agentcore.reconcile.reconcile : ActionKind, Decision, JobOutcome, JobState;
 import agentcore.core.types : Phase;
 
@@ -106,18 +106,11 @@ AgentListPage parseAgentListPage(JSONValue value)
 Station parseStation(JSONValue value)
 {
 	auto meta = childObject(value, "metadata");
-	auto spec = childObject(value, "spec");
 
 	Station station;
 	station.metadata.name = childString(meta, "name");
 	station.metadata.namespace = childString(meta, "namespace");
-	station.spec.agentDefRef = childString(spec, "agentDefRef");
-	station.spec.deadlineMinutes = cast(int) childInt(spec, "deadlineMinutes", 30);
-	station.spec.successfulRunsHistoryLimit = cast(int) childInt(spec, "successfulRunsHistoryLimit", 3);
-	station.spec.failedRunsHistoryLimit = cast(int) childInt(spec, "failedRunsHistoryLimit", 3);
-	station.spec.maxConcurrentRuns = cast(int) childInt(spec, "maxConcurrentRuns", 0);
-	station.spec.concurrencyPolicy = toConcurrencyPolicy(childString(spec, "concurrencyPolicy"));
-	station.spec.template_ = childObject(spec, "template");
+	station.spec = specFromJson!StationSpec(childObject(value, "spec"));
 	return station;
 }
 
@@ -125,21 +118,58 @@ Station parseStation(JSONValue value)
 AgentDefinition parseAgentDefinition(JSONValue value)
 {
 	auto meta = childObject(value, "metadata");
-	auto spec = childObject(value, "spec");
 
 	AgentDefinition definition;
 	definition.metadata.name = childString(meta, "name");
 	definition.metadata.namespace = childString(meta, "namespace");
-	definition.spec.description = childString(spec, "description");
-	definition.spec.model = childString(spec, "model");
-	definition.spec.prompt = childString(spec, "prompt");
-	definition.spec.allowedTools = childStringArray(spec, "allowed_tools");
-	definition.spec.disallowedTools = childStringArray(spec, "disallowed_tools");
-	definition.spec.permissionMode = toPermissionMode(childString(spec, "permission_mode"));
-	definition.spec.maxTurns = cast(int) childInt(spec, "max_turns", 0);
-	definition.spec.resources.repos = parseRepos(childObject(spec, "resources"));
-	definition.spec.output.sinks = parseSinks(childObject(spec, "output"));
+	definition.spec = specFromJson!AgentDefinitionSpec(childObject(value, "spec"));
 	return definition;
+}
+
+/// Parse a CRD spec struct from its JSON object by walking the struct's fields
+/// at compile time: every field is read under its wire name (`@Json` or the D
+/// identifier), so a field added to the model is parsed without touching this
+/// module — the parser cannot drift from what `buildJob` reads (#85). A missing
+/// or mistyped JSON value keeps the field's default.
+private T specFromJson(T)(JSONValue value) if (is(T == struct))
+{
+	T result;
+	static foreach (i, _; T.tupleof)
+	{{
+		enum wireName = jsonNameOf!(T.tupleof[i]);
+		alias FieldType = typeof(T.tupleof[i]);
+		static if (is(FieldType == JSONValue))
+			result.tupleof[i] = childObject(value, wireName);
+		else static if (is(FieldType == enum))
+			result.tupleof[i] = toEnumMember(childString(value, wireName), result.tupleof[i]);
+		else static if (is(FieldType == string))
+			result.tupleof[i] = childString(value, wireName);
+		else static if (is(FieldType == int))
+			result.tupleof[i] = cast(int) childInt(value, wireName, result.tupleof[i]);
+		else static if (is(FieldType == string[]))
+			result.tupleof[i] = childStringArray(value, wireName);
+		else static if (is(FieldType : Element[], Element) && is(Element == struct))
+		{
+			foreach (entry; childArray(value, wireName))
+				result.tupleof[i] ~= specFromJson!Element(entry);
+		}
+		else static if (is(FieldType == struct))
+			result.tupleof[i] = specFromJson!FieldType(childObject(value, wireName));
+		else
+			static assert(false,
+				T.stringof ~ "." ~ wireName ~ ": no JSON mapping for " ~ FieldType.stringof);
+	}}
+	return result;
+}
+
+/// The enum member whose string value equals `value`, or `fallback` when no
+/// member matches (absent field, typo). All CRD enums are string-backed.
+private E toEnumMember(E)(string value, E fallback) if (is(E == enum))
+{
+	static foreach (member; __traits(allMembers, E))
+		if (value == cast(string) __traits(getMember, E, member))
+			return __traits(getMember, E, member);
+	return fallback;
 }
 
 /// Derive a `JobOutcome` from a Kubernetes Job object. A `Complete` condition is
@@ -166,38 +196,6 @@ JobOutcome parseJobOutcome(JSONValue value)
 	return JobOutcome(JobState.running);
 }
 
-private RepoRef[] parseRepos(JSONValue resources)
-{
-	RepoRef[] repos;
-	foreach (entry; childArray(resources, "repos"))
-	{
-		RepoRef repo;
-		repo.name = childString(entry, "name");
-		repo.url = childString(entry, "url");
-		repo.ref_ = childString(entry, "ref");
-		repo.path = childString(entry, "path");
-		repo.tokenSecret = childString(entry, "token_secret");
-		if (repo.name.length && repo.url.length)
-			repos ~= repo;
-	}
-	return repos;
-}
-
-private OutputSink[] parseSinks(JSONValue output)
-{
-	OutputSink[] sinks;
-	foreach (entry; childArray(output, "sinks"))
-	{
-		OutputSink sink;
-		sink.type = toSinkType(childString(entry, "type"));
-		sink.url = childString(entry, "url");
-		sink.path = childString(entry, "path");
-		sink.headersSecret = childString(entry, "headers_secret");
-		sinks ~= sink;
-	}
-	return sinks;
-}
-
 private string conditionReason(JSONValue condition)
 {
 	const reason = childString(condition, "reason");
@@ -219,37 +217,6 @@ private Phase toPhase(string phase)
 		return Phase.failed;
 	default:
 		return Phase.pending;
-	}
-}
-
-private PermissionMode toPermissionMode(string mode)
-{
-	return mode == "auto" ? PermissionMode.auto_ : PermissionMode.bypass;
-}
-
-private ConcurrencyPolicy toConcurrencyPolicy(string policy)
-{
-	switch (policy)
-	{
-	case "Forbid":
-		return ConcurrencyPolicy.forbid;
-	case "Replace":
-		return ConcurrencyPolicy.replace;
-	default:
-		return ConcurrencyPolicy.allow;
-	}
-}
-
-private SinkType toSinkType(string type)
-{
-	switch (type)
-	{
-	case "http":
-		return SinkType.http;
-	case "file":
-		return SinkType.file;
-	default:
-		return SinkType.stdout;
 	}
 }
 
@@ -308,7 +275,14 @@ private string[string] childStringMap(JSONValue object, string key)
 	return result;
 }
 
-version (unittest) import fluent.asserts;
+version (unittest)
+{
+	import fluent.asserts;
+	import agentcore.crds.enums : ConcurrencyPolicy, McpTransport, PermissionMode,
+		SelectEvent, SinkType;
+	import agentcore.crds.env_var : EnvVar;
+	import agentcore.crds.secret_ref : SecretRef;
+}
 
 unittest
 {
@@ -430,6 +404,46 @@ unittest
 	definition.spec.resources.repos[0].url.should.equal("o/app");
 	definition.spec.output.sinks.length.should.equal(1);
 	definition.spec.output.sinks[0].type.should.equal(SinkType.http);
+}
+
+unittest
+{
+	// Every field runEnv reads — env, secrets, select, mcp_servers, tool_config —
+	// survives parsing. Guards the seam where a hand-maintained field list silently
+	// dropped the recipe's secrets and produced runs without credentials (#85).
+	auto definition = parseAgentDefinition(parseJSON(`{
+		"metadata":{"name":"bug-fixer"},
+		"spec":{"model":"claude-sonnet-4-6","prompt":"Fix {t}",
+			"resources":{
+				"env":[{"name":"LOG_LEVEL","value":"debug"}],
+				"secrets":[{"name":"ANTHROPIC_API_KEY","ref":"ANTHROPIC_API_KEY"}],
+				"mcp_servers":[{"name":"gh","transport":"http","url":"http://mcp"}]},
+			"output":{
+				"select":[{"event":"result"},{"event":"tool_call","tool":"Bash"}],
+				"sinks":[{"type":"http","url":"http://c","headers_secret":"SINK_HEADERS"}]},
+			"tool_config":{"sandbox":true}}}`));
+	definition.spec.resources.env.should.equal([EnvVar("LOG_LEVEL", "debug")]);
+	definition.spec.resources.secrets.should.equal([
+		SecretRef("ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY")
+	]);
+	definition.spec.resources.mcpServers[0].transport.should.equal(McpTransport.http);
+	definition.spec.output.select.length.should.equal(2);
+	definition.spec.output.select[0].event.should.equal(SelectEvent.result);
+	definition.spec.output.select[1].tool.should.equal("Bash");
+	definition.spec.output.sinks[0].headersSecret.should.equal("SINK_HEADERS");
+	definition.spec.toolConfig["sandbox"].type.should.equal(JSONType.true_);
+}
+
+unittest
+{
+	// An unrecognised enum string keeps the field's default instead of throwing:
+	// a typo'd sink type degrades to stdout, permission_mode stays bypass.
+	auto definition = parseAgentDefinition(parseJSON(`{
+		"metadata":{"name":"typo"},
+		"spec":{"permission_mode":"noneuchmode",
+			"output":{"sinks":[{"type":"htpp","url":"http://c"}]}}}`));
+	definition.spec.permissionMode.should.equal(PermissionMode.bypass);
+	definition.spec.output.sinks[0].type.should.equal(SinkType.stdout);
 }
 
 unittest

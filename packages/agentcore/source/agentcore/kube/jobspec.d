@@ -649,3 +649,34 @@ unittest
 	selectors.length.should.equal(1);
 	selectors[0].event.should.equal(SelectEvent.result);
 }
+
+unittest
+{
+	// Round-trip across the parse/build seam: API-shaped JSON through the
+	// production parsers into buildJob. The run pod must carry the recipe's
+	// secretKeyRef env, literal env, and AGENT_SELECT — the exact fields a
+	// hand-maintained parser dropped while struct-built fixtures stayed green (#85).
+	import agentcore.kube.jsonbody : parseAgentDefinition, parseStation;
+
+	Agent agent;
+	agent.metadata.name = "secret-run";
+	agent.metadata.namespace = "ai-agents";
+
+	auto station = parseStation(parseJSON(`{
+		"metadata":{"name":"secret-station","namespace":"ai-agents"},
+		"spec":{"agentDefRef":"secret-writer","deadlineMinutes":5,
+			"template":{"spec":{"containers":[{"name":"agent","image":"ai-agent:itest"}]}}}}`));
+	auto definition = parseAgentDefinition(parseJSON(`{
+		"metadata":{"name":"secret-writer"},
+		"spec":{"model":"gpt-mock","prompt":"say hello",
+			"resources":{
+				"secrets":[{"name":"ANTHROPIC_API_KEY","ref":"ANTHROPIC_API_KEY"}],
+				"env":[{"name":"AGENT_EXPECT_API_KEY","value":"sk-ant-itest"}]},
+			"output":{"format":"stream-json","select":[{"event":"result"}],"sinks":[{"type":"stdout"}]}}}`));
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img"));
+
+	envSecretKey(container, "ANTHROPIC_API_KEY").should.equal("ANTHROPIC_API_KEY");
+	envValue(container, "AGENT_EXPECT_API_KEY").should.equal("sk-ant-itest");
+	parseSelectors(envValue(container, "AGENT_SELECT")).length.should.equal(1);
+}
