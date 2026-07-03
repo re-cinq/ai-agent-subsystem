@@ -186,10 +186,11 @@ void runLeaderElection(LeaseClient client, string ns, string identity, Leadershi
 	for (;;)
 	{
 		// Only the clock reads can throw here; electionTickGuarded handles its own
-		// tick errors. A clock failure (never, in practice) steps us down.
+		// tick errors. A clock failure (never, in practice) steps us down. Throwable,
+		// not Exception: an Error escaping this loop kills every replica at once (#88).
 		try
 			electionTickGuarded(election, nowUnix(), rfc3339Micro());
-		catch (Exception error)
+		catch (Throwable error)
 		{
 			logError("election: %s", error.msg);
 			setLeader(election.leadership, election.identity, false);
@@ -211,7 +212,10 @@ void electionTickGuarded(ref Election election, long now, string timestamp) noth
 		electionTick(election, now, timestamp);
 		election.renewFailures = 0;
 	}
-	catch (Exception error)
+	// Throwable, not Exception: the tick's HTTP client can raise a vibe-level
+	// AssertError on an anomalous bodyless response, and this path runs every 5s on
+	// every replica — uncaught, leader and standby crash on the same stimulus (#88).
+	catch (Throwable error)
 	{
 		// The tick couldn't reach the API (or the clock failed): not ready. Every
 		// replica runs this loop, so it is the readiness signal for leader and standby
