@@ -132,7 +132,10 @@ private void informLoop(HttpKubeClient client, string ns, string agentImage, Lea
 			errorAttempt = 0;
 			backoff(watchBackoffBaseSeconds);
 		}
-		catch (Exception error)
+		// Throwable, not Exception: vibe-http raises an AssertError on a response it
+		// treats as bodyless, and sync/watch drive that client — the same crash class
+		// reconcileOne already contains (#88).
+		catch (Throwable error)
 		{
 			// A real failure (API blip, TLS, 5xx): back off exponentially with jitter
 			// instead of hammering a degraded API server every 2s.
@@ -210,7 +213,7 @@ private void pollLoop(HttpKubeClient client, string ns, string agentImage, Leade
 		if (leadership.isLeader)
 			try
 				sync(client, ns, agentImage, cache);
-			catch (Exception error)
+			catch (Throwable error) // contain vibe-level Errors too, as reconcileOne does (#88)
 				logError("poll: %s", error.msg);
 
 		backoff(15);
