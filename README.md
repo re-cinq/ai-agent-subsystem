@@ -30,25 +30,30 @@ glibc-based base image.
 
 ## Architecture
 
-A single dub monorepo (every package under `packages/`) producing **two runtime binaries** and a
-**shared library**, statically linked with LDC, plus a `crdgen` dev tool:
+A single dub monorepo (every package under `packages/`) producing **three runtime binaries** and a
+**shared library**, statically linked with LDC, plus `crdgen`/`tsgen` codegen tools:
 
 ```mermaid
 flowchart TB
     CORE[["agentcore — shared library"]]
     CTRL["controller — binary"]
+    INIT["initializer — init-container binary"]
     SUP["supervisor — binary"]
     CORE --> CTRL
+    CORE --> INIT
     CORE --> SUP
     CTRL <-->|watch / create / patch| K8S[("Kubernetes API")]
-    SUP -->|runs inside| POD["Agent Pod"]
+    INIT -->|provisions| POD["Agent Pod"]
+    SUP -->|runs inside| POD
 ```
 
 - **`agentcore`** — CRD types, Kubernetes client, the pure reconcile state machine, prompt
   templating, and the Job builder.
 - **`controller`** — the operator: reconciles Agents into Jobs and back.
+- **`initializer`** — the init container: clones repos and installs the agent CLI before the run.
 - **`supervisor`** — runs inside the Job Pod, supervises the agent process, and streams its output.
-- **`crdgen`** — dev/CI tool that generates `deploy/crds` from the annotated `agentcore` structs.
+- **`crdgen`** / **`tsgen`** — dev/CI tools that generate `deploy/crds` and the `@re-cinq/agent-contracts`
+  TypeScript types from the annotated `agentcore` structs.
 
 ## Repository layout
 
@@ -56,9 +61,9 @@ flowchart TB
 ai-agent-subsystem/
 ├── README.md
 ├── dub.json       # root: subPackages
-├── packages/      # agentcore (lib) + controller, supervisor, crdgen (apps)
+├── packages/      # agentcore (lib) + controller, supervisor, initializer (apps); crdgen, tsgen, mockagent, itest (tooling/tests)
 ├── deploy/        # CRDs (generated), RBAC, controller manifest
-├── scripts/       # check-crd-drift.sh
+├── scripts/       # drift checks, integration-test runners, container builds
 └── website/       # documentation site (Astro Starlight)
 ```
 

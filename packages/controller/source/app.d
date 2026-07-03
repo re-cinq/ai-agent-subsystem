@@ -41,7 +41,9 @@ else
 		runTask(() nothrow {
 			runLeaderElection(client, config.namespace, config.identity, leadership, readiness);
 		});
-		runTask(() nothrow { runControlLoop(client, config.namespace, agentImage, leadership); });
+		runTask(() nothrow {
+			runControlLoop(client, config.namespace, agentImage, leadership, readiness);
+		});
 		return runEventLoop();
 	}
 }

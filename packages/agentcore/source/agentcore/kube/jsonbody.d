@@ -80,18 +80,29 @@ private struct AgentListMeta
 	@optional @wire("continue") string continueToken;
 }
 
-private struct AgentListDoc
-{
-	@optional AgentListMeta metadata;
-	@optional Agent[] items;
-}
-
 /// Parse one page of a Kubernetes AgentList: its `.items` and the list-level
-/// `metadata.resourceVersion` / `metadata.continue`.
+/// `metadata.resourceVersion` / `metadata.continue`. Items are parsed one at a
+/// time so a single malformed Agent (e.g. a type-mismatched field) is skipped
+/// rather than throwing away the whole page — otherwise one bad object stalls
+/// the poll's full-LIST safety net for every Agent.
 AgentListPage parseAgentListPage(Json value)
 {
-	auto doc = fromJson!AgentListDoc(value);
-	return AgentListPage(doc.items, doc.metadata.resourceVersion, doc.metadata.continueToken);
+	AgentListMeta metadata;
+	if (auto meta = "metadata" in value)
+		if (meta.type == Json.Type.object)
+			metadata = fromJson!AgentListMeta(*meta);
+
+	Agent[] items;
+	if (auto rawItems = "items" in value)
+		if (rawItems.type == Json.Type.array)
+			foreach (item; rawItems.get!(Json[]))
+				try
+					items ~= parseAgent(item);
+				catch (Exception)
+				{
+				}
+
+	return AgentListPage(items, metadata.resourceVersion, metadata.continueToken);
 }
 
 /// Parse a Kubernetes Station object into the typed struct.
@@ -261,6 +272,18 @@ unittest
 	// The last page carries no continue token.
 	parseAgentListPage(parseJsonString(`{"metadata":{"resourceVersion":"9"},"items":[]}`))
 		.continueToken.should.equal("");
+
+	// One malformed item (exitCode is int; here a string) is skipped rather than
+	// throwing away the whole page, so a single bad Agent can't stall the poll's
+	// full-LIST safety net for every other Agent.
+	auto resilient = parseAgentListPage(parseJsonString(`{"metadata":{"resourceVersion":"11"},`
+			~ `"items":[{"metadata":{"name":"ok-1"}},`
+			~ `{"metadata":{"name":"bad"},"status":{"exitCode":"boom"}},`
+			~ `{"metadata":{"name":"ok-2"}}]}`));
+	resilient.items.length.should.equal(2);
+	resilient.resourceVersion.should.equal("11");
+	resilient.items[0].metadata.name.should.equal("ok-1");
+	resilient.items[1].metadata.name.should.equal("ok-2");
 }
 
 unittest
@@ -306,9 +329,11 @@ unittest
 
 unittest
 {
-	// Every field runEnv reads — env, secrets, select, mcp_servers, tool_config —
-	// survives parsing. Guards the seam where a hand-maintained field list silently
-	// dropped the recipe's secrets and produced runs without credentials (#85).
+	// Every recipe field survives parsing into the typed AgentDefinition — env, secrets,
+	// select, sinks (incl. headers_secret), mcp_servers, tool_config. Guards the seam
+	// where a hand-maintained field list silently dropped the recipe's secrets and
+	// produced runs without credentials (#85). (mcp_servers/tool_config parse but are
+	// not yet injected into the run env — see the CRD reference.)
 	auto definition = parseAgentDefinition(parseJsonString(`{
 		"metadata":{"name":"bug-fixer"},
 		"spec":{"model":"claude-sonnet-4-6","prompt":"Fix {t}",

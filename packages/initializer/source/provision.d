@@ -16,7 +16,8 @@ import agentcore.core.exec : findExecutable;
 import agentcore.tools.initcontext : InitContext;
 import agentcore.output.lifecycle : LifecycleEvent, Phase, Status, toJson;
 import agentcore.core.log : logError;
-import agentcore.output.output : SinkSpec, sinksFromEnv;
+import agentcore.crds.output_sink : OutputSink;
+import agentcore.output.output : sinksFromEnv;
 import agentcore.pkgmanager.packagemanager : packageFor;
 import agentcore.pkgmanager.packagemanagerselect : packageManagerByName;
 import agentcore.tools.agent_tool : AgentTool;
@@ -87,7 +88,7 @@ private Tool[] activeTools(in InitContext ctx)
 /// Install any prerequisites the active tools (and http notifications) need but
 /// that aren't already on `PATH`, using the package manager detected from the
 /// distro. A no-op when nothing is missing.
-private int ensurePrerequisites(Tool[] active, const SinkSpec[] sinks, in EventSource source)
+private int ensurePrerequisites(Tool[] active, const OutputSink[] sinks, in EventSource source)
 {
 	auto missing = neededExecutables(active, sinks).filter!(e => findExecutable(e).length == 0).array;
 	if (missing.length == 0)
@@ -120,7 +121,7 @@ private int ensurePrerequisites(Tool[] active, const SinkSpec[] sinks, in EventS
 
 /// The executables the run needs: each active tool's `requires`, plus `curl` when
 /// an http sink is configured (notifications POST through the curl CLI).
-private string[] neededExecutables(Tool[] active, const SinkSpec[] sinks)
+private string[] neededExecutables(Tool[] active, const OutputSink[] sinks)
 {
 	string[] needed;
 	foreach (tool; active)
@@ -163,7 +164,7 @@ private int runStep(string[] step)
 }
 
 /// Report a failure: log it, emit `ev` (a `failed` lifecycle event), return `code`.
-private int fail(const SinkSpec[] sinks, in EventSource src, string logMsg, LifecycleEvent ev, int code)
+private int fail(const OutputSink[] sinks, in EventSource src, string logMsg, LifecycleEvent ev, int code)
 {
 	logError(logMsg);
 	notify(sinks, src, ev.toJson);

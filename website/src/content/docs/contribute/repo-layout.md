@@ -45,11 +45,11 @@ supervisor's end-to-end behaviour is covered by an integration suite
 | `ai-agent-init` | `packages/initializer/` | [Agent runtime](../concepts/agent-runtime.md) |
 | `ai-agent-supervisor` | `packages/supervisor/` | [Agent runtime](../concepts/agent-runtime.md) |
 | `ai-agent-crdgen` | `packages/crdgen/` | dev tool, generates `deploy/crds` |
+| `ai-agent-tsgen` | `packages/tsgen/` | dev tool, generates the `@re-cinq/agent-contracts` TS types |
 | CRDs / RBAC | `deploy/` | [Reference](../reference/crd-agent.md) |
 
 :::note
-Bootstrapped so far: the CRD model (with attribute metadata), prompt templating, the pure reconcile
-state machine, thin binaries that link the library, and the `crdgen` tool that generates
-`deploy/crds` from the model. The Kubernetes client, Job builder, and the supervisor's process
-handling are next; see the [roadmap](./roadmap.md).
+The controller, initializer, and supervisor are implemented and covered by unit + integration
+tests; `crdgen`/`tsgen` generate `deploy/crds` and the TypeScript contracts from the annotated
+model, with both directions gated against drift in CI. See the [roadmap](./roadmap.md) for direction.
 :::

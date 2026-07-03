@@ -23,6 +23,17 @@ enum runRecordUnavailable = "run record unavailable: Job garbage-collected befor
 /// recovered. Surfaced instead of a silently empty output.
 enum runOutputUnavailable = "run output unavailable: pod garbage-collected";
 
+/// What a single reconcile did that the batch pass (`reconcileAll`) must account for
+/// before reconciling the next Agent: whether a new run for this Agent's Station is now
+/// in flight, and any run this action preempted. The cache won't reflect either until
+/// the status patch round-trips through the informer, so the batch applies them to its
+/// working view to keep the Station concurrency count correct within one pass.
+struct ReconcileEffect
+{
+	bool startedRun;
+	string preemptedAgent;
+}
+
 /**
  * Reconcile one Agent: resolve its refs, decide the next action with the pure
  * `decide()` state machine, then apply the decision through the injected client.
@@ -31,14 +42,15 @@ enum runOutputUnavailable = "run output unavailable: pod garbage-collected";
  * the driver is deterministic and fake-testable). Terminal Agents are a no-op
  * with no I/O. `cached` is the controller's informer view of the namespace's
  * Agents — used for the Station concurrency count and history pruning instead of
- * a fresh LIST per reconcile, so cost stays O(changed) rather than O(all).
+ * a fresh LIST per reconcile, so cost stays O(changed) rather than O(all). Returns
+ * the `ReconcileEffect` so a batch pass can keep its concurrency count honest.
  */
-void reconcileAgent(KubeClient client, string ns, Agent agent, string agentImage, string now,
+ReconcileEffect reconcileAgent(KubeClient client, string ns, Agent agent, string agentImage, string now,
 	const Agent[] cached)
 {
 	const phase = agent.status.phase;
 	if (phase == Phase.succeeded || phase == Phase.failed)
-		return;
+		return ReconcileEffect.init;
 
 	Station station;
 	AgentDefinition definition;
@@ -66,28 +78,40 @@ void reconcileAgent(KubeClient client, string ns, Agent agent, string agentImage
 	final switch (decision.kind)
 	{
 	case ActionKind.none:
-		return;
+		return ReconcileEffect.init;
 	case ActionKind.startRun:
 		client.createJob(ns, buildJob(agent, station, definition, agentImage));
 		client.patchAgentStatus(ns, agent.metadata.name,
 			statusPatch(decision, jobNameFor(agent.metadata.name), now, agent.metadata.resourceVersion));
-		return;
+		return ReconcileEffect(true);
 	case ActionKind.replaceRun:
-		client.deleteAgent(ns, oldestRunningRun(cached, agent.spec.stationRef));
+		const preempted = oldestRunningRun(cached, agent.spec.stationRef);
+		client.deleteAgent(ns, preempted, resourceVersionByName(cached, preempted));
 		client.createJob(ns, buildJob(agent, station, definition, agentImage));
 		client.patchAgentStatus(ns, agent.metadata.name,
 			statusPatch(decision, jobNameFor(agent.metadata.name), now, agent.metadata.resourceVersion));
-		return;
+		return ReconcileEffect(true, preempted);
 	case ActionKind.failMissingRef:
 		client.patchAgentStatus(ns, agent.metadata.name,
 			statusPatch(decision, "", now, agent.metadata.resourceVersion));
-		return;
+		return ReconcileEffect.init;
 	case ActionKind.complete:
 		client.patchAgentStatus(ns, agent.metadata.name,
 			statusPatch(decision, agent.status.jobName, now, agent.metadata.resourceVersion));
 		pruneHistory(client, ns, agent.spec.stationRef, cached);
-		return;
+		return ReconcileEffect.init;
 	}
+}
+
+/// The `resourceVersion` of the cached Agent named `name`, or "" if it is not in the
+/// cache — used to send a delete precondition so a stale-cache delete of an Agent that
+/// has since changed is rejected rather than removing the newer object.
+private string resourceVersionByName(const Agent[] cached, string name) @safe
+{
+	foreach (agent; cached)
+		if (agent.metadata.name == name)
+			return agent.metadata.resourceVersion;
+	return "";
 }
 
 /// Observe the run Job: its terminal/running state, enriched on a terminal
@@ -166,7 +190,7 @@ private void pruneHistory(KubeClient client, string ns, string stationRef, const
 
 	foreach (name; agentsToPrune(cached, stationRef, station.spec.successfulRunsHistoryLimit,
 			station.spec.failedRunsHistoryLimit))
-		client.deleteAgent(ns, name);
+		client.deleteAgent(ns, name, resourceVersionByName(cached, name));
 }
 
 version (unittest)
@@ -191,6 +215,7 @@ version (unittest)
 		Json[] statusPatches;
 		string[] patchedNames;
 		string[] deletedAgents;
+		string[] deletedVersions;
 
 		override Station getStation(string ns, string name)
 		{
@@ -223,9 +248,10 @@ version (unittest)
 			statusPatches ~= patch;
 		}
 
-		override void deleteAgent(string ns, string name)
+		override void deleteAgent(string ns, string name, string resourceVersion = "")
 		{
 			deletedAgents ~= name;
+			deletedVersions ~= resourceVersion;
 		}
 
 		override string podNameForJob(string ns, string jobName)
@@ -337,6 +363,7 @@ unittest
 
 	Agent running; // the in-flight run Replace should cancel
 	running.metadata.name = "run-old";
+	running.metadata.resourceVersion = "rv-old";
 	running.spec.stationRef = "stn";
 	running.status.phase = Phase.running;
 	running.status.startedAt = "2026-06-22T10:00:00Z";
@@ -345,6 +372,8 @@ unittest
 		"2026-06-22T12:00:00Z", [running]);
 
 	client.deletedAgents.should.equal(["run-old"]);
+	// The preemption carries the victim's resourceVersion as a delete precondition.
+	client.deletedVersions.should.equal(["rv-old"]);
 	client.createdJobs.length.should.equal(1);
 	client.patchedNames.should.equal(["run-new"]);
 	client.statusPatches[0]["status"]["phase"].get!string.should.equal("Running");
@@ -364,6 +393,7 @@ unittest
 
 	Agent old;
 	old.metadata.name = "old-success";
+	old.metadata.resourceVersion = "rv-old-success";
 	old.spec.stationRef = "stn";
 	old.status.phase = Phase.succeeded;
 	old.status.completedAt = "2026-06-22T01:00:00Z";
@@ -387,6 +417,8 @@ unittest
 	client.statusPatches[0]["status"]["output"].get!string.should.equal("the wrapped event log");
 	client.statusPatches[0]["status"]["exitCode"].get!long.should.equal(0);
 	client.deletedAgents.should.equal(["old-success"]);
+	// The pruning delete carries the Agent's resourceVersion as a precondition.
+	client.deletedVersions.should.equal(["rv-old-success"]);
 }
 
 unittest

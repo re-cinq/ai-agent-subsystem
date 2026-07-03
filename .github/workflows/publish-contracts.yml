@@ -29,7 +29,7 @@ jobs:
           compiler: dmd-latest
       - name: Contracts drift check (types match the D model)
         run: ./scripts/check-contracts-drift.sh
-      - uses: actions/setup-node@v4 # TODO: pin to a digest to match the repo's SHA-pinned actions
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'

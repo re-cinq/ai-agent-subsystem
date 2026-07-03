@@ -27,6 +27,11 @@ import sink : emit;
 /// How often the wait loop polls the agent's exit / terminal-event state.
 private enum pollInterval = 20.msecs;
 
+/// Cap on how long the final stdout drain waits for the reader to reach EOF before the
+/// hard exit — long enough to flush a large final burst, short enough that a grandchild
+/// holding the pipe open can't stall pod teardown.
+private enum drainDeadline = 2000.msecs;
+
 /// PID of the spawned agent, shared with the signal handler.
 private __gshared pid_t g_childPid = 0;
 
@@ -87,6 +92,7 @@ int supervise(string[] agentArgv)
 	// "work done" signal.
 	bool terminalSeen = false;
 	bool runOk = false;
+	bool readerDone = false; // the reader drained stdout to EOF (no output left to flush)
 
 	// Stream stdout in its own task so the agent's *process exit* ends the run,
 	// not stdout EOF: a stray child that inherits and holds stdout open would
@@ -116,6 +122,7 @@ int supervise(string[] agentArgv)
 		{
 			// stdout closed (normal EOF) or the reader was interrupted on exit.
 		}
+		readerDone = true;
 	});
 
 	// Reap the agent in its own task so the wait loop can react to the terminal
@@ -132,9 +139,11 @@ int supervise(string[] agentArgv)
 
 	const code = awaitOutcome(grace, processExited, processCode, terminalSeen, runOk);
 
-	// Brief grace for the reader to flush output buffered right up to the terminal
-	// event (emitEvent writes + flushes stdout per event as it reads).
-	sleep(100.msecs);
+	// Let the reader flush output buffered right up to the terminal event before we
+	// hard-exit. Wait for it to drain to EOF rather than a blind fixed sleep (which
+	// could cut off a large final burst), but cap the wait: a stray grandchild can hold
+	// stdout open forever, and pod teardown must not block on that (#58).
+	cast(void) waitFlag(readerDone, drainDeadline);
 	emit(sinks, source, agentExit(code).toJson);
 
 	// Hard-exit instead of joining the reader/waiter and unwinding the event loop.
@@ -163,35 +172,44 @@ private int awaitOutcome(Duration grace, ref bool processExited, ref int process
 	// The process exited on its own (the normal path, and the mock/Codex path):
 	// its real exit code is authoritative.
 	if (processExited)
-		return processCode;
+		return reportedExitCode(true, processCode, runOk);
 
 	// The agent signalled it is done but the process is still up. Give it the grace
 	// window to exit cleanly first — if it does, that exit code is still its own.
-	if (waitExit(processExited, grace))
-		return processCode;
+	if (waitFlag(processExited, grace))
+		return reportedExitCode(true, processCode, runOk);
 
 	// It is lingering. Force it down (SIGTERM, then SIGKILL) so the pod can
 	// terminate. Any exit code now reflects the signal we sent, not the agent's
 	// work, so the terminal event's success/failure is authoritative.
 	if (g_childPid > 0)
 		kill(g_childPid, SIGTERM);
-	if (!waitExit(processExited, grace) && g_childPid > 0)
+	if (!waitFlag(processExited, grace) && g_childPid > 0)
 		kill(g_childPid, SIGKILL);
-	cast(void) waitExit(processExited, grace);
-	return runOk ? 0 : 1;
+	cast(void) waitFlag(processExited, grace);
+	return reportedExitCode(false, processCode, runOk);
 }
 
-/// Poll `processExited` up to `limit`, yielding between checks; true if the process
-/// exited within the window.
-private bool waitExit(ref bool processExited, Duration limit)
+/// The exit code to report. A process that exited on its own (or within its grace
+/// window) carries its real code. A process we had to SIGTERM/SIGKILL exits with the
+/// signal's code, which says nothing about the work — so the agent's own terminal-event
+/// verdict (`runOk`) is authoritative there instead.
+int reportedExitCode(bool exitedOnOwn, int processCode, bool runOk) @safe pure nothrow
+{
+	return exitedOnOwn ? processCode : (runOk ? 0 : 1);
+}
+
+/// Poll a shared `flag` up to `limit`, yielding between checks; true if it became set
+/// within the window. Used both for "the process exited" and "the reader drained".
+private bool waitFlag(ref bool flag, Duration limit)
 {
 	Duration waited;
-	while (!processExited && waited < limit)
+	while (!flag && waited < limit)
 	{
 		sleep(pollInterval);
 		waited += pollInterval;
 	}
-	return processExited;
+	return flag;
 }
 
 /// The terminal-event grace window from the environment, falling back to the
@@ -232,4 +250,57 @@ private LifecycleEvent agentExit(int code)
 	};
 	ev.exitCode = code;
 	return ev;
+}
+
+version (unittest) import fluent.asserts;
+
+@safe unittest
+{
+	// A process that exits on its own reports its real code, success or failure.
+	reportedExitCode(true, 0, false).should.equal(0);
+	reportedExitCode(true, 42, false).should.equal(42);
+	// A process we had to kill: the signal's code is meaningless, so the terminal
+	// event's verdict wins — 0 when the run succeeded, 1 when it failed.
+	reportedExitCode(false, 137, true).should.equal(0);
+	reportedExitCode(false, 137, false).should.equal(1);
+}
+
+unittest
+{
+	// agentExit maps the code to succeeded/failed and carries the code.
+	auto ok = agentExit(0);
+	ok.status.should.equal(Status.succeeded);
+	ok.exitCode.get.should.equal(0);
+
+	auto bad = agentExit(3);
+	bad.phase.should.equal(Phase.agent);
+	bad.status.should.equal(Status.failed);
+	bad.exitCode.get.should.equal(3);
+}
+
+unittest
+{
+	// agentFailed is an agent-phase failure the supervisor raises itself, carrying the slug.
+	auto ev = agentFailed("not-found");
+	ev.phase.should.equal(Phase.agent);
+	ev.status.should.equal(Status.failed);
+	ev.reason.should.equal("not-found");
+}
+
+unittest
+{
+	scope (exit)
+		environment.remove(envExitGraceMs);
+
+	// A positive value parses to that many milliseconds.
+	environment[envExitGraceMs] = "1234";
+	exitGraceFromEnv().should.equal(1234.msecs);
+
+	// Unset, non-numeric, and non-positive all fall back to the default.
+	environment.remove(envExitGraceMs);
+	exitGraceFromEnv().should.equal(defaultExitGraceMs.msecs);
+	environment[envExitGraceMs] = "abc";
+	exitGraceFromEnv().should.equal(defaultExitGraceMs.msecs);
+	environment[envExitGraceMs] = "0";
+	exitGraceFromEnv().should.equal(defaultExitGraceMs.msecs);
 }

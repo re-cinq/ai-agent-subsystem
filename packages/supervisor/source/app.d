@@ -11,6 +11,11 @@ private __gshared int g_exitCode = 1;
 
 int main(string[] args)
 {
+	// `dub test` builds this executable with -unittest and runs main after the module
+	// unittests; return before the reconcile/supervise work so the test binary exits 0.
+	version (unittest)
+		return 0;
+
 	// The controller invokes the supervisor as `ai-agent-supervisor -- <agent argv>`.
 	const sep = args.countUntil("--");
 	if (sep == -1 || sep + 1 >= args.length)
