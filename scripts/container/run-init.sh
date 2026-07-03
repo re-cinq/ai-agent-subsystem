@@ -5,10 +5,10 @@
 # install) is opt-in via CTEST_CLAUDE=1 and skips itself when claude.ai is
 # unreachable. POSIX sh (no bashisms) so it runs on Alpine's busybox shell too.
 #
-# Test A's gpt-5-codex model routes to the Codex CLI installer; a stub `codex` is
-# staged on PATH in the image (see Dockerfile), so its `command -v` guard skips the
-# real network install and Test A stays focused on the git self-bootstrap path. The
-# real vendor installers are the opt-in, network Test B concern.
+# Test A's gpt-5-codex model routes to the Codex CLI installer; this script stages
+# a stub `codex` on PATH (below), so its `command -v` guard skips the real network
+# install and Test A stays focused on the git self-bootstrap path. The real vendor
+# installers are the opt-in, network Test B concern.
 set -u
 fail=0
 chk() { if [ "$2" -eq 0 ]; then echo "  PASS  $1"; else echo "  FAIL  $1"; fail=1; fi; }
@@ -19,6 +19,12 @@ chk() { if [ "$2" -eq 0 ]; then echo "  PASS  $1"; else echo "  FAIL  $1"; fail=
 # to the system config now — it's just a file, no git needed yet. (Real runs clone
 # from a remote url, so this is purely a bind-mount test concession.)
 printf '[safe]\n\tdirectory = *\n' > /etc/gitconfig 2>/dev/null || true
+
+# Stage a stub `codex` on PATH so Test A's gpt-5-codex run skips the real Codex CLI
+# install (its `command -v codex` guard finds this) and stays an offline git test.
+# Done here, not in a Dockerfile, because the CI workflow bind-mounts this script
+# into a bare distro image and runs it directly. Real installers are the Test B path.
+printf '#!/bin/sh\nexit 0\n' > /usr/local/bin/codex 2>/dev/null && chmod +x /usr/local/bin/codex 2>/dev/null || true
 
 # shellcheck disable=SC1091
 echo "distro: $( . /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-unknown}" )"
