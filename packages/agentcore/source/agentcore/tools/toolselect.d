@@ -1,11 +1,11 @@
 module agentcore.tools.toolselect;
 
 import agentcore.tools.agent_tool : AgentTool;
-import agentcore.tools.agentsetupselect : agentSetupForModel;
 import agentcore.tools.git_tool : GitTool;
 import agentcore.tools.initcontext : InitContext;
 import agentcore.tools.supervisor_tool : SupervisorTool;
 import agentcore.tools.tool : Tool;
+import agentcore.vendors.select : agentSetupForModel;
 
 /// Every provisioning tool for this run, in execution order: stage the supervisor
 /// into the bundle first, then git (get the code down) before installing a CLI,

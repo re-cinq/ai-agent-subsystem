@@ -1,6 +1,6 @@
-module agentcore.tools.codex_setup;
+module agentcore.vendors.codex.setup;
 
-import agentcore.tools.agentsetup : AgentSetup;
+import agentcore.vendors.base.setup : AgentSetup;
 
 /// Install the OpenAI Codex CLI via its official standalone installer — the same
 /// self-detecting `install.sh` the Codex docs ship, not the npm path, so no Node

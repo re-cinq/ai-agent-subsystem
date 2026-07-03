@@ -1,4 +1,4 @@
-module agentcore.agents.prompt;
+module agentcore.core.prompt;
 
 import std.array : appender;
 

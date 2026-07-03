@@ -1,4 +1,4 @@
-module agentcore.agents.agent;
+module agentcore.vendors.base.agent;
 
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 

@@ -1,8 +1,8 @@
-module agentcore.agents.opencode_agent;
+module agentcore.vendors.opencode.agent;
 
 import std.algorithm.searching : startsWith;
 
-import agentcore.agents.agent : Agent;
+import agentcore.vendors.base.agent : Agent;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 
 /// OpenCode CLI adapter: `opencode run --format json …`. `--format json` emits the

@@ -1,6 +1,6 @@
-module agentcore.tools.claude_setup;
+module agentcore.vendors.claude.setup;
 
-import agentcore.tools.agentsetup : AgentSetup;
+import agentcore.vendors.base.setup : AgentSetup;
 
 /// Install the Claude Code CLI via the official installer. It self-detects
 /// OS/arch/libc, verifies a SHA256 checksum from the release manifest, and drops

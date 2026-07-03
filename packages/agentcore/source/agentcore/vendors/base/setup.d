@@ -1,4 +1,4 @@
-module agentcore.tools.agentsetup;
+module agentcore.vendors.base.setup;
 
 /// How to install one coding-agent CLI into the run pod — the Claude Code CLI, the
 /// OpenAI Codex CLI, OpenCode, or any other. An implementation reports the

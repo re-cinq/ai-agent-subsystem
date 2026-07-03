@@ -1,6 +1,6 @@
-module agentcore.tools.opencode_setup;
+module agentcore.vendors.opencode.setup;
 
-import agentcore.tools.agentsetup : AgentSetup;
+import agentcore.vendors.base.setup : AgentSetup;
 
 /// Install the OpenCode CLI via its official installer. It self-detects OS/arch,
 /// downloads the matching release from GitHub, and drops `opencode` under

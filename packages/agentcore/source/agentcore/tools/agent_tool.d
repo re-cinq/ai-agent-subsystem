@@ -1,8 +1,8 @@
 module agentcore.tools.agent_tool;
 
-import agentcore.tools.agentsetup : AgentSetup;
 import agentcore.tools.initcontext : InitContext;
 import agentcore.tools.tool : Tool;
+import agentcore.vendors.base.setup : AgentSetup;
 
 /// Adapts the run's selected `AgentSetup` into the init container's `Tool`
 /// pipeline: it installs the one agent CLI the run's model routes to. The setup is
@@ -34,7 +34,7 @@ final class AgentTool : Tool
 }
 
 version (unittest) import fluent.asserts;
-version (unittest) import agentcore.tools.agentsetupselect : agentSetupForModel;
+version (unittest) import agentcore.vendors.select : agentSetupForModel;
 
 @safe unittest
 {

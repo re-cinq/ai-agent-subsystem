@@ -1,6 +1,6 @@
-module agentcore.agents.codex_agent;
+module agentcore.vendors.codex.agent;
 
-import agentcore.agents.agent : Agent;
+import agentcore.vendors.base.agent : Agent;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 import agentcore.crds.enums : PermissionMode;
 

@@ -10,11 +10,11 @@ import agentcore.crds.output_selector : OutputSelector;
 import agentcore.crds.output_sink : OutputSink;
 import agentcore.crds.repo_ref : RepoRef;
 import agentcore.crds.station : Station;
-import agentcore.agents.agentselect : agentForModel;
+import agentcore.vendors.select : agentForModel;
 import agentcore.kube.bundle : bundleRoot, supervisorPath;
 import agentcore.core.env;
 import agentcore.kube.jobs : jobNameFor;
-import agentcore.agents.prompt : renderPrompt;
+import agentcore.core.prompt : renderPrompt;
 
 enum crApiVersion = "agents.re-cinq.com/v1alpha1";
 enum agentContainerName = "agent";

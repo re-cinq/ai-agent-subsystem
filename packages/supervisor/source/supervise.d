@@ -13,7 +13,7 @@ import vibe.stream.operations : readLine;
 import std.conv : to;
 import std.process : environment;
 
-import agentcore.agents.agentselect : agentForModel;
+import agentcore.vendors.select : agentForModel;
 import agentcore.core.env : defaultExitGraceMs, envExitGraceMs, envModel, envSelect;
 import agentcore.output.event : sourceFromEnv;
 import agentcore.core.exec : findExecutable;
