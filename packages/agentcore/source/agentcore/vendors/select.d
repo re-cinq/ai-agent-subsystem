@@ -9,10 +9,13 @@ import agentcore.vendors.claude.agent : ClaudeAgent;
 import agentcore.vendors.claude.setup : ClaudeSetup;
 import agentcore.vendors.codex.agent : CodexAgent;
 import agentcore.vendors.codex.setup : CodexSetup;
+import agentcore.vendors.exec.agent : ExecAgent;
+import agentcore.vendors.exec.setup : ExecSetup;
 import agentcore.vendors.opencode.agent : OpenCodeAgent;
 import agentcore.vendors.opencode.setup : OpenCodeSetup;
 
-/// Choose the agent adapter from a model id. An explicit `opencode` / `opencode/…`
+/// Choose the agent adapter from a model id. The literal `exec` id maps to the
+/// non-LLM command runner (station recipes); an explicit `opencode` / `opencode/…`
 /// id maps to OpenCode; the GPT / o-series / codex family maps to Codex; Claude
 /// models and the empty or unrecognized case map to Claude (the system default).
 /// OpenCode is checked first so an `opencode/openai/gpt-…` id routes to OpenCode
@@ -20,6 +23,8 @@ import agentcore.vendors.opencode.setup : OpenCodeSetup;
 Agent agentForModel(string model) @safe
 {
 	const m = model.toLower;
+	if (m == "exec")
+		return new ExecAgent;
 	if (m.canFind("opencode"))
 		return new OpenCodeAgent;
 	if (m.canFind("codex") || m.startsWith("gpt") || m.startsWith("o1")
@@ -36,6 +41,7 @@ AgentSetup[] allAgentSetups() @safe
 	return [
 		cast(AgentSetup) new ClaudeSetup,
 		new CodexSetup,
+		new ExecSetup,
 		new OpenCodeSetup,
 	];
 }
@@ -73,6 +79,9 @@ version (unittest) import fluent.asserts;
 	agentForModel("opencode").name.should.equal("opencode");
 	agentForModel("opencode/anthropic/claude-sonnet-4-6").name.should.equal("opencode");
 	agentForModel("opencode/openai/gpt-4.1").name.should.equal("opencode"); // OpenCode wins over the gpt rule
+	agentForModel("exec").name.should.equal("exec");
+	agentForModel("EXEC").name.should.equal("exec");
+	agentForModel("executive-model").name.should.equal("claude"); // exact match only, no substring
 }
 
 @safe unittest
@@ -85,7 +94,9 @@ version (unittest) import fluent.asserts;
 	agentSetupForModel("o3-mini").name.should.equal("codex");
 	agentSetupForModel("opencode/anthropic/claude-sonnet-4-6").name.should.equal("opencode");
 
-	allAgentSetups().length.should.equal(3);
+	agentSetupForModel("exec").name.should.equal("exec");
+
+	allAgentSetups().length.should.equal(4);
 	agentSetupByName("codex").name.should.equal("codex");
 	(agentSetupByName("nope") is null).should.equal(true);
 }
