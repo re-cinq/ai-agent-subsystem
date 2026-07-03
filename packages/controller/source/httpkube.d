@@ -5,7 +5,7 @@ import std.algorithm.searching : canFind;
 import std.conv : to;
 import std.exception : enforce;
 import std.file : readText;
-import std.json : JSONType, JSONValue, parseJSON;
+import vibe.data.json : Json, parseJsonString;
 import std.string : strip;
 
 import vibe.core.log : logInfo;
@@ -73,11 +73,11 @@ interface LeaseClient
 
 	/// Create the Lease. True when we created it (201); false when another replica
 	/// created it first (409).
-	bool createLease(string ns, JSONValue body);
+	bool createLease(string ns, Json body);
 
 	/// Merge-patch the Lease (renew or takeover). True when the write landed (200);
 	/// false when our resourceVersion was stale (409) — another replica wrote first.
-	bool patchLease(string ns, string name, JSONValue body);
+	bool patchLease(string ns, string name, Json body);
 }
 
 /// `KubeClient` over the Kubernetes API server, spoken with vibe's HTTP client:
@@ -126,7 +126,7 @@ final class HttpKubeClient : KubeClient, LeaseClient
 		return parseAgentDefinition(getJson(crUrl(ns, "agentdefinitions", name), "AgentDefinition " ~ name));
 	}
 
-	override void createJob(string ns, JSONValue job)
+	override void createJob(string ns, Json job)
 	{
 		if (send(HTTPMethod.POST, jobsUrl(ns), job, "application/json", [201, 409]) == 201)
 			recordJobCreated();
@@ -137,7 +137,7 @@ final class HttpKubeClient : KubeClient, LeaseClient
 		return parseJobOutcome(getJson(jobUrl(ns, jobName), "Job " ~ jobName));
 	}
 
-	override void patchAgentStatus(string ns, string name, JSONValue statusPatch)
+	override void patchAgentStatus(string ns, string name, Json statusPatch)
 	{
 		const status = send(HTTPMethod.PATCH, crUrl(ns, "agents", name) ~ "/status", statusPatch,
 			"application/merge-patch+json", [200, 409]);
@@ -176,16 +176,16 @@ final class HttpKubeClient : KubeClient, LeaseClient
 
 	override void deleteAgent(string ns, string name)
 	{
-		send(HTTPMethod.DELETE, crUrl(ns, "agents", name), JSONValue.init, "", [200, 202, 404]);
+		send(HTTPMethod.DELETE, crUrl(ns, "agents", name), Json.init, "", [200, 202, 404]);
 	}
 
 	override string podNameForJob(string ns, string jobName)
 	{
 		auto list = getJson(podsUrl(ns) ~ "?labelSelector=job-name=" ~ jobName, "pods for " ~ jobName);
-		if (list.type == JSONType.object)
-			if (auto items = "items" in list.object)
-				if (items.type == JSONType.array && items.array.length)
-					return items.array[0]["metadata"]["name"].str;
+		if (list.type == Json.Type.object)
+			if (auto items = "items" in list)
+				if (items.type == Json.Type.array && items.get!(Json[]).length)
+					return items.get!(Json[])[0]["metadata"]["name"].get!string;
 		return "";
 	}
 
@@ -247,7 +247,7 @@ final class HttpKubeClient : KubeClient, LeaseClient
 
 	/// Create the Lease. Returns true when we created it (201); a 409 means another
 	/// replica created it first, so we did not win leadership.
-	override bool createLease(string ns, JSONValue body)
+	override bool createLease(string ns, Json body)
 	{
 		return send(HTTPMethod.POST, leasesUrl(ns), body, "application/json", [201, 409]) == 201;
 	}
@@ -255,7 +255,7 @@ final class HttpKubeClient : KubeClient, LeaseClient
 	/// Merge-patch the Lease (renew or takeover). Returns true when the write landed
 	/// (200); a 409 means our resourceVersion was stale — another replica wrote
 	/// first — so we did not hold or take leadership this tick.
-	override bool patchLease(string ns, string name, JSONValue body)
+	override bool patchLease(string ns, string name, Json body)
 	{
 		return send(HTTPMethod.PATCH, leaseUrl(ns, name), body, "application/merge-patch+json",
 			[200, 409]) == 200;
@@ -264,9 +264,9 @@ final class HttpKubeClient : KubeClient, LeaseClient
 	/// GET a JSON document, returning the HTTP `status` and (on 200) the parsed
 	/// body. The 404 policy is the caller's: `getJson` throws `NotFound`, while a
 	/// Lease read treats it as "absent".
-	private JSONValue requestJson(string url, out int status)
+	private Json requestJson(string url, out int status)
 	{
-		JSONValue document;
+		Json document;
 		int observed;
 		timedRequest("GET", url,
 			(scope HTTPClientRequest req) { authorize(req); },
@@ -274,13 +274,13 @@ final class HttpKubeClient : KubeClient, LeaseClient
 				observed = res.statusCode;
 				const body = res.bodyReader.readAllUTF8();
 				if (observed == 200)
-					document = parseJSON(body);
+					document = parseJsonString(body);
 			});
 		status = observed;
 		return document;
 	}
 
-	private JSONValue getJson(string url, string what)
+	private Json getJson(string url, string what)
 	{
 		int status;
 		auto document = requestJson(url, status);
@@ -306,44 +306,44 @@ final class HttpKubeClient : KubeClient, LeaseClient
 
 	/// The `agent` container's terminated exit code from a pod object, or 0 when it
 	/// is not present (pod still running, or already GC'd).
-	private int agentExitCode(JSONValue pod)
+	private int agentExitCode(Json pod)
 	{
-		if (pod.type != JSONType.object)
+		if (pod.type != Json.Type.object)
 			return 0;
-		auto status = "status" in pod.object;
-		if (status is null || status.type != JSONType.object)
+		auto status = "status" in pod;
+		if (status is null || status.type != Json.Type.object)
 			return 0;
-		auto containers = "containerStatuses" in status.object;
-		if (containers is null || containers.type != JSONType.array)
+		auto containers = "containerStatuses" in *status;
+		if (containers is null || containers.type != Json.Type.array)
 			return 0;
-		foreach (container; containers.array)
+		foreach (container; containers.get!(Json[]))
 		{
-			if (container.type != JSONType.object)
+			if (container.type != Json.Type.object)
 				continue;
-			auto name = "name" in container.object;
-			if (name is null || name.str != "agent")
+			auto name = "name" in container;
+			if (name is null || name.get!string != "agent")
 				continue;
-			auto state = "state" in container.object;
-			if (state is null || state.type != JSONType.object)
+			auto state = "state" in container;
+			if (state is null || state.type != Json.Type.object)
 				continue;
-			auto terminated = "terminated" in state.object;
-			if (terminated is null || terminated.type != JSONType.object)
+			auto terminated = "terminated" in *state;
+			if (terminated is null || terminated.type != Json.Type.object)
 				continue;
-			auto code = "exitCode" in terminated.object;
-			if (code !is null && code.type == JSONType.integer)
-				return cast(int) code.integer;
+			auto code = "exitCode" in *terminated;
+			if (code !is null && code.type == Json.Type.int_)
+				return cast(int) code.get!long;
 		}
 		return 0;
 	}
 
-	private int send(HTTPMethod method, string url, JSONValue body, string contentType, int[] okCodes)
+	private int send(HTTPMethod method, string url, Json body, string contentType, int[] okCodes)
 	{
 		int status;
 		timedRequest(httpMethodString(method), url,
 			(scope HTTPClientRequest req) {
 				req.method = method;
 				authorize(req);
-				if (body.type != JSONType.null_)
+				if (body.type != Json.Type.undefined && body.type != Json.Type.null_)
 					req.writeBody(cast(const(ubyte)[]) body.toString(), contentType);
 			},
 			(scope HTTPClientResponse res) { status = res.statusCode; res.dropBody(); });
@@ -418,7 +418,7 @@ final class HttpKubeClient : KubeClient, LeaseClient
 
 /// Read the leadership fields out of a Lease object. Missing fields fall back to
 /// their zero value — a freshly created Lease may not carry every field yet.
-LeaseRecord parseLeaseRecord(JSONValue lease)
+LeaseRecord parseLeaseRecord(Json lease)
 {
 	LeaseRecord record;
 	record.exists = true;
@@ -429,26 +429,26 @@ LeaseRecord parseLeaseRecord(JSONValue lease)
 	return record;
 }
 
-private string leaseField(JSONValue lease, string section, string key)
+private string leaseField(Json lease, string section, string key)
 {
 	auto value = leaseSection(lease, section, key);
-	return (value !is null && value.type == JSONType.string) ? value.str : "";
+	return (value !is null && value.type == Json.Type.string) ? value.get!string : "";
 }
 
-private long leaseTransitions(JSONValue lease)
+private long leaseTransitions(Json lease)
 {
 	auto value = leaseSection(lease, "spec", "leaseTransitions");
-	return (value !is null && value.type == JSONType.integer) ? value.integer : 0;
+	return (value !is null && value.type == Json.Type.int_) ? value.get!long : 0;
 }
 
-private JSONValue* leaseSection(JSONValue lease, string section, string key)
+private Json* leaseSection(Json lease, string section, string key)
 {
-	if (lease.type != JSONType.object)
+	if (lease.type != Json.Type.object)
 		return null;
-	auto sec = section in lease.object;
-	if (sec is null || sec.type != JSONType.object)
+	auto sec = section in lease;
+	if (sec is null || sec.type != Json.Type.object)
 		return null;
-	return key in sec.object;
+	return key in *sec;
 }
 
 /// Server-side watch timeout: the API server closes the long poll after this many
@@ -547,7 +547,7 @@ unittest
 
 unittest
 {
-	auto record = parseLeaseRecord(parseJSON(`{"metadata":{"resourceVersion":"99"},
+	auto record = parseLeaseRecord(parseJsonString(`{"metadata":{"resourceVersion":"99"},
 		"spec":{"holderIdentity":"pod-a","renewTime":"2026-06-23T00:00:00.000000Z","leaseTransitions":3}}`));
 	record.should.equal(LeaseRecord(true, "pod-a", "2026-06-23T00:00:00.000000Z", "99", 3));
 

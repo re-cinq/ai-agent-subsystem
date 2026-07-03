@@ -1,81 +1,66 @@
 module agentcore.kube.jsonbody;
 
-import std.json : JSONType, JSONValue;
+import vibe.data.json;
 
 import agentcore.crds.agent : Agent;
 import agentcore.crds.agent_definition : AgentDefinition;
-import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
-import agentcore.crds.schema : jsonNameOf;
 import agentcore.crds.station : Station;
-import agentcore.crds.station_spec : StationSpec;
+import agentcore.crds.schema : wire, optional;
+import agentcore.crds.serialization : fromJson;
 import agentcore.reconcile.reconcile : ActionKind, Decision, JobOutcome, JobState;
-import agentcore.core.types : Phase;
 
 /// The merge-patch body the controller PATCHes onto an Agent's `/status`
 /// subresource after a reconcile `Decision`. Only the changed fields are
 /// included, per JSON merge-patch semantics. The caller supplies `jobName` (the
 /// Job it created) and `timestamp` (an RFC3339 "now") so this stays pure: it
 /// stamps `startedAt` on a start and `completedAt` on a terminal transition.
-JSONValue statusPatch(Decision decision, string jobName, string timestamp, string resourceVersion = "")
+Json statusPatch(Decision decision, string jobName, string timestamp, string resourceVersion = "")
 {
-	JSONValue[string] status;
-	status["phase"] = JSONValue(cast(string) decision.phase);
+	Json status = Json.emptyObject;
+	status["phase"] = cast(string) decision.phase;
 
 	final switch (decision.kind)
 	{
 	case ActionKind.startRun:
 	case ActionKind.replaceRun:
-		status["jobName"] = JSONValue(jobName);
-		status["startedAt"] = JSONValue(timestamp);
+		status["jobName"] = jobName;
+		status["startedAt"] = timestamp;
 		break;
 	case ActionKind.failMissingRef:
-		status["failureReason"] = JSONValue(decision.failureReason);
-		status["completedAt"] = JSONValue(timestamp);
+		status["failureReason"] = decision.failureReason;
+		status["completedAt"] = timestamp;
 		break;
 	case ActionKind.complete:
-		status["exitCode"] = JSONValue(decision.exitCode);
-		status["output"] = JSONValue(decision.output);
+		status["exitCode"] = decision.exitCode;
+		status["output"] = decision.output;
 		if (decision.failureReason.length)
-			status["failureReason"] = JSONValue(decision.failureReason);
-		status["completedAt"] = JSONValue(timestamp);
+			status["failureReason"] = decision.failureReason;
+		status["completedAt"] = timestamp;
 		break;
 	case ActionKind.none:
 		break;
 	}
 
-	JSONValue[string] patch;
-	patch["status"] = JSONValue(status);
+	Json patch = Json.emptyObject;
+	patch["status"] = status;
 	// Include the read's resourceVersion so the API server rejects (409) a write
 	// computed from a stale snapshot instead of clobbering a newer update.
 	if (resourceVersion.length)
-		patch["metadata"] = JSONValue(["resourceVersion": JSONValue(resourceVersion)]);
-	return JSONValue(patch);
+	{
+		Json meta = Json.emptyObject;
+		meta["resourceVersion"] = resourceVersion;
+		patch["metadata"] = meta;
+	}
+	return patch;
 }
 
 /// Parse a Kubernetes Agent object into the typed struct. Unknown/missing fields
 /// fall back to their defaults rather than throwing — the API server is trusted
-/// to return well-formed JSON, but optional fields are genuinely optional.
-Agent parseAgent(JSONValue value)
+/// to return well-formed JSON, but optional fields are genuinely optional (that
+/// leniency is `CrdPolicy` + `@optional`, see agentcore.crds.serialization).
+Agent parseAgent(Json value)
 {
-	auto meta = childObject(value, "metadata");
-	auto spec = childObject(value, "spec");
-	auto status = childObject(value, "status");
-
-	Agent agent;
-	agent.metadata.name = childString(meta, "name");
-	agent.metadata.namespace = childString(meta, "namespace");
-	agent.metadata.uid = childString(meta, "uid");
-	agent.metadata.resourceVersion = childString(meta, "resourceVersion");
-	agent.spec.stationRef = childString(spec, "stationRef");
-	agent.spec.taskId = childString(spec, "taskId");
-	agent.spec.targetRepo = childString(spec, "targetRepo");
-	agent.spec.branch = childString(spec, "branch");
-	agent.spec.parameters = childStringMap(spec, "parameters");
-	agent.status.phase = toPhase(childString(status, "phase"));
-	agent.status.jobName = childString(status, "jobName");
-	agent.status.startedAt = childString(status, "startedAt");
-	agent.status.completedAt = childString(status, "completedAt");
-	return agent;
+	return fromJson!Agent(value);
 }
 
 /// One page of a Kubernetes AgentList: the typed items plus the list's
@@ -89,94 +74,43 @@ struct AgentListPage
 	string continueToken;
 }
 
+private struct AgentListMeta
+{
+	@optional string resourceVersion;
+	@optional @wire("continue") string continueToken;
+}
+
+private struct AgentListDoc
+{
+	@optional AgentListMeta metadata;
+	@optional Agent[] items;
+}
+
 /// Parse one page of a Kubernetes AgentList: its `.items` and the list-level
 /// `metadata.resourceVersion` / `metadata.continue`.
-AgentListPage parseAgentListPage(JSONValue value)
+AgentListPage parseAgentListPage(Json value)
 {
-	AgentListPage page;
-	foreach (item; childArray(value, "items"))
-		page.items ~= parseAgent(item);
-	auto meta = childObject(value, "metadata");
-	page.resourceVersion = childString(meta, "resourceVersion");
-	page.continueToken = childString(meta, "continue");
-	return page;
+	auto doc = fromJson!AgentListDoc(value);
+	return AgentListPage(doc.items, doc.metadata.resourceVersion, doc.metadata.continueToken);
 }
 
 /// Parse a Kubernetes Station object into the typed struct.
-Station parseStation(JSONValue value)
+Station parseStation(Json value)
 {
-	auto meta = childObject(value, "metadata");
-
-	Station station;
-	station.metadata.name = childString(meta, "name");
-	station.metadata.namespace = childString(meta, "namespace");
-	station.spec = specFromJson!StationSpec(childObject(value, "spec"));
-	return station;
+	return fromJson!Station(value);
 }
 
 /// Parse a Kubernetes AgentDefinition object into the typed recipe.
-AgentDefinition parseAgentDefinition(JSONValue value)
+AgentDefinition parseAgentDefinition(Json value)
 {
-	auto meta = childObject(value, "metadata");
-
-	AgentDefinition definition;
-	definition.metadata.name = childString(meta, "name");
-	definition.metadata.namespace = childString(meta, "namespace");
-	definition.spec = specFromJson!AgentDefinitionSpec(childObject(value, "spec"));
-	return definition;
-}
-
-/// Parse a CRD spec struct from its JSON object by walking the struct's fields
-/// at compile time: every field is read under its wire name (`@Json` or the D
-/// identifier), so a field added to the model is parsed without touching this
-/// module — the parser cannot drift from what `buildJob` reads (#85). A missing
-/// or mistyped JSON value keeps the field's default.
-private T specFromJson(T)(JSONValue value) if (is(T == struct))
-{
-	T result;
-	static foreach (i, _; T.tupleof)
-	{{
-		enum wireName = jsonNameOf!(T.tupleof[i]);
-		alias FieldType = typeof(T.tupleof[i]);
-		static if (is(FieldType == JSONValue))
-			result.tupleof[i] = childObject(value, wireName);
-		else static if (is(FieldType == enum))
-			result.tupleof[i] = toEnumMember(childString(value, wireName), result.tupleof[i]);
-		else static if (is(FieldType == string))
-			result.tupleof[i] = childString(value, wireName);
-		else static if (is(FieldType == int))
-			result.tupleof[i] = cast(int) childInt(value, wireName, result.tupleof[i]);
-		else static if (is(FieldType == string[]))
-			result.tupleof[i] = childStringArray(value, wireName);
-		else static if (is(FieldType : Element[], Element) && is(Element == struct))
-		{
-			foreach (entry; childArray(value, wireName))
-				result.tupleof[i] ~= specFromJson!Element(entry);
-		}
-		else static if (is(FieldType == struct))
-			result.tupleof[i] = specFromJson!FieldType(childObject(value, wireName));
-		else
-			static assert(false,
-				T.stringof ~ "." ~ wireName ~ ": no JSON mapping for " ~ FieldType.stringof);
-	}}
-	return result;
-}
-
-/// The enum member whose string value equals `value`, or `fallback` when no
-/// member matches (absent field, typo). All CRD enums are string-backed.
-private E toEnumMember(E)(string value, E fallback) if (is(E == enum))
-{
-	static foreach (member; __traits(allMembers, E))
-		if (value == cast(string) __traits(getMember, E, member))
-			return __traits(getMember, E, member);
-	return fallback;
+	return fromJson!AgentDefinition(value);
 }
 
 /// Derive a `JobOutcome` from a Kubernetes Job object. A `Complete` condition is
 /// success, a `Failed` condition carries its reason; otherwise the Job is still
 /// running. `exitCode` and `output` are not in the Job status (they live in the
 /// pod) — enriching them from pod logs is a later refinement.
-JobOutcome parseJobOutcome(JSONValue value)
+JobOutcome parseJobOutcome(Json value)
 {
 	auto status = childObject(value, "status");
 	foreach (condition; childArray(status, "conditions"))
@@ -196,7 +130,7 @@ JobOutcome parseJobOutcome(JSONValue value)
 	return JobOutcome(JobState.running);
 }
 
-private string conditionReason(JSONValue condition)
+private string conditionReason(Json condition)
 {
 	const reason = childString(condition, "reason");
 	const message = childString(condition, "message");
@@ -205,79 +139,45 @@ private string conditionReason(JSONValue condition)
 	return reason.length ? reason : message;
 }
 
-private Phase toPhase(string phase)
+private string childString(Json object, string key)
 {
-	switch (phase)
-	{
-	case "Running":
-		return Phase.running;
-	case "Succeeded":
-		return Phase.succeeded;
-	case "Failed":
-		return Phase.failed;
-	default:
-		return Phase.pending;
-	}
-}
-
-private string childString(JSONValue object, string key)
-{
-	if (object.type != JSONType.object)
-		return "";
-	if (auto found = key in object.object)
-		return found.type == JSONType.string ? found.str : "";
+	if (object.type == Json.Type.object)
+		if (auto found = key in object)
+			if (found.type == Json.Type.string)
+				return found.get!string;
 	return "";
 }
 
-private long childInt(JSONValue object, string key, long fallback)
+private long childInt(Json object, string key, long fallback)
 {
-	if (object.type != JSONType.object)
-		return fallback;
-	if (auto found = key in object.object)
-		return found.type == JSONType.integer ? found.integer : fallback;
+	if (object.type == Json.Type.object)
+		if (auto found = key in object)
+			if (found.type == Json.Type.int_)
+				return found.get!long;
 	return fallback;
 }
 
-private JSONValue childObject(JSONValue object, string key)
+private Json childObject(Json object, string key)
 {
-	if (object.type == JSONType.object)
-		if (auto found = key in object.object)
+	if (object.type == Json.Type.object)
+		if (auto found = key in object)
 			return *found;
-	return JSONValue(cast(JSONValue[string]) null);
+	return Json.emptyObject;
 }
 
-private JSONValue[] childArray(JSONValue object, string key)
+private Json[] childArray(Json object, string key)
 {
-	if (object.type == JSONType.object)
-		if (auto found = key in object.object)
-			if (found.type == JSONType.array)
-				return found.array;
+	if (object.type == Json.Type.object)
+		if (auto found = key in object)
+			if (found.type == Json.Type.array)
+				return found.get!(Json[]);
 	return null;
-}
-
-private string[] childStringArray(JSONValue object, string key)
-{
-	string[] result;
-	foreach (entry; childArray(object, key))
-		if (entry.type == JSONType.string)
-			result ~= entry.str;
-	return result;
-}
-
-private string[string] childStringMap(JSONValue object, string key)
-{
-	string[string] result;
-	auto map = childObject(object, key);
-	if (map.type == JSONType.object)
-		foreach (entryKey, entryValue; map.object)
-			if (entryValue.type == JSONType.string)
-				result[entryKey] = entryValue.str;
-	return result;
 }
 
 version (unittest)
 {
 	import fluent.asserts;
+	import agentcore.core.types : Phase;
 	import agentcore.crds.enums : ConcurrencyPolicy, McpTransport, PermissionMode,
 		SelectEvent, SinkType;
 	import agentcore.crds.env_var : EnvVar;
@@ -288,9 +188,9 @@ unittest
 {
 	auto patch = statusPatch(Decision(ActionKind.startRun, Phase.running), "agent-job-x",
 		"2026-06-22T12:00:00Z");
-	patch["status"]["phase"].str.should.equal("Running");
-	patch["status"]["jobName"].str.should.equal("agent-job-x");
-	patch["status"]["startedAt"].str.should.equal("2026-06-22T12:00:00Z");
+	patch["status"]["phase"].get!string.should.equal("Running");
+	patch["status"]["jobName"].get!string.should.equal("agent-job-x");
+	patch["status"]["startedAt"].get!string.should.equal("2026-06-22T12:00:00Z");
 }
 
 unittest
@@ -300,42 +200,40 @@ unittest
 	// update. With none, no metadata is sent (an unconditional patch).
 	auto guarded = statusPatch(Decision(ActionKind.startRun, Phase.running), "agent-job-x",
 		"2026-06-22T12:00:00Z", "12345");
-	guarded["metadata"]["resourceVersion"].str.should.equal("12345");
+	guarded["metadata"]["resourceVersion"].get!string.should.equal("12345");
 
 	auto plain = statusPatch(Decision(ActionKind.startRun, Phase.running), "agent-job-x",
 		"2026-06-22T12:00:00Z");
-	(("metadata" in plain.object) is null).should.equal(true);
+	(("metadata" in plain) is null).should.equal(true);
 }
 
 unittest
 {
 	auto patch = statusPatch(Decision(ActionKind.failMissingRef, Phase.failed, 0,
 			"Station or AgentDefinition not found"), "", "2026-06-22T12:00:00Z");
-	patch["status"]["phase"].str.should.equal("Failed");
-	patch["status"]["failureReason"].str.should.equal("Station or AgentDefinition not found");
-	patch["status"]["completedAt"].str.should.equal("2026-06-22T12:00:00Z");
+	patch["status"]["phase"].get!string.should.equal("Failed");
+	patch["status"]["failureReason"].get!string.should.equal("Station or AgentDefinition not found");
+	patch["status"]["completedAt"].get!string.should.equal("2026-06-22T12:00:00Z");
 }
 
 unittest
 {
 	auto ok = statusPatch(Decision(ActionKind.complete, Phase.succeeded, 0, "", "all good"),
 		"agent-job-x", "2026-06-22T13:00:00Z");
-	ok["status"]["phase"].str.should.equal("Succeeded");
-	ok["status"]["output"].str.should.equal("all good");
-	ok["status"]["exitCode"].integer.should.equal(0);
+	ok["status"]["phase"].get!string.should.equal("Succeeded");
+	ok["status"]["output"].get!string.should.equal("all good");
+	ok["status"]["exitCode"].get!long.should.equal(0);
 
 	auto bad = statusPatch(Decision(ActionKind.complete, Phase.failed, 1, "boom", ""),
 		"agent-job-x", "2026-06-22T13:00:00Z");
-	bad["status"]["phase"].str.should.equal("Failed");
-	bad["status"]["failureReason"].str.should.equal("boom");
-	bad["status"]["exitCode"].integer.should.equal(1);
+	bad["status"]["phase"].get!string.should.equal("Failed");
+	bad["status"]["failureReason"].get!string.should.equal("boom");
+	bad["status"]["exitCode"].get!long.should.equal(1);
 }
-
-version (unittest) import std.json : parseJSON;
 
 unittest
 {
-	auto agent = parseAgent(parseJSON(`{
+	auto agent = parseAgent(parseJsonString(`{
 		"metadata":{"name":"run-1","namespace":"ai-agents","uid":"u1"},
 		"spec":{"stationRef":"stn","taskId":"T1","targetRepo":"o/r","branch":"b","parameters":{"ticket":"E-1"}},
 		"status":{"phase":"Running","jobName":"agent-job-run-1","startedAt":"t0"}}`));
@@ -350,24 +248,24 @@ unittest
 unittest
 {
 	// No status -> phase defaults to Pending.
-	parseAgent(parseJSON(`{"metadata":{"name":"fresh"},"spec":{"stationRef":"s"}}`))
+	parseAgent(parseJsonString(`{"metadata":{"name":"fresh"},"spec":{"stationRef":"s"}}`))
 		.status.phase.should.equal(Phase.pending);
 
 	// A list page parses each item plus the resourceVersion and continue token.
-	auto page = parseAgentListPage(parseJSON(`{"metadata":{"resourceVersion":"7","continue":"tok"},`
+	auto page = parseAgentListPage(parseJsonString(`{"metadata":{"resourceVersion":"7","continue":"tok"},`
 			~ `"items":[{"metadata":{"name":"a"}},{"metadata":{"name":"b"}}]}`));
 	page.items.length.should.equal(2);
 	page.resourceVersion.should.equal("7");
 	page.continueToken.should.equal("tok");
 
 	// The last page carries no continue token.
-	parseAgentListPage(parseJSON(`{"metadata":{"resourceVersion":"9"},"items":[]}`))
+	parseAgentListPage(parseJsonString(`{"metadata":{"resourceVersion":"9"},"items":[]}`))
 		.continueToken.should.equal("");
 }
 
 unittest
 {
-	auto station = parseStation(parseJSON(`{
+	auto station = parseStation(parseJsonString(`{
 		"metadata":{"name":"stn"},
 		"spec":{"agentDefRef":"def","deadlineMinutes":45,"successfulRunsHistoryLimit":1,
 			"maxConcurrentRuns":2,"concurrencyPolicy":"Replace",
@@ -378,19 +276,19 @@ unittest
 	station.spec.failedRunsHistoryLimit.should.equal(3); // default kept when absent
 	station.spec.maxConcurrentRuns.should.equal(2);
 	station.spec.concurrencyPolicy.should.equal(ConcurrencyPolicy.replace);
-	station.spec.template_["spec"]["containers"].array.length.should.equal(0);
+	station.spec.template_["spec"]["containers"].get!(Json[]).length.should.equal(0);
 }
 
 unittest
 {
 	// concurrencyPolicy defaults to Allow when absent or unrecognised.
-	parseStation(parseJSON(`{"metadata":{"name":"stn"},"spec":{"template":{}}}`))
+	parseStation(parseJsonString(`{"metadata":{"name":"stn"},"spec":{"template":{}}}`))
 		.spec.concurrencyPolicy.should.equal(ConcurrencyPolicy.allow);
 }
 
 unittest
 {
-	auto definition = parseAgentDefinition(parseJSON(`{
+	auto definition = parseAgentDefinition(parseJsonString(`{
 		"metadata":{"name":"bug-fixer"},
 		"spec":{"model":"claude-sonnet-4-6","prompt":"Fix {t}","permission_mode":"auto",
 			"allowed_tools":["Read","Edit"],"max_turns":40,
@@ -411,7 +309,7 @@ unittest
 	// Every field runEnv reads — env, secrets, select, mcp_servers, tool_config —
 	// survives parsing. Guards the seam where a hand-maintained field list silently
 	// dropped the recipe's secrets and produced runs without credentials (#85).
-	auto definition = parseAgentDefinition(parseJSON(`{
+	auto definition = parseAgentDefinition(parseJsonString(`{
 		"metadata":{"name":"bug-fixer"},
 		"spec":{"model":"claude-sonnet-4-6","prompt":"Fix {t}",
 			"resources":{
@@ -431,14 +329,14 @@ unittest
 	definition.spec.output.select[0].event.should.equal(SelectEvent.result);
 	definition.spec.output.select[1].tool.should.equal("Bash");
 	definition.spec.output.sinks[0].headersSecret.should.equal("SINK_HEADERS");
-	definition.spec.toolConfig["sandbox"].type.should.equal(JSONType.true_);
+	definition.spec.toolConfig["sandbox"].get!bool.should.equal(true);
 }
 
 unittest
 {
 	// An unrecognised enum string keeps the field's default instead of throwing:
 	// a typo'd sink type degrades to stdout, permission_mode stays bypass.
-	auto definition = parseAgentDefinition(parseJSON(`{
+	auto definition = parseAgentDefinition(parseJsonString(`{
 		"metadata":{"name":"typo"},
 		"spec":{"permission_mode":"noneuchmode",
 			"output":{"sinks":[{"type":"htpp","url":"http://c"}]}}}`));
@@ -448,14 +346,14 @@ unittest
 
 unittest
 {
-	parseJobOutcome(parseJSON(`{"status":{"conditions":[{"type":"Complete","status":"True"}]}}`))
+	parseJobOutcome(parseJsonString(`{"status":{"conditions":[{"type":"Complete","status":"True"}]}}`))
 		.state.should.equal(JobState.succeeded);
 
-	auto failed = parseJobOutcome(parseJSON(
+	auto failed = parseJobOutcome(parseJsonString(
 			`{"status":{"conditions":[{"type":"Failed","status":"True","reason":"DeadlineExceeded","message":"too slow"}]}}`));
 	failed.state.should.equal(JobState.failed);
 	failed.reason.should.equal("DeadlineExceeded: too slow");
 
-	parseJobOutcome(parseJSON(`{"status":{"succeeded":1}}`)).state.should.equal(JobState.succeeded);
-	parseJobOutcome(parseJSON(`{"status":{}}`)).state.should.equal(JobState.running);
+	parseJobOutcome(parseJsonString(`{"status":{"succeeded":1}}`)).state.should.equal(JobState.succeeded);
+	parseJobOutcome(parseJsonString(`{"status":{}}`)).state.should.equal(JobState.running);
 }

@@ -3,6 +3,9 @@
 	"description": "Shared core: CR types, prompt templating, and the pure reconcile state machine.",
 	"license": "Apache-2.0",
 	"targetType": "library",
+	"dependencies": {
+		"vibe-d:data": "~>0.10.3"
+	},
 	"configurations": [
 		{
 			"name": "library"

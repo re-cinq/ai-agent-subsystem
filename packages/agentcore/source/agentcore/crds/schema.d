@@ -1,24 +1,23 @@
 module agentcore.crds.schema;
 
 import std.traits : getUDAs, hasUDA;
+import vibe.data.serialization : NameAttribute;
+
+import agentcore.crds.serialization : CrdPolicy;
 
 // User-Defined Attributes that carry CRD schema metadata which plain D types
-// cannot express: human descriptions, wire (JSON/YAML) field names, required
-// flags, numeric bounds, and "preserve unknown fields" objects. The annotated
-// model in agentcore.crds is the single source of truth a CRD generator can
-// read at compile time.
+// cannot express: human descriptions, required flags, numeric bounds, and
+// "preserve unknown fields" objects. The annotated model in agentcore.crds is the
+// single source of truth a CRD generator can read at compile time. Wire field names
+// and per-field optionality come from vibe's serialization attributes (`@wire`,
+// `@optional`), re-exported here so a CRD struct only has to import this module.
+public import agentcore.crds.serialization : wire;
+public import vibe.data.serialization : optional;
 
 /// Human description, mapped to the field/type `description` in the CRD schema.
 struct Description
 {
 	string text;
-}
-
-/// Wire field name when it differs from the D identifier
-/// (snake_case fields, or D keywords like `ref`/`template`).
-struct Json
-{
-	string name;
 }
 
 /// Inclusive lower bound for an integer field (`minimum` in the schema).
@@ -43,11 +42,11 @@ template descriptionOf(alias sym)
 		enum descriptionOf = "";
 }
 
-/// The wire field name for `sym`: its `@Json` name if present, else its identifier.
+/// The wire field name for `sym`: its `@wire` name if present, else its identifier.
 template jsonNameOf(alias sym)
 {
-	static if (hasUDA!(sym, Json))
-		enum jsonNameOf = getUDAs!(sym, Json)[0].name;
+	static if (hasUDA!(sym, NameAttribute!CrdPolicy))
+		enum jsonNameOf = getUDAs!(sym, NameAttribute!CrdPolicy)[0].name;
 	else
 		enum jsonNameOf = __traits(identifier, sym);
 }

@@ -1,6 +1,6 @@
 module agentcore.crds.output_spec;
 
-import std.json : JSONValue;
+import vibe.data.json : Json;
 
 import agentcore.crds.schema;
 import agentcore.crds.enums : OutputFormat;
@@ -9,11 +9,11 @@ import agentcore.crds.output_sink : OutputSink;
 
 struct OutputSpec
 {
-	OutputFormat format;
+	@optional OutputFormat format;
 
-	@PreserveUnknownFields @Description("JSON Schema validating the result.")
-	JSONValue schema;
+	@optional @PreserveUnknownFields @Description("JSON Schema validating the result.")
+	Json schema;
 
-	OutputSelector[] select;
-	OutputSink[] sinks;
+	@optional OutputSelector[] select;
+	@optional OutputSink[] sinks;
 }

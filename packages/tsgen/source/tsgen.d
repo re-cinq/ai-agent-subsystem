@@ -10,7 +10,7 @@ import std.meta : AliasSeq;
 import std.traits : isIntegral, isBoolean, isSomeString, isArray, isAssociativeArray,
 	EnumMembers, ForeachType, ValueType;
 
-import std.json : JSONValue;
+import vibe.data.json : Json;
 
 import described : describe;
 
@@ -46,13 +46,13 @@ private alias AllStructs = AliasSeq!(ObjectMeta, EnvVar, SecretRef, McpServer, R
 	AgentDefinitionSpec, AgentDefinition, StationSpec, Station, AgentSpec, AgentStatus, Agent);
 
 /// The TypeScript type expression for D type `FT`. Mirrors `crdgen.emitType`'s
-/// dispatch: a `JSONValue` preserve-unknown object becomes `unknown`; an enum and a
+/// dispatch: a `Json` preserve-unknown object becomes `unknown`; an enum and a
 /// struct reference the named type emitted for them; the scalars/array/map map to
-/// their TS equivalents. `JSONValue` is matched before the generic `struct` arm
+/// their TS equivalents. `Json` is matched before the generic `struct` arm
 /// (it is itself a struct), and `string` before the generic `array` arm.
 template tsType(FT)
 {
-	static if (is(FT == JSONValue))
+	static if (is(FT == Json))
 		enum tsType = "unknown";
 	else static if (is(FT == enum))
 		enum tsType = FT.stringof;
@@ -127,7 +127,7 @@ version (unittest) import fluent.asserts;
 	static assert(tsType!string == "string");
 	static assert(tsType!(string[]) == "string[]");
 	static assert(tsType!(string[string]) == "Record<string, string>");
-	static assert(tsType!JSONValue == "unknown");
+	static assert(tsType!Json == "unknown");
 	static assert(tsType!PermissionMode == "PermissionMode");
 	static assert(tsType!AgentResources == "AgentResources");
 	static assert(tsType!(EnvVar[]) == "EnvVar[]");

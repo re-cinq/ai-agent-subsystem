@@ -5,12 +5,12 @@ import agentcore.crds.enums : McpTransport;
 
 struct McpServer
 {
-	@Required string name;
-	@Required McpTransport transport;
-	string command;
-	string[] args;
-	string url;
-	@Json("headers_secret") string headersSecret;
+	@optional @Required string name;
+	@optional @Required McpTransport transport;
+	@optional string command;
+	@optional string[] args;
+	@optional string url;
+	@optional @wire("headers_secret") string headersSecret;
 }
 
 @safe unittest

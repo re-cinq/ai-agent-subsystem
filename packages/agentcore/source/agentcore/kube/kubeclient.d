@@ -1,6 +1,6 @@
 module agentcore.kube.kubeclient;
 
-import std.json : JSONValue;
+import vibe.data.json : Json;
 
 import agentcore.crds.agent : Agent;
 import agentcore.crds.agent_definition : AgentDefinition;
@@ -43,13 +43,13 @@ interface KubeClient
 
 	/// Create the run Job. An already-existing Job (HTTP 409) is not an error —
 	/// creation is idempotent so a re-reconcile is safe.
-	void createJob(string ns, JSONValue job);
+	void createJob(string ns, Json job);
 
 	/// The terminal/running outcome of a previously created Job.
 	JobOutcome jobOutcome(string ns, string jobName);
 
 	/// Merge-patch the Agent's `/status` subresource.
-	void patchAgentStatus(string ns, string name, JSONValue statusPatch);
+	void patchAgentStatus(string ns, string name, Json statusPatch);
 
 	/// Delete a pruned Agent by name.
 	void deleteAgent(string ns, string name);

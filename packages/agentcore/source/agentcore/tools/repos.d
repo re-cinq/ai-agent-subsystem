@@ -1,6 +1,6 @@
 module agentcore.tools.repos;
 
-import std.json : parseJSON;
+import vibe.data.json : Json, parseJsonString;
 
 import agentcore.crds.repo_ref : RepoRef;
 
@@ -16,22 +16,21 @@ RepoRef[] parseRepos(string json)
 	RepoRef[] repos;
 	try
 	{
-		foreach (entry; parseJSON(json).array)
+		foreach (entry; parseJsonString(json).get!(Json[]))
 		{
-			auto obj = entry.object;
-			auto name = "name" in obj;
-			auto url = "url" in obj;
+			auto name = "name" in entry;
+			auto url = "url" in entry;
 			if (name is null || url is null)
 				continue;
 			RepoRef r;
-			r.name = (*name).str;
-			r.url = (*url).str;
-			if (auto ref_ = "ref" in obj)
-				r.ref_ = (*ref_).str;
-			if (auto path = "path" in obj)
-				r.path = (*path).str;
-			if (auto token = "token_secret" in obj)
-				r.tokenSecret = (*token).str;
+			r.name = (*name).get!string;
+			r.url = (*url).get!string;
+			if (auto ref_ = "ref" in entry)
+				r.ref_ = (*ref_).get!string;
+			if (auto path = "path" in entry)
+				r.path = (*path).get!string;
+			if (auto token = "token_secret" in entry)
+				r.tokenSecret = (*token).get!string;
 			repos ~= r;
 		}
 	}

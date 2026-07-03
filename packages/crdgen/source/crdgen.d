@@ -12,7 +12,7 @@ import std.string : indexOf, toLower;
 import std.traits : isIntegral, isBoolean, isSomeString, isArray, isAssociativeArray,
 	EnumMembers, ForeachType, ValueType, getUDAs, hasUDA;
 
-import std.json : JSONValue;
+import vibe.data.json : Json;
 
 import described : describe;
 import openapi.definitions : SchemaType;
@@ -97,7 +97,7 @@ private Deco decoOf(T, string name)()
 
 /// Emits the OpenAPI v3 schema body for type `FT` at `indent`, decorated by `d`.
 /// Recurses into arrays (`items`), associative arrays (`additionalProperties`),
-/// and nested structs (`properties`); `JSONValue` becomes a preserve-unknown object.
+/// and nested structs (`properties`); `Json` becomes a preserve-unknown object.
 private string emitType(FT)(size_t indent, Deco d)
 {
 	const pad = ind(indent);
@@ -109,7 +109,7 @@ private string emitType(FT)(size_t indent, Deco d)
 		return d.description.length ? pad ~ "description: " ~ yamlStr(d.description) ~ "\n" : "";
 	}
 
-	static if (is(FT == JSONValue))
+	static if (is(FT == Json))
 	{
 		s ~= pad ~ "type: " ~ st!(SchemaType.object) ~ "\n";
 		s ~= describe_();

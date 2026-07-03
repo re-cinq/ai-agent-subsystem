@@ -5,8 +5,8 @@ import agentcore.crds.enums : SinkType;
 
 struct OutputSink
 {
-	@Required SinkType type;
-	string url;
-	@Json("headers_secret") string headersSecret;
-	string path;
+	@optional @Required SinkType type;
+	@optional string url;
+	@optional @wire("headers_secret") string headersSecret;
+	@optional string path;
 }

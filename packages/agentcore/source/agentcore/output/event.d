@@ -1,6 +1,6 @@
 module agentcore.output.event;
 
-import std.json : parseJSON, JSONValue;
+import vibe.data.json : Json, parseJsonString;
 import std.process : environment;
 
 import agentcore.core.env : envAgentName, envPodName, envPodNamespace, envStationName,
@@ -39,28 +39,28 @@ string wrapEvent(in EventSource src, string rawLine) nothrow
 {
 	try
 	{
-		JSONValue[string] source;
+		Json[string] source;
 		if (src.agent.length)
-			source["agent"] = JSONValue(src.agent);
+			source["agent"] = Json(src.agent);
 		if (src.station.length)
-			source["station"] = JSONValue(src.station);
+			source["station"] = Json(src.station);
 		if (src.task.length)
-			source["task"] = JSONValue(src.task);
+			source["task"] = Json(src.task);
 		if (src.pod.length)
-			source["pod"] = JSONValue(src.pod);
+			source["pod"] = Json(src.pod);
 		if (src.namespace_.length)
-			source["namespace"] = JSONValue(src.namespace_);
+			source["namespace"] = Json(src.namespace_);
 
-		JSONValue event;
+		Json event;
 		try
-			event = parseJSON(rawLine);
+			event = parseJsonString(rawLine);
 		catch (Exception)
-			event = JSONValue(rawLine);
+			event = Json(rawLine);
 
-		JSONValue[string] envelope;
-		envelope["source"] = JSONValue(source);
+		Json[string] envelope;
+		envelope["source"] = Json(source);
 		envelope["event"] = event;
-		return JSONValue(envelope).toString();
+		return Json(envelope).toString();
 	}
 	catch (Exception)
 		return rawLine;
