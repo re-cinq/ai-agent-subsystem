@@ -19,6 +19,7 @@ import agentcore.core.log : logError;
 import agentcore.output.output : SinkSpec, sinksFromEnv;
 import agentcore.pkgmanager.packagemanager : packageFor;
 import agentcore.pkgmanager.packagemanagerselect : packageManagerByName;
+import agentcore.tools.agent_tool : AgentTool;
 import agentcore.tools.repos : parseRepos;
 import agentcore.tools.tool : Tool;
 import agentcore.tools.toolselect : allTools;
@@ -46,10 +47,11 @@ int provision(InitContext ctx)
 
 	notify(sinks, source, LifecycleEvent(Phase.init_, Status.started).toJson);
 
-	// The Claude installer writes into $HOME; it must be set and writable.
-	if (active.canFind!(t => t.name == "claude") && !homeWritable())
+	// Every agent-CLI installer writes into $HOME (~/.local/bin, ~/.opencode/bin,
+	// …); it must be set and writable when one is active.
+	if (active.canFind!(t => cast(AgentTool) t !is null) && !homeWritable())
 		return fail(sinks, source,
-			"[init] HOME is unset or not writable; the Claude installer needs it",
+			"[init] HOME is unset or not writable; the agent CLI installer needs it",
 			failedReason("home"), 2);
 
 	if (const code = ensurePrerequisites(active, sinks, source))
@@ -76,7 +78,7 @@ int provision(InitContext ctx)
 private Tool[] activeTools(in InitContext ctx)
 {
 	Tool[] active;
-	foreach (tool; allTools())
+	foreach (tool; allTools(ctx))
 		if (tool.steps(ctx).length)
 			active ~= tool;
 	return active;

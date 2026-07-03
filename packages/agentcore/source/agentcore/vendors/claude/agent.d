@@ -1,8 +1,8 @@
-module agentcore.agents.claude_agent;
+module agentcore.vendors.claude.agent;
 
 import std.conv : to;
 
-import agentcore.agents.agent : Agent;
+import agentcore.vendors.base.agent : Agent;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 import agentcore.crds.enums : PermissionMode;
 import agentcore.core.env : defaultModel;
