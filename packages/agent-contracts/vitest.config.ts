@@ -8,7 +8,7 @@ export default defineConfig({
       provider: "v8",
       // The generated types are type-only (no runtime); the barrel only re-exports.
       // 100% is enforced on the hand-written client logic.
-      include: ["src/client.ts"],
+      include: ["src/client.ts", "src/enforce.ts"],
       thresholds: { lines: 100, branches: 100, functions: 100, statements: 100 },
     },
   },

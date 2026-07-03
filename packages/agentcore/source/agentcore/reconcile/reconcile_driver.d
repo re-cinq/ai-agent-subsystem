@@ -195,6 +195,7 @@ private void pruneHistory(KubeClient client, string ns, string stationRef, const
 
 version (unittest)
 {
+	import std.exception : enforce;
 	import fluent.asserts;
 	import vibe.data.json : Json, parseJsonString;
 	import agentcore.crds.enums : ConcurrencyPolicy;
@@ -219,8 +220,7 @@ version (unittest)
 
 		override Station getStation(string ns, string name)
 		{
-			if (stationMissing)
-				throw new NotFound("station " ~ name ~ " not found");
+			enforce(!stationMissing, new NotFound("station " ~ name ~ " not found"));
 			return station;
 		}
 
@@ -236,9 +236,7 @@ version (unittest)
 
 		override JobOutcome jobOutcome(string ns, string jobName)
 		{
-			if (jobMissing)
-				throw new NotFound("Job " ~ jobName ~ " not found");
-
+			enforce(!jobMissing, new NotFound("Job " ~ jobName ~ " not found"));
 			return outcome;
 		}
 
@@ -261,8 +259,7 @@ version (unittest)
 
 		override PodResult podResult(string ns, string podName)
 		{
-			if (podReadThrows)
-				throw new NotFound("pod " ~ podName ~ " not found");
+			enforce(!podReadThrows, new NotFound("pod " ~ podName ~ " not found"));
 			return podResultValue;
 		}
 	}

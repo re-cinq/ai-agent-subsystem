@@ -9,6 +9,7 @@ import {
   type KubeResponse,
   type KubeTransport,
 } from "./client.js";
+import { enforce } from "./enforce.js";
 import type { Agent, AgentDefinition, Station } from "./types.generated.js";
 
 // A real in-memory transport: returns queued responses and records the requests
@@ -18,9 +19,7 @@ class FakeTransport implements KubeTransport {
   constructor(private readonly responses: KubeResponse[]) {}
   async request(req: KubeRequest): Promise<KubeResponse> {
     this.seen.push(req);
-    const res = this.responses.shift();
-    if (res === undefined) throw new Error("FakeTransport: no response queued");
-    return res;
+    return enforce(this.responses.shift(), "FakeTransport: no response queued");
   }
 }
 
