@@ -50,15 +50,30 @@ private bool safeDest(string dest) @safe pure
 /// appears in the argv (and therefore never in any log of it); only the git child
 /// that inherits the environment ever sees it. The name is validated first, so a
 /// crafted `token_secret` can't inject into the helper, and the repo url is never
-/// passed through a shell.
+/// passed through a shell. A `--` separator precedes the url so an option-shaped
+/// value (e.g. `--upload-pack=...`) is parsed as data, never as a git flag.
 private string[] cloneStep(in RepoRef r, string dest) @safe pure
 {
 	const url = repoUrl(r.url);
 	if (!isEnvName(r.tokenSecret))
-		return ["git", "clone", url, dest];
+		return ["git", "clone", "--", url, dest];
 
 	const helper = "!f() { echo username=x-access-token; echo password=$" ~ r.tokenSecret ~ "; }; f";
-	return ["git", "-c", "credential.helper=", "-c", "credential.helper=" ~ helper, "clone", url, dest];
+	return ["git", "-c", "credential.helper=", "-c", "credential.helper=" ~ helper, "clone", "--", url, dest];
+}
+
+/// The checkout argv for a declared `ref_`. A ref beginning with `-` is never a
+/// valid branch/tag/sha, so it is routed after a `--` separator: git then rejects
+/// it as a non-matching pathspec (a clean, fail-closed error) instead of parsing
+/// it as an option. A `--` can't wrap a legitimate ref — there it *starts* the
+/// pathspec list, so `checkout -- v1` looks for a file named `v1` — hence the
+/// common path stays a bare revision. (`--end-of-options` would be tidier but is
+/// not honored by `git checkout` before ~2.44, so it isn't portable here.)
+private string[] checkoutStep(string dest, string ref_) @safe pure
+{
+	if (ref_[0] == '-')
+		return ["git", "-C", dest, "checkout", "--", ref_];
+	return ["git", "-C", dest, "checkout", ref_];
 }
 
 /// True when `s` is a valid POSIX environment-variable name — the only shape we
@@ -105,7 +120,7 @@ final class GitTool : Tool
 			all ~= ["rm", "-rf", dest];
 			all ~= cloneStep(r, dest);
 			if (r.ref_.length)
-				all ~= ["git", "-C", dest, "checkout", r.ref_];
+				all ~= checkoutStep(dest, r.ref_);
 		}
 		return all;
 	}
@@ -135,7 +150,7 @@ unittest
 	one.workspaceDir = "/ws";
 	one.repos = [RepoRef("app", "o/app")];
 	auto steps = git.steps(one);
-	steps.should.equal([["rm", "-rf", "/ws/app"], ["git", "clone", "https://github.com/o/app.git", "/ws/app"]]);
+	steps.should.equal([["rm", "-rf", "/ws/app"], ["git", "clone", "--", "https://github.com/o/app.git", "/ws/app"]]);
 	steps[1][0].should.equal("git");
 
 	// a ref adds a checkout that works for branch, tag, or sha
@@ -165,7 +180,7 @@ unittest
 	ctx.repos = [authed];
 	auto clone = git.steps(ctx)[1];
 	clone[0].should.equal("git");
-	clone[$ - 3 .. $].should.equal(["clone", "https://github.com/o/app.git", "/ws/app"]);
+	clone[$ - 4 .. $].should.equal(["clone", "--", "https://github.com/o/app.git", "/ws/app"]);
 	clone.canFind("credential.helper=").should.equal(true); // inherited helpers reset first
 	clone.canFind!(a => a.canFind("username=x-access-token")).should.equal(true);
 	clone.canFind!(a => a.canFind("password=$GH_TOKEN")).should.equal(true);
@@ -174,7 +189,35 @@ unittest
 	auto bad = RepoRef("app", "o/app");
 	bad.tokenSecret = "GH;rm -rf /";
 	ctx.repos = [bad];
-	git.steps(ctx)[1].should.equal(["git", "clone", "https://github.com/o/app.git", "/ws/app"]);
+	git.steps(ctx)[1].should.equal(["git", "clone", "--", "https://github.com/o/app.git", "/ws/app"]);
+}
+
+// An option-shaped url/ref is handed to git as data, never as a flag, so a crafted
+// recipe can't inject git options — no argv injection (issue #99). The url rides a
+// `--` separator; the (always-invalid) dash ref is rejected as a pathspec.
+unittest
+{
+	auto git = new GitTool;
+
+	InitContext optUrl;
+	optUrl.workspaceDir = "/ws";
+	optUrl.repos = [RepoRef("app", "--upload-pack=touch /tmp/pwned foo@bar")];
+	auto clone = git.steps(optUrl)[1];
+	clone.should.equal(["git", "clone", "--", "--upload-pack=touch /tmp/pwned foo@bar", "/ws/app"]);
+
+	InitContext optRef;
+	optRef.workspaceDir = "/ws";
+	optRef.repos = [RepoRef("app", "o/app", "--orphan=x")];
+	git.steps(optRef)[2].should.equal(["git", "-C", "/ws/app", "checkout", "--", "--orphan=x"]);
+
+	// the `--` guards the authenticated clone path too
+	auto authed = RepoRef("app", "o/app");
+	authed.tokenSecret = "GH_TOKEN";
+	InitContext optAuth;
+	optAuth.workspaceDir = "/ws";
+	optAuth.repos = [authed];
+	auto authClone = git.steps(optAuth)[1];
+	authClone[$ - 3 .. $].should.equal(["--", "https://github.com/o/app.git", "/ws/app"]);
 }
 
 unittest

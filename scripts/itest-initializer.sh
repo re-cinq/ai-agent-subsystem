@@ -85,5 +85,40 @@ run "$work/ws-bad" "$sink" "[{\"name\":\"nope\",\"url\":\"file://$work/does-not-
 check "bad repo exits non-zero" "$([ "$rc" -ne 0 ] && echo 0 || echo 1)"
 check "failed event on the file sink" "$(grep -q '"status":"failed"' "$sink" && echo 0 || echo 1)"
 
+# 4. Argv injection defense (issue #99). An operator-authored recipe whose `ref`
+# or `url` begins with `-` must reach git as data, never as a flag. The init runs
+# real git, so these drive the actual clone/checkout the init container would.
+runerr() { # runerr <workspace> <repos-json> -> sets rc and $err (init stderr)
+	err="$1/stderr.log"
+	AGENT_MODEL=gpt-5-codex \
+		WORKSPACE_DIR="$1" \
+		AGENT_NAME=itest-agent POD_NAME=itest-pod \
+		AGENT_REPOS="$2" \
+		"$init" >/dev/null 2>"$err"
+	rc=$?
+}
+
+# Without the `--` separator, `ref: "--orphan=pwned"` makes `git checkout` switch
+# to a new orphan branch and exit 0 — arbitrary git-option execution as root. With
+# the fix, git treats it as a pathspec, the step fails, and HEAD never moves.
+ws_ref="$work/ws-ref"
+mkdir -p "$ws_ref"
+runerr "$ws_ref" "[{\"name\":\"app\",\"url\":\"file://$origin\",\"ref\":\"--orphan=pwned\"}]"
+check "option-shaped ref fails the init" "$([ "$rc" -ne 0 ] && echo 0 || echo 1)"
+check "option-shaped ref never switched HEAD to the injected branch" \
+	"$([ "$(git -C "$ws_ref/app" symbolic-ref --short HEAD 2>/dev/null)" != "pwned" ] && echo 0 || echo 1)"
+
+# An option-shaped `url` (e.g. an `--upload-pack=<cmd>` payload) must be parsed as
+# a repository name, so the injected command never runs. git reports the whole
+# string as the missing repository — proof it was a positional, not a flag.
+ws_url="$work/ws-url"
+mkdir -p "$ws_url"
+sentinel="$work/pwned-by-upload-pack"
+runerr "$ws_url" "[{\"name\":\"app\",\"url\":\"--upload-pack=touch $sentinel foo@bar\"}]"
+check "option-shaped url fails the init" "$([ "$rc" -ne 0 ] && echo 0 || echo 1)"
+check "option-shaped url never executed the injected command" "$([ ! -e "$sentinel" ] && echo 0 || echo 1)"
+check "option-shaped url treated as a repository name, not a flag" \
+	"$(grep -qF "repository '--upload-pack=touch $sentinel foo@bar'" "$err" && echo 0 || echo 1)"
+
 if [ "$failures" -eq 0 ]; then echo "ALL PASSED"; else echo "$failures CHECK(S) FAILED"; fi
 [ "$failures" -eq 0 ]
