@@ -164,7 +164,7 @@ private void pruneHistory(KubeClient client, string ns, string stationRef, const
 	catch (NotFound)
 		return;
 
-	foreach (name; agentsToPrune(cached, station.spec.successfulRunsHistoryLimit,
+	foreach (name; agentsToPrune(cached, stationRef, station.spec.successfulRunsHistoryLimit,
 			station.spec.failedRunsHistoryLimit))
 		client.deleteAgent(ns, name);
 }
@@ -364,8 +364,16 @@ unittest
 
 	Agent old;
 	old.metadata.name = "old-success";
+	old.spec.stationRef = "stn";
 	old.status.phase = Phase.succeeded;
 	old.status.completedAt = "2026-06-22T01:00:00Z";
+
+	// Another Station's history must survive stn's limit-0 prune (#87).
+	Agent foreign;
+	foreign.metadata.name = "other-station-success";
+	foreign.spec.stationRef = "other-stn";
+	foreign.status.phase = Phase.succeeded;
+	foreign.status.completedAt = "2026-06-22T01:00:00Z";
 
 	Agent agent;
 	agent.metadata.name = "run-3";
@@ -373,7 +381,7 @@ unittest
 	agent.status.phase = Phase.running;
 	agent.status.jobName = "agent-job-run-3";
 
-	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", [old]);
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", [old, foreign]);
 
 	client.statusPatches[0]["status"]["phase"].str.should.equal("Succeeded");
 	client.statusPatches[0]["status"]["output"].str.should.equal("the wrapped event log");
