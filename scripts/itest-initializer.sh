@@ -120,5 +120,32 @@ check "option-shaped url never executed the injected command" "$([ ! -e "$sentin
 check "option-shaped url treated as a repository name, not a flag" \
 	"$(grep -qF "repository '--upload-pack=touch $sentinel foo@bar'" "$err" && echo 0 || echo 1)"
 
+# 5. Path-traversal guard (issue #100). The init emits `rm -rf <dest>` before each
+# clone; a recipe `path` that escapes the workspace — via `..` or an absolute system
+# path — must never reach that rm. Plant a canary *outside* the workspace, point a
+# repo at it, run the real binary, and assert the canary survives and nothing was
+# cloned onto it. The unsafe repo is skipped, so init still exits 0.
+canary="$work/canary"
+mkdir -p "$canary"
+echo "precious" >"$canary/keep.txt"
+
+# 5a. Relative escape: path "../canary" resolves to $work/canary, outside the ws.
+: >"$sink"
+run "$work/ws-trav" "$sink" "[{\"name\":\"app\",\"url\":\"file://$origin\",\"path\":\"../canary\"}]"
+check "relative-traversal recipe exits 0 (skipped, not fatal)" "$([ "$rc" -eq 0 ] && echo 0 || echo 1)"
+check "canary survives a '../' escape path" "$([ -f "$canary/keep.txt" ] && echo 0 || echo 1)"
+check "'../' escape path never cloned onto the canary" "$([ ! -e "$canary/.git" ] && echo 0 || echo 1)"
+
+# 5b. Absolute escape: an absolute path outside the workspace is rejected too.
+: >"$sink"
+run "$work/ws-abs" "$sink" "[{\"name\":\"app\",\"url\":\"file://$origin\",\"path\":\"$canary\"}]"
+check "absolute-escape recipe exits 0 (skipped, not fatal)" "$([ "$rc" -eq 0 ] && echo 0 || echo 1)"
+check "canary survives an absolute out-of-workspace path" "$([ -f "$canary/keep.txt" ] && echo 0 || echo 1)"
+
+# 5c. The guard blocks only escapes: a legit path *under* the workspace still clones.
+: >"$sink"
+run "$work/ws-nest" "$sink" "[{\"name\":\"app\",\"url\":\"file://$origin\",\"path\":\"nested/app\"}]"
+check "nested in-workspace path still clones" "$([ -f "$work/ws-nest/nested/app/README.md" ] && echo 0 || echo 1)"
+
 if [ "$failures" -eq 0 ]; then echo "ALL PASSED"; else echo "$failures CHECK(S) FAILED"; fi
 [ "$failures" -eq 0 ]

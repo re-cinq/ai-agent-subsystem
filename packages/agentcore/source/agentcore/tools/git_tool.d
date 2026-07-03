@@ -1,6 +1,7 @@
 module agentcore.tools.git_tool;
 
 import std.algorithm.searching : canFind;
+import std.path : buildNormalizedPath;
 
 import agentcore.crds.repo_ref : RepoRef;
 import agentcore.tools.initcontext : InitContext;
@@ -37,11 +38,20 @@ private string joinPath(string base, string leaf) @safe pure
 	return trimmed ~ "/" ~ leaf;
 }
 
-/// A destination is safe to `rm -rf` and clone into only when it is an absolute
-/// path below the root — never empty, relative, or "/".
-private bool safeDest(string dest) @safe pure
+/// A destination is safe to `rm -rf` and clone into only when — after `.`/`..`/`//`
+/// are resolved — it is an absolute path strictly *below* the workspace root: never
+/// the root itself, a sibling, or a `..`-escape to a system path. `dest` is expected
+/// already normalized (see `steps`); the root is normalized here. A workspace root of
+/// `/` (or any non-absolute value) authorizes nothing, so nothing is ever deleted.
+/// This is what stops a crafted `path: "../.."` or `/usr` from being `rm -rf`'d as
+/// root inside the init container.
+private bool safeDest(string dest, string workspaceDir) @safe pure
 {
-	return dest.length > 1 && dest[0] == '/';
+	const root = buildNormalizedPath(workspaceDir);
+	if (root.length <= 1 || root[0] != '/')
+		return false;
+	const prefix = root ~ "/";
+	return dest.length > prefix.length && dest[0 .. prefix.length] == prefix;
 }
 
 /// The clone argv for `r`. When the repo declares a `token_secret`, the clone
@@ -114,8 +124,8 @@ final class GitTool : Tool
 		string[][] all;
 		foreach (r; ctx.repos)
 		{
-			const dest = repoDest(r, ctx.workspaceDir);
-			if (!safeDest(dest))
+			const dest = buildNormalizedPath(repoDest(r, ctx.workspaceDir));
+			if (!safeDest(dest, ctx.workspaceDir))
 				continue;
 			all ~= ["rm", "-rf", dest];
 			all ~= cloneStep(r, dest);
@@ -159,12 +169,49 @@ unittest
 	withRef.repos = [RepoRef("app", "https://github.com/o/app", "v1.2.3")];
 	git.steps(withRef)[2].should.equal(["git", "-C", "/ws/app", "checkout", "v1.2.3"]);
 
-	// an explicit absolute path overrides <workspaceDir>/<name>
+	// an explicit absolute path under the workspace overrides <workspaceDir>/<name>
 	InitContext withPath;
 	withPath.workspaceDir = "/ws";
 	withPath.repos = [RepoRef("app", "o/app")];
-	withPath.repos[0].path = "/custom/app";
-	git.steps(withPath)[0].should.equal(["rm", "-rf", "/custom/app"]);
+	withPath.repos[0].path = "/ws/custom/app";
+	git.steps(withPath)[0].should.equal(["rm", "-rf", "/ws/custom/app"]);
+}
+
+// A `rm -rf <dest>` only ever fires on a path strictly *below* the workspace root
+// (issue #100). A recipe `path` that escapes via `..`, names a system directory,
+// or resolves to the root itself is rejected — no destructive step is emitted for
+// it — so a crafted recipe can't delete `/usr` (or anything else) as root.
+unittest
+{
+	auto git = new GitTool;
+
+	string[][] stepsFor(string path)
+	{
+		InitContext ctx;
+		ctx.workspaceDir = "/ws";
+		auto r = RepoRef("app", "o/app");
+		r.path = path;
+		ctx.repos = [r];
+		return git.steps(ctx);
+	}
+
+	// escapes and system paths produce no steps at all
+	stepsFor("../../etc").length.should.equal(0);
+	stepsFor("/ws/../etc").length.should.equal(0);
+	stepsFor("/usr").length.should.equal(0);
+	stepsFor("//").length.should.equal(0);
+	stepsFor("/ws/../..").length.should.equal(0);
+	stepsFor("/ws").length.should.equal(0); // the root itself is never rm-able
+
+	// a legitimate nested path is kept, normalized
+	stepsFor("/ws/team/app")[0].should.equal(["rm", "-rf", "/ws/team/app"]);
+	stepsFor("sub/./app")[0].should.equal(["rm", "-rf", "/ws/sub/app"]);
+
+	// a "/" workspace can never authorize a delete — everything is a system path
+	InitContext rootWs;
+	rootWs.workspaceDir = "/";
+	rootWs.repos = [RepoRef("app", "o/app")];
+	git.steps(rootWs).length.should.equal(0);
 }
 
 unittest
