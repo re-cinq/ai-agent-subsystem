@@ -12,9 +12,68 @@ spec:
     shortNames:
       - stn
   versions:
-    - name: v1alpha1
+    - name: v1
       served: true
       storage: true
+      additionalPrinterColumns:
+        - name: Recipe
+          type: string
+          jsonPath: .spec.agentDefRef
+        - name: Deadline
+          type: integer
+          jsonPath: .spec.deadlineMinutes
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: "The runtime template that pairs a recipe with a Pod template."
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - agentDefRef
+                - template
+              properties:
+                agentDefRef:
+                  type: string
+                  description: "Name of the AgentDefinition this Station runs."
+                deadlineMinutes:
+                  type: integer
+                  default: 30
+                  minimum: 1
+                  description: "Wall-clock limit per run; becomes the Job's activeDeadlineSeconds."
+                successfulRunsHistoryLimit:
+                  type: integer
+                  default: 3
+                  minimum: 0
+                failedRunsHistoryLimit:
+                  type: integer
+                  default: 3
+                  minimum: 0
+                maxConcurrentRuns:
+                  type: integer
+                  minimum: 0
+                  description: "Max Agents of this Station running at once; 0 is unlimited. A Pending Agent waits while at the limit."
+                concurrencyPolicy:
+                  type: string
+                  description: "At the limit: Allow queues (default), Forbid caps at one, Replace cancels the oldest run for the new one."
+                  enum:
+                    - Allow
+                    - Forbid
+                    - Replace
+                template:
+                  type: object
+                  description: "Standard Kubernetes PodTemplateSpec; the container named \"agent\" is wired with the recipe."
+                  x-kubernetes-preserve-unknown-fields: true
+    - name: v1alpha1
+      served: true
+      storage: false
+      deprecated: true
+      deprecationWarning: "agents.re-cinq.com/v1alpha1 is deprecated; migrate to agents.re-cinq.com/v1"
       additionalPrinterColumns:
         - name: Recipe
           type: string

@@ -197,42 +197,36 @@ private string[] requiredNames(T)()
 	return names;
 }
 
-/// The full CustomResourceDefinition YAML for resource type `T`, derived from
-/// the annotated struct via introspection (names/printer columns from UDAs;
-/// group/version/kind from the struct's defaults; status subresource when present).
-string crdYaml(T)()
+/// Older API versions still served (newest first), beyond the struct's current
+/// (storage) version. Each is the same struct, so all versions share one schema and
+/// conversion is a no-op (strategy None); they stay served through a deprecation
+/// window so existing clients keep working after the bump to v1.
+private enum deprecatedVersions = ["v1alpha1"];
+
+/// One entry in a CRD's `versions:` list for type `T`. The schema body
+/// (subresources, printer columns, openAPIV3Schema) is identical across versions —
+/// they introspect the same struct — so a `None` conversion (the default) just
+/// relabels the stored object. `storage` marks the persisted version; `deprecated`
+/// flags a served-but-superseded one and emits a deprecation warning.
+private string versionBlock(T)(string name, bool storage, bool isDeprecated)
 {
 	enum apiVersion = T.init.apiVersion;
-	enum slash = indexOf(apiVersion, '/');
-	enum group = apiVersion[0 .. slash];
-	enum version_ = apiVersion[slash + 1 .. $];
-	enum kind = T.init.kind;
-	enum plural = pluralOf!T;
-	enum shortNames = shortNamesOf!T;
-	enum columns = printerColumnsOf!T;
+	enum group = apiVersion[0 .. indexOf(apiVersion, '/')];
 	enum hasStatus = __traits(hasMember, T, "status");
+	enum columns = printerColumnsOf!T;
 	alias SpecT = typeof(T.init.spec);
 	enum specDescription = descriptionOf!SpecT;
 
 	string s;
-	s ~= "apiVersion: apiextensions.k8s.io/v1\n";
-	s ~= "kind: CustomResourceDefinition\n";
-	s ~= "metadata:\n";
-	s ~= "  name: " ~ plural ~ "." ~ group ~ "\n";
-	s ~= "spec:\n";
-	s ~= "  group: " ~ group ~ "\n";
-	s ~= "  scope: Namespaced\n";
-	s ~= "  names:\n";
-	s ~= "    plural: " ~ plural ~ "\n";
-	s ~= "    singular: " ~ toLower(kind) ~ "\n";
-	s ~= "    kind: " ~ kind ~ "\n";
-	s ~= "    shortNames:\n";
-	static foreach (name; shortNames)
-		s ~= "      - " ~ name ~ "\n";
-	s ~= "  versions:\n";
-	s ~= "    - name: " ~ version_ ~ "\n";
+	s ~= "    - name: " ~ name ~ "\n";
 	s ~= "      served: true\n";
-	s ~= "      storage: true\n";
+	s ~= "      storage: " ~ (storage ? "true" : "false") ~ "\n";
+	if (isDeprecated)
+	{
+		s ~= "      deprecated: true\n";
+		s ~= "      deprecationWarning: " ~ yamlStr(
+				group ~ "/" ~ name ~ " is deprecated; migrate to " ~ apiVersion) ~ "\n";
+	}
 	static if (hasStatus)
 	{
 		s ~= "      subresources:\n";
@@ -261,6 +255,43 @@ string crdYaml(T)()
 		s ~= "            status:\n";
 		s ~= emitType!StatusT(7, Deco.init);
 	}
+	return s;
+}
+
+/// The full CustomResourceDefinition YAML for resource type `T`, derived from
+/// the annotated struct via introspection (names/printer columns from UDAs;
+/// group/version/kind from the struct's defaults; status subresource when present).
+/// The struct's `apiVersion` is the served+stored version; `deprecatedVersions` are
+/// also served (deprecated) so a v1 bump keeps old clients working.
+string crdYaml(T)()
+{
+	enum apiVersion = T.init.apiVersion;
+	enum slash = indexOf(apiVersion, '/');
+	enum group = apiVersion[0 .. slash];
+	enum version_ = apiVersion[slash + 1 .. $];
+	enum kind = T.init.kind;
+	enum plural = pluralOf!T;
+	enum shortNames = shortNamesOf!T;
+
+	string s;
+	s ~= "apiVersion: apiextensions.k8s.io/v1\n";
+	s ~= "kind: CustomResourceDefinition\n";
+	s ~= "metadata:\n";
+	s ~= "  name: " ~ plural ~ "." ~ group ~ "\n";
+	s ~= "spec:\n";
+	s ~= "  group: " ~ group ~ "\n";
+	s ~= "  scope: Namespaced\n";
+	s ~= "  names:\n";
+	s ~= "    plural: " ~ plural ~ "\n";
+	s ~= "    singular: " ~ toLower(kind) ~ "\n";
+	s ~= "    kind: " ~ kind ~ "\n";
+	s ~= "    shortNames:\n";
+	static foreach (name; shortNames)
+		s ~= "      - " ~ name ~ "\n";
+	s ~= "  versions:\n";
+	s ~= versionBlock!T(version_, true, false);
+	static foreach (old; deprecatedVersions)
+		s ~= versionBlock!T(old, false, true);
 	return s;
 }
 
