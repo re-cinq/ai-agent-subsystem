@@ -1,7 +1,7 @@
 module agentcore.kube.jobspec;
 
 import std.exception : enforce;
-import std.json : JSONType, JSONValue, parseJSON;
+import vibe.data.json;
 
 import agentcore.crds.agent : Agent;
 import agentcore.crds.agent_definition : AgentDefinition;
@@ -61,7 +61,7 @@ enum agentSecretName = "agent-secrets";
  * named `agent` to run the supervisor + the adapter's argv, injects the run env,
  * and adds the init container, the bundle volume, and the security contexts.
  */
-JSONValue buildJob(Agent agent, Station station, AgentDefinition definition, string agentImage)
+Json buildJob(Agent agent, Station station, AgentDefinition definition, string agentImage)
 {
 	auto recipe = definition.spec;
 	const prompt = renderPrompt(recipe.prompt, agent.spec.parameters);
@@ -71,86 +71,86 @@ JSONValue buildJob(Agent agent, Station station, AgentDefinition definition, str
 	auto template_ = wirePodTemplate(deepCopy(station.spec.template_), commandFor(argv), env, agentImage);
 	template_ = withRunLabels(template_, agent, station);
 
-	JSONValue[string] spec;
-	spec["ttlSecondsAfterFinished"] = JSONValue(jobTtlSeconds);
-	spec["activeDeadlineSeconds"] = JSONValue(station.spec.deadlineMinutes * 60);
-	spec["backoffLimit"] = JSONValue(0);
+	Json[string] spec;
+	spec["ttlSecondsAfterFinished"] = Json(jobTtlSeconds);
+	spec["activeDeadlineSeconds"] = Json(station.spec.deadlineMinutes * 60);
+	spec["backoffLimit"] = Json(0);
 	spec["template"] = template_;
 
-	JSONValue[string] job;
-	job["apiVersion"] = JSONValue("batch/v1");
-	job["kind"] = JSONValue("Job");
+	Json[string] job;
+	job["apiVersion"] = Json("batch/v1");
+	job["kind"] = Json("Job");
 	job["metadata"] = jobMeta(agent);
-	job["spec"] = JSONValue(spec);
-	return JSONValue(job);
+	job["spec"] = Json(spec);
+	return Json(job);
 }
 
-private JSONValue deepCopy(JSONValue value)
+private Json deepCopy(Json value)
 {
-	return parseJSON(value.toString());
+	return parseJsonString(value.toString());
 }
 
 /// Merge the run labels into the pod template's `metadata.labels`, preserving any
 /// labels the Station's template already carries (ours win on the run keys).
-private JSONValue withRunLabels(JSONValue template_, Agent agent, Station station)
+private Json withRunLabels(Json template_, Agent agent, Station station)
 {
 	auto pod = template_;
-	JSONValue meta = ("metadata" in pod.object) ? pod["metadata"] : parseJSON("{}");
-	JSONValue labels = (meta.type == JSONType.object && ("labels" in meta.object))
-		? meta["labels"] : parseJSON("{}");
-	labels[labelComponent] = JSONValue(componentJob);
-	labels[labelAgent] = JSONValue(agent.metadata.name);
-	labels[labelStation] = JSONValue(station.metadata.name);
+	Json meta = ("metadata" in pod) ? pod["metadata"] : Json.emptyObject;
+	Json labels = (meta.type == Json.Type.object && ("labels" in meta))
+		? meta["labels"] : Json.emptyObject;
+	labels[labelComponent] = componentJob;
+	labels[labelAgent] = agent.metadata.name;
+	labels[labelStation] = station.metadata.name;
 	meta["labels"] = labels;
 	pod["metadata"] = meta;
 	return pod;
 }
 
-private JSONValue jobMeta(Agent agent)
+private Json jobMeta(Agent agent)
 {
-	JSONValue[string] owner;
-	owner["apiVersion"] = JSONValue(crApiVersion);
-	owner["kind"] = JSONValue("Agent");
-	owner["name"] = JSONValue(agent.metadata.name);
-	owner["uid"] = JSONValue(agent.metadata.uid);
-	owner["controller"] = JSONValue(true);
-	owner["blockOwnerDeletion"] = JSONValue(true);
+	Json[string] owner;
+	owner["apiVersion"] = Json(crApiVersion);
+	owner["kind"] = Json("Agent");
+	owner["name"] = Json(agent.metadata.name);
+	owner["uid"] = Json(agent.metadata.uid);
+	owner["controller"] = Json(true);
+	owner["blockOwnerDeletion"] = Json(true);
 
-	JSONValue[string] meta;
-	meta["name"] = JSONValue(jobNameFor(agent.metadata.name));
-	meta["namespace"] = JSONValue(agent.metadata.namespace);
-	meta["ownerReferences"] = JSONValue([JSONValue(owner)]);
-	return JSONValue(meta);
+	Json[string] meta;
+	meta["name"] = Json(jobNameFor(agent.metadata.name));
+	meta["namespace"] = Json(agent.metadata.namespace);
+	meta["ownerReferences"] = Json([Json(owner)]);
+	return Json(meta);
 }
 
-private JSONValue[] commandFor(string[] argv)
+private Json[] commandFor(string[] argv)
 {
-	JSONValue[] command = [JSONValue(supervisorPath), JSONValue("--")];
+	Json[] command = [Json(supervisorPath), Json("--")];
 	foreach (arg; argv)
-		command ~= JSONValue(arg);
+		command ~= Json(arg);
 	return command;
 }
 
-private JSONValue wirePodTemplate(JSONValue template_, JSONValue[] command, JSONValue env, string agentImage)
+private Json wirePodTemplate(Json template_, Json[] command, Json env, string agentImage)
 {
-	enforce(template_.type == JSONType.object, "Station template must be an object");
+	enforce(template_.type == Json.Type.object, "Station template must be an object");
 	auto pod = template_;
-	enforce("spec" in pod.object, "Station template needs a spec");
+	enforce("spec" in pod, "Station template needs a spec");
 	auto spec = pod["spec"];
-	enforce(spec.type == JSONType.object && ("containers" in spec.object),
+	enforce(spec.type == Json.Type.object && ("containers" in spec),
 		"Station template.spec.containers is required");
 
-	JSONValue[] containers;
+	Json[] containers;
 	bool wired = false;
-	foreach (container; spec["containers"].array)
+	foreach (container; spec["containers"].get!(Json[]))
 	{
 		if (isAgentContainer(container))
 		{
-			container["command"] = JSONValue(command);
+			container["command"] = Json(command);
 			container["env"] = env;
 			container["volumeMounts"] = withBundleMount(container);
 			container["securityContext"] = nonRootSecurity();
-			if (!("resources" in container.object))
+			if (!("resources" in container))
 				container["resources"] = agentResources();
 			wired = true;
 		}
@@ -158,96 +158,96 @@ private JSONValue wirePodTemplate(JSONValue template_, JSONValue[] command, JSON
 	}
 	enforce(wired, "Station template has no container named '" ~ agentContainerName ~ "'");
 
-	spec["containers"] = JSONValue(containers);
-	spec["initContainers"] = JSONValue([initContainer(agentImage, env)]);
+	spec["containers"] = Json(containers);
+	spec["initContainers"] = Json([initContainer(agentImage, env)]);
 	spec["volumes"] = withBundleVolume(spec);
-	spec["restartPolicy"] = JSONValue("Never");
+	spec["restartPolicy"] = Json("Never");
 	spec["securityContext"] = podSecurity();
 	// The run needs no Kubernetes API access; don't mount a SA token into a pod that
 	// executes untrusted agent code.
-	spec["automountServiceAccountToken"] = JSONValue(false);
+	spec["automountServiceAccountToken"] = Json(false);
 
 	pod["spec"] = spec;
 	return pod;
 }
 
-private bool isAgentContainer(JSONValue container)
+private bool isAgentContainer(Json container)
 {
-	return container.type == JSONType.object && ("name" in container.object)
-		&& container["name"].str == agentContainerName;
+	return container.type == Json.Type.object && ("name" in container)
+		&& container["name"].get!string == agentContainerName;
 }
 
-private JSONValue withBundleMount(JSONValue container)
+private Json withBundleMount(Json container)
 {
-	JSONValue[] mounts;
-	if (auto existing = "volumeMounts" in container.object)
-		mounts = (*existing).array.dup;
-	JSONValue[string] mount;
-	mount["name"] = JSONValue(bundleVolume);
-	mount["mountPath"] = JSONValue(bundleRoot);
-	mounts ~= JSONValue(mount);
-	return JSONValue(mounts);
+	Json[] mounts;
+	if (auto existing = "volumeMounts" in container)
+		mounts = (*existing).get!(Json[]).dup;
+	Json[string] mount;
+	mount["name"] = Json(bundleVolume);
+	mount["mountPath"] = Json(bundleRoot);
+	mounts ~= Json(mount);
+	return Json(mounts);
 }
 
-private JSONValue withBundleVolume(JSONValue spec)
+private Json withBundleVolume(Json spec)
 {
-	JSONValue[] volumes;
-	if (auto existing = "volumes" in spec.object)
-		volumes = (*existing).array.dup;
-	JSONValue[string] volume;
-	volume["name"] = JSONValue(bundleVolume);
-	volume["emptyDir"] = parseJSON("{}");
-	volumes ~= JSONValue(volume);
-	return JSONValue(volumes);
+	Json[] volumes;
+	if (auto existing = "volumes" in spec)
+		volumes = (*existing).get!(Json[]).dup;
+	Json[string] volume;
+	volume["name"] = Json(bundleVolume);
+	volume["emptyDir"] = Json.emptyObject;
+	volumes ~= Json(volume);
+	return Json(volumes);
 }
 
-private JSONValue initContainer(string agentImage, JSONValue env)
+private Json initContainer(string agentImage, Json env)
 {
-	JSONValue[string] mount;
-	mount["name"] = JSONValue(bundleVolume);
-	mount["mountPath"] = JSONValue(bundleRoot);
+	Json[string] mount;
+	mount["name"] = Json(bundleVolume);
+	mount["mountPath"] = Json(bundleRoot);
 
-	JSONValue[string] security;
-	security["runAsUser"] = JSONValue(0);
+	Json[string] security;
+	security["runAsUser"] = Json(0);
 
-	JSONValue[string] container;
-	container["name"] = JSONValue(initContainerName);
-	container["image"] = JSONValue(agentImage);
+	Json[string] container;
+	container["name"] = Json(initContainerName);
+	container["image"] = Json(agentImage);
 	container["env"] = env;
-	container["volumeMounts"] = JSONValue([JSONValue(mount)]);
-	container["securityContext"] = JSONValue(security);
+	container["volumeMounts"] = Json([Json(mount)]);
+	container["securityContext"] = Json(security);
 	container["resources"] = initResources();
-	return JSONValue(container);
+	return Json(container);
 }
 
-private JSONValue nonRootSecurity()
+private Json nonRootSecurity()
 {
-	JSONValue[string] caps;
-	caps["drop"] = JSONValue([JSONValue("ALL")]);
+	Json[string] caps;
+	caps["drop"] = Json([Json("ALL")]);
 
-	JSONValue[string] security;
-	security["runAsNonRoot"] = JSONValue(true);
-	security["runAsUser"] = JSONValue(agentUid);
-	security["runAsGroup"] = JSONValue(agentGid);
-	security["allowPrivilegeEscalation"] = JSONValue(false);
-	security["capabilities"] = JSONValue(caps);
+	Json[string] security;
+	security["runAsNonRoot"] = Json(true);
+	security["runAsUser"] = Json(agentUid);
+	security["runAsGroup"] = Json(agentGid);
+	security["allowPrivilegeEscalation"] = Json(false);
+	security["capabilities"] = Json(caps);
 	security["seccompProfile"] = runtimeDefaultSeccomp();
-	return JSONValue(security);
+	return Json(security);
 }
 
-private JSONValue podSecurity()
+private Json podSecurity()
 {
-	JSONValue[string] security;
-	security["fsGroup"] = JSONValue(agentGid);
+	Json[string] security;
+	security["fsGroup"] = Json(agentGid);
 	security["seccompProfile"] = runtimeDefaultSeccomp();
-	return JSONValue(security);
+	return Json(security);
 }
 
-private JSONValue runtimeDefaultSeccomp()
+private Json runtimeDefaultSeccomp()
 {
-	JSONValue[string] seccomp;
-	seccomp["type"] = JSONValue("RuntimeDefault");
-	return JSONValue(seccomp);
+	Json[string] seccomp;
+	seccomp["type"] = Json("RuntimeDefault");
+	return Json(seccomp);
 }
 
 /// Default requests/limits for the agent container when the Station template sets
@@ -255,17 +255,17 @@ private JSONValue runtimeDefaultSeccomp()
 /// cannot starve the node. An operator overrides by setting `resources` on the
 /// Station's agent container. No CPU limit: a memory limit gives OOM protection
 /// without throttling legitimate agent work.
-private JSONValue agentResources()
+private Json agentResources()
 {
-	JSONValue[string] requests;
-	requests["cpu"] = JSONValue("100m");
-	requests["memory"] = JSONValue("256Mi");
-	JSONValue[string] limits;
-	limits["memory"] = JSONValue("2Gi");
-	JSONValue[string] resources;
-	resources["requests"] = JSONValue(requests);
-	resources["limits"] = JSONValue(limits);
-	return JSONValue(resources);
+	Json[string] requests;
+	requests["cpu"] = Json("100m");
+	requests["memory"] = Json("256Mi");
+	Json[string] limits;
+	limits["memory"] = Json("2Gi");
+	Json[string] resources;
+	resources["requests"] = Json(requests);
+	resources["limits"] = Json(limits);
+	return Json(resources);
 }
 
 /// Requests/limits for the init container so it is Burstable, not BestEffort — a
@@ -276,55 +276,55 @@ private JSONValue agentResources()
 /// request stays modest while the limit gives that transient spike real headroom.
 /// The mock agent bakes its CLI in and never installs, which is why CI did not
 /// surface the OOM.
-private JSONValue initResources()
+private Json initResources()
 {
-	JSONValue[string] requests;
-	requests["cpu"] = JSONValue("50m");
-	requests["memory"] = JSONValue("128Mi");
-	JSONValue[string] limits;
-	limits["memory"] = JSONValue("2Gi");
-	JSONValue[string] resources;
-	resources["requests"] = JSONValue(requests);
-	resources["limits"] = JSONValue(limits);
-	return JSONValue(resources);
+	Json[string] requests;
+	requests["cpu"] = Json("50m");
+	requests["memory"] = Json("128Mi");
+	Json[string] limits;
+	limits["memory"] = Json("2Gi");
+	Json[string] resources;
+	resources["requests"] = Json(requests);
+	resources["limits"] = Json(limits);
+	return Json(resources);
 }
 
-private JSONValue runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
+private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 {
-	JSONValue[] env;
+	Json[] env;
 
 	void strVar(string name, string value)
 	{
-		JSONValue[string] entry;
-		entry["name"] = JSONValue(name);
-		entry["value"] = JSONValue(value);
-		env ~= JSONValue(entry);
+		Json[string] entry;
+		entry["name"] = Json(name);
+		entry["value"] = Json(value);
+		env ~= Json(entry);
 	}
 
 	void fieldVar(string name, string fieldPath)
 	{
-		JSONValue[string] fieldRef;
-		fieldRef["fieldPath"] = JSONValue(fieldPath);
-		JSONValue[string] from;
-		from["fieldRef"] = JSONValue(fieldRef);
-		JSONValue[string] entry;
-		entry["name"] = JSONValue(name);
-		entry["valueFrom"] = JSONValue(from);
-		env ~= JSONValue(entry);
+		Json[string] fieldRef;
+		fieldRef["fieldPath"] = Json(fieldPath);
+		Json[string] from;
+		from["fieldRef"] = Json(fieldRef);
+		Json[string] entry;
+		entry["name"] = Json(name);
+		entry["valueFrom"] = Json(from);
+		env ~= Json(entry);
 	}
 
 	void secretVar(string name, string key)
 	{
-		JSONValue[string] keyRef;
-		keyRef["name"] = JSONValue(agentSecretName);
-		keyRef["key"] = JSONValue(key);
-		keyRef["optional"] = JSONValue(false);
-		JSONValue[string] from;
-		from["secretKeyRef"] = JSONValue(keyRef);
-		JSONValue[string] entry;
-		entry["name"] = JSONValue(name);
-		entry["valueFrom"] = JSONValue(from);
-		env ~= JSONValue(entry);
+		Json[string] keyRef;
+		keyRef["name"] = Json(agentSecretName);
+		keyRef["key"] = Json(key);
+		keyRef["optional"] = Json(false);
+		Json[string] from;
+		from["secretKeyRef"] = Json(keyRef);
+		Json[string] entry;
+		entry["name"] = Json(name);
+		entry["valueFrom"] = Json(from);
+		env ~= Json(entry);
 	}
 
 	strVar(envSinks, sinksJson(recipe.output.sinks));
@@ -350,66 +350,66 @@ private JSONValue runEnv(Agent agent, Station station, AgentDefinitionSpec recip
 		secretVar(secret.name, secret.ref_);
 	strVar("HOME", bundleRoot);
 	strVar("PATH", "/agent/.local/bin:/usr/local/bin:/usr/bin:/bin");
-	return JSONValue(env);
+	return Json(env);
 }
 
 private string sinksJson(const OutputSink[] sinks)
 {
-	JSONValue[] array;
+	Json[] array;
 	foreach (sink; sinks)
 	{
-		JSONValue[string] object;
-		object["type"] = JSONValue(cast(string) sink.type);
+		Json[string] object;
+		object["type"] = Json(cast(string) sink.type);
 		if (sink.url.length)
-			object["url"] = JSONValue(sink.url);
+			object["url"] = Json(sink.url);
 		if (sink.path.length)
-			object["path"] = JSONValue(sink.path);
-		array ~= JSONValue(object);
+			object["path"] = Json(sink.path);
+		array ~= Json(object);
 	}
-	return JSONValue(array).toString();
+	return Json(array).toString();
 }
 
 private string selectJson(const OutputSelector[] selectors)
 {
-	JSONValue[] array;
+	Json[] array;
 	foreach (selector; selectors)
 	{
-		JSONValue[string] object;
-		object["event"] = JSONValue(cast(string) selector.event);
+		Json[string] object;
+		object["event"] = Json(cast(string) selector.event);
 		if (selector.tool.length)
-			object["tool"] = JSONValue(selector.tool);
+			object["tool"] = Json(selector.tool);
 		if (selector.contains.length)
-			object["contains"] = JSONValue(selector.contains);
-		array ~= JSONValue(object);
+			object["contains"] = Json(selector.contains);
+		array ~= Json(object);
 	}
-	return JSONValue(array).toString();
+	return Json(array).toString();
 }
 
 private string reposJson(const RepoRef[] repos)
 {
-	JSONValue[] array;
+	Json[] array;
 	foreach (repo; repos)
 	{
-		JSONValue[string] object;
-		object["name"] = JSONValue(repo.name);
-		object["url"] = JSONValue(repo.url);
+		Json[string] object;
+		object["name"] = Json(repo.name);
+		object["url"] = Json(repo.url);
 		if (repo.ref_.length)
-			object["ref"] = JSONValue(repo.ref_);
+			object["ref"] = Json(repo.ref_);
 		if (repo.path.length)
-			object["path"] = JSONValue(repo.path);
+			object["path"] = Json(repo.path);
 		if (repo.tokenSecret.length)
-			object["token_secret"] = JSONValue(repo.tokenSecret);
-		array ~= JSONValue(object);
+			object["token_secret"] = Json(repo.tokenSecret);
+		array ~= Json(object);
 	}
-	return JSONValue(array).toString();
+	return Json(array).toString();
 }
 
 private string parametersJson(const string[string] parameters)
 {
-	JSONValue[string] object;
+	Json[string] object;
 	foreach (key, value; parameters)
-		object[key] = JSONValue(value);
-	return JSONValue(object).toString();
+		object[key] = Json(value);
+	return Json(object).toString();
 }
 
 version (unittest)
@@ -422,36 +422,36 @@ version (unittest)
 	import agentcore.output.output : parseSinks;
 	import agentcore.output.selectmatcher : parseSelectors;
 
-	private JSONValue agentContainer(JSONValue job)
+	private Json agentContainer(Json job)
 	{
-		foreach (container; job["spec"]["template"]["spec"]["containers"].array)
-			if (container["name"].str == agentContainerName)
+		foreach (container; job["spec"]["template"]["spec"]["containers"].get!(Json[]))
+			if (container["name"].get!string == agentContainerName)
 				return container;
 		assert(false, "no agent container");
 	}
 
-	private string envValue(JSONValue container, string name)
+	private string envValue(Json container, string name)
 	{
-		foreach (entry; container["env"].array)
-			if (entry["name"].str == name && ("value" in entry.object))
-				return entry["value"].str;
+		foreach (entry; container["env"].get!(Json[]))
+			if (entry["name"].get!string == name && ("value" in entry))
+				return entry["value"].get!string;
 		return "";
 	}
 
-	private string envFieldPath(JSONValue container, string name)
+	private string envFieldPath(Json container, string name)
 	{
-		foreach (entry; container["env"].array)
-			if (entry["name"].str == name && ("valueFrom" in entry.object))
-				return entry["valueFrom"]["fieldRef"]["fieldPath"].str;
+		foreach (entry; container["env"].get!(Json[]))
+			if (entry["name"].get!string == name && ("valueFrom" in entry))
+				return entry["valueFrom"]["fieldRef"]["fieldPath"].get!string;
 		return "";
 	}
 
-	private string envSecretKey(JSONValue container, string name)
+	private string envSecretKey(Json container, string name)
 	{
-		foreach (entry; container["env"].array)
-			if (entry["name"].str == name && ("valueFrom" in entry.object)
-				&& ("secretKeyRef" in entry["valueFrom"].object))
-				return entry["valueFrom"]["secretKeyRef"]["key"].str;
+		foreach (entry; container["env"].get!(Json[]))
+			if (entry["name"].get!string == name && ("valueFrom" in entry)
+				&& ("secretKeyRef" in entry["valueFrom"]))
+				return entry["valueFrom"]["secretKeyRef"]["key"].get!string;
 		return "";
 	}
 
@@ -467,7 +467,7 @@ version (unittest)
 		station.metadata.name = "bug-fixer-station";
 		station.spec.agentDefRef = "bug-fixer";
 		station.spec.deadlineMinutes = 30;
-		station.spec.template_ = parseJSON(
+		station.spec.template_ = parseJsonString(
 			`{"spec":{"containers":[{"name":"agent","image":"node:22"},{"name":"sidecar","image":"busybox"}]}}`);
 
 		definition.metadata.name = "bug-fixer";
@@ -489,21 +489,21 @@ unittest
 
 	auto job = buildJob(agent, station, definition, "ghcr.io/re-cinq/ai-agent:latest");
 
-	job["apiVersion"].str.should.equal("batch/v1");
-	job["kind"].str.should.equal("Job");
-	job["metadata"]["name"].str.should.equal("agent-job-bug-fixer-run-1");
-	job["metadata"]["namespace"].str.should.equal("ai-agents");
+	job["apiVersion"].get!string.should.equal("batch/v1");
+	job["kind"].get!string.should.equal("Job");
+	job["metadata"]["name"].get!string.should.equal("agent-job-bug-fixer-run-1");
+	job["metadata"]["namespace"].get!string.should.equal("ai-agents");
 
 	auto owner = job["metadata"]["ownerReferences"][0];
-	owner["kind"].str.should.equal("Agent");
-	owner["name"].str.should.equal("bug-fixer-run-1");
-	owner["uid"].str.should.equal("uid-123");
-	owner["controller"].boolean.should.equal(true);
-	owner["blockOwnerDeletion"].boolean.should.equal(true);
+	owner["kind"].get!string.should.equal("Agent");
+	owner["name"].get!string.should.equal("bug-fixer-run-1");
+	owner["uid"].get!string.should.equal("uid-123");
+	owner["controller"].get!bool.should.equal(true);
+	owner["blockOwnerDeletion"].get!bool.should.equal(true);
 
-	job["spec"]["ttlSecondsAfterFinished"].integer.should.equal(3600);
-	job["spec"]["activeDeadlineSeconds"].integer.should.equal(1800);
-	job["spec"]["backoffLimit"].integer.should.equal(0);
+	job["spec"]["ttlSecondsAfterFinished"].get!long.should.equal(3600);
+	job["spec"]["activeDeadlineSeconds"].get!long.should.equal(1800);
+	job["spec"]["backoffLimit"].get!long.should.equal(0);
 }
 
 unittest
@@ -516,25 +516,25 @@ unittest
 	auto job = buildJob(agent, station, definition, "ghcr.io/re-cinq/ai-agent:latest");
 	auto pod = job["spec"]["template"]["spec"];
 
-	pod["restartPolicy"].str.should.equal("Never");
+	pod["restartPolicy"].get!string.should.equal("Never");
 	// Both containers are preserved; the sidecar is untouched.
-	pod["containers"].array.length.should.equal(2);
-	pod["initContainers"][0]["image"].str.should.equal("ghcr.io/re-cinq/ai-agent:latest");
-	pod["initContainers"][0]["securityContext"]["runAsUser"].integer.should.equal(0);
+	pod["containers"].get!(Json[]).length.should.equal(2);
+	pod["initContainers"][0]["image"].get!string.should.equal("ghcr.io/re-cinq/ai-agent:latest");
+	pod["initContainers"][0]["securityContext"]["runAsUser"].get!long.should.equal(0);
 	// The init must not be BestEffort, or the kernel OOM-kills it first under pressure.
-	pod["initContainers"][0]["resources"]["requests"]["memory"].str.should.equal("128Mi");
-	pod["volumes"][0]["name"].str.should.equal(bundleVolume);
+	pod["initContainers"][0]["resources"]["requests"]["memory"].get!string.should.equal("128Mi");
+	pod["volumes"][0]["name"].get!string.should.equal(bundleVolume);
 
 	auto container = agentContainer(job);
-	auto command = container["command"].array;
-	command[0].str.should.equal(supervisorPath);
-	command[1].str.should.equal("--");
-	command[2].str.should.equal("claude");
-	command[$ - 1].str.should.equal("Fix ENG-1"); // rendered prompt baked in
-	container["securityContext"]["runAsNonRoot"].boolean.should.equal(true);
+	auto command = container["command"].get!(Json[]);
+	command[0].get!string.should.equal(supervisorPath);
+	command[1].get!string.should.equal("--");
+	command[2].get!string.should.equal("claude");
+	command[$ - 1].get!string.should.equal("Fix ENG-1"); // rendered prompt baked in
+	container["securityContext"]["runAsNonRoot"].get!bool.should.equal(true);
 	// A concrete non-root UID/GID is required, else the kubelet rejects a root image.
-	container["securityContext"]["runAsUser"].integer.should.equal(1000);
-	pod["securityContext"]["fsGroup"].integer.should.equal(1000);
+	container["securityContext"]["runAsUser"].get!long.should.equal(1000);
+	pod["securityContext"]["fsGroup"].get!long.should.equal(1000);
 }
 
 unittest
@@ -548,9 +548,9 @@ unittest
 	fixtures(agent, station, definition);
 
 	auto labels = buildJob(agent, station, definition, "img")["spec"]["template"]["metadata"]["labels"];
-	labels["agents.re-cinq.com/component"].str.should.equal("job");
-	labels["agents.re-cinq.com/agent"].str.should.equal("bug-fixer-run-1");
-	labels["agents.re-cinq.com/station"].str.should.equal("bug-fixer-station");
+	labels["agents.re-cinq.com/component"].get!string.should.equal("job");
+	labels["agents.re-cinq.com/agent"].get!string.should.equal("bug-fixer-run-1");
+	labels["agents.re-cinq.com/station"].get!string.should.equal("bug-fixer-station");
 }
 
 unittest
@@ -563,7 +563,7 @@ unittest
 	fixtures(agent, station, definition);
 
 	auto pod = buildJob(agent, station, definition, "img")["spec"]["template"]["spec"];
-	pod["automountServiceAccountToken"].boolean.should.equal(false);
+	pod["automountServiceAccountToken"].get!bool.should.equal(false);
 }
 
 unittest
@@ -580,12 +580,12 @@ unittest
 	auto container = agentContainer(job);
 	auto podSec = job["spec"]["template"]["spec"]["securityContext"];
 
-	container["securityContext"]["seccompProfile"]["type"].str.should.equal("RuntimeDefault");
-	container["securityContext"]["capabilities"]["drop"][0].str.should.equal("ALL");
-	podSec["seccompProfile"]["type"].str.should.equal("RuntimeDefault");
+	container["securityContext"]["seccompProfile"]["type"].get!string.should.equal("RuntimeDefault");
+	container["securityContext"]["capabilities"]["drop"][0].get!string.should.equal("ALL");
+	podSec["seccompProfile"]["type"].get!string.should.equal("RuntimeDefault");
 
-	container["resources"]["requests"]["memory"].str.should.equal("256Mi");
-	container["resources"]["limits"]["memory"].str.should.equal("2Gi");
+	container["resources"]["requests"]["memory"].get!string.should.equal("256Mi");
+	container["resources"]["limits"]["memory"].get!string.should.equal("2Gi");
 }
 
 unittest
@@ -596,11 +596,11 @@ unittest
 	Station station;
 	AgentDefinition definition;
 	fixtures(agent, station, definition);
-	station.spec.template_ = parseJSON(
+	station.spec.template_ = parseJsonString(
 		`{"spec":{"containers":[{"name":"agent","image":"node:22","resources":{"limits":{"memory":"512Mi"}}}]}}`);
 
 	auto container = agentContainer(buildJob(agent, station, definition, "img"));
-	container["resources"]["limits"]["memory"].str.should.equal("512Mi");
+	container["resources"]["limits"]["memory"].get!string.should.equal("512Mi");
 }
 
 unittest
@@ -662,11 +662,11 @@ unittest
 	agent.metadata.name = "secret-run";
 	agent.metadata.namespace = "ai-agents";
 
-	auto station = parseStation(parseJSON(`{
+	auto station = parseStation(parseJsonString(`{
 		"metadata":{"name":"secret-station","namespace":"ai-agents"},
 		"spec":{"agentDefRef":"secret-writer","deadlineMinutes":5,
 			"template":{"spec":{"containers":[{"name":"agent","image":"ai-agent:itest"}]}}}}`));
-	auto definition = parseAgentDefinition(parseJSON(`{
+	auto definition = parseAgentDefinition(parseJsonString(`{
 		"metadata":{"name":"secret-writer"},
 		"spec":{"model":"gpt-mock","prompt":"say hello",
 			"resources":{

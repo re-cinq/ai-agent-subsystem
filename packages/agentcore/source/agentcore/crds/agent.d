@@ -13,9 +13,9 @@ import agentcore.crds.schema;
 @PrinterColumn("Age", "date", ".metadata.creationTimestamp")
 struct Agent
 {
-	string apiVersion = "agents.re-cinq.com/v1alpha1";
-	string kind = "Agent";
-	ObjectMeta metadata;
-	AgentSpec spec;
-	AgentStatus status;
+	@optional string apiVersion = "agents.re-cinq.com/v1alpha1";
+	@optional string kind = "Agent";
+	@optional ObjectMeta metadata;
+	@optional AgentSpec spec;
+	@optional AgentStatus status;
 }

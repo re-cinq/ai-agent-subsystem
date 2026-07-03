@@ -4,10 +4,10 @@ import agentcore.crds.schema;
 
 struct SecretRef
 {
-	@Required @Description("Environment variable name to expose the secret as.")
+	@optional @Required @Description("Environment variable name to expose the secret as.")
 	string name;
 
-	@Required @Json("ref") @Description("Allowlisted secret-store key.")
+	@optional @Required @wire("ref") @Description("Allowlisted secret-store key.")
 	string ref_;
 }
 

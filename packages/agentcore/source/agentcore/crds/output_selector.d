@@ -5,8 +5,8 @@ import agentcore.crds.enums : SelectEvent, SelectRole;
 
 struct OutputSelector
 {
-	@Required SelectEvent event;
-	string tool;
-	SelectRole role;
-	string contains;
+	@optional @Required SelectEvent event;
+	@optional string tool;
+	@optional SelectRole role;
+	@optional string contains;
 }

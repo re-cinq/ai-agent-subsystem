@@ -5,7 +5,7 @@ import core.time : seconds;
 import std.datetime.systime : Clock;
 import std.datetime.timezone : UTC;
 import std.format : format;
-import std.json : JSONValue;
+import vibe.data.json : Json;
 
 import vibe.core.core : sleep;
 import vibe.core.log : logError, logInfo;
@@ -130,12 +130,12 @@ LeaseDecision electionDecide(Observation lease, string identity, long nowUnix, l
 }
 
 /// Body for creating a brand-new Lease we hold (POST to the leases collection).
-JSONValue createLeaseBody(string identity, long durationSeconds, string timestamp)
+Json createLeaseBody(string identity, long durationSeconds, string timestamp)
 {
-	return JSONValue([
-		"apiVersion": JSONValue("coordination.k8s.io/v1"),
-		"kind": JSONValue("Lease"),
-		"metadata": JSONValue(["name": JSONValue(leaseName)]),
+	return Json([
+		"apiVersion": Json("coordination.k8s.io/v1"),
+		"kind": Json("Lease"),
+		"metadata": Json(["name": Json(leaseName)]),
 		"spec": leaseSpec(identity, durationSeconds, timestamp, 0),
 	]);
 }
@@ -143,33 +143,33 @@ JSONValue createLeaseBody(string identity, long durationSeconds, string timestam
 /// Merge-patch that refreshes the renewTime of a Lease we already hold. The
 /// resourceVersion precondition turns the write into a no-op (409) if a standby
 /// raced us, so a stale leader stops believing it still holds the Lease.
-JSONValue renewLeaseBody(string resourceVersion, string timestamp)
+Json renewLeaseBody(string resourceVersion, string timestamp)
 {
-	return JSONValue([
-		"metadata": JSONValue(["resourceVersion": JSONValue(resourceVersion)]),
-		"spec": JSONValue(["renewTime": JSONValue(timestamp)]),
+	return Json([
+		"metadata": Json(["resourceVersion": Json(resourceVersion)]),
+		"spec": Json(["renewTime": Json(timestamp)]),
 	]);
 }
 
 /// Merge-patch that takes over an expired Lease, bumping leaseTransitions. The
 /// resourceVersion precondition stops two standbys both winning the same takeover.
-JSONValue acquireLeaseBody(string resourceVersion, string identity, long durationSeconds,
+Json acquireLeaseBody(string resourceVersion, string identity, long durationSeconds,
 	string timestamp, int transitions)
 {
-	return JSONValue([
-		"metadata": JSONValue(["resourceVersion": JSONValue(resourceVersion)]),
+	return Json([
+		"metadata": Json(["resourceVersion": Json(resourceVersion)]),
 		"spec": leaseSpec(identity, durationSeconds, timestamp, transitions + 1),
 	]);
 }
 
-private JSONValue leaseSpec(string identity, long durationSeconds, string timestamp, int transitions)
+private Json leaseSpec(string identity, long durationSeconds, string timestamp, int transitions)
 {
-	return JSONValue([
-		"holderIdentity": JSONValue(identity),
-		"leaseDurationSeconds": JSONValue(durationSeconds),
-		"acquireTime": JSONValue(timestamp),
-		"renewTime": JSONValue(timestamp),
-		"leaseTransitions": JSONValue(transitions),
+	return Json([
+		"holderIdentity": Json(identity),
+		"leaseDurationSeconds": Json(durationSeconds),
+		"acquireTime": Json(timestamp),
+		"renewTime": Json(timestamp),
+		"leaseTransitions": Json(transitions),
 	]);
 }
 
@@ -350,18 +350,18 @@ unittest
 unittest
 {
 	auto created = createLeaseBody("pod-a", 15, "2026-06-23T00:00:00.000000Z");
-	created["metadata"]["name"].str.should.equal("agent-controller");
-	created["spec"]["holderIdentity"].str.should.equal("pod-a");
-	created["spec"]["leaseDurationSeconds"].integer.should.equal(15);
+	created["metadata"]["name"].get!string.should.equal("agent-controller");
+	created["spec"]["holderIdentity"].get!string.should.equal("pod-a");
+	created["spec"]["leaseDurationSeconds"].get!long.should.equal(15);
 
 	auto taken = acquireLeaseBody("42", "pod-b", 15, "2026-06-23T00:00:00.000000Z", 7);
-	taken["metadata"]["resourceVersion"].str.should.equal("42");
-	taken["spec"]["holderIdentity"].str.should.equal("pod-b");
-	taken["spec"]["leaseTransitions"].integer.should.equal(8);
+	taken["metadata"]["resourceVersion"].get!string.should.equal("42");
+	taken["spec"]["holderIdentity"].get!string.should.equal("pod-b");
+	taken["spec"]["leaseTransitions"].get!long.should.equal(8);
 
 	auto renewed = renewLeaseBody("42", "2026-06-23T00:00:01.000000Z");
-	renewed["metadata"]["resourceVersion"].str.should.equal("42");
-	renewed["spec"]["renewTime"].str.should.equal("2026-06-23T00:00:01.000000Z");
+	renewed["metadata"]["resourceVersion"].get!string.should.equal("42");
+	renewed["spec"]["renewTime"].get!string.should.equal("2026-06-23T00:00:01.000000Z");
 }
 
 version (unittest)
@@ -391,7 +391,7 @@ version (unittest)
 			return record;
 		}
 
-		override bool createLease(string ns, JSONValue body)
+		override bool createLease(string ns, Json body)
 		{
 			writes ~= "create";
 			if (!createOk)
@@ -400,7 +400,7 @@ version (unittest)
 			return true;
 		}
 
-		override bool patchLease(string ns, string name, JSONValue body)
+		override bool patchLease(string ns, string name, Json body)
 		{
 			writes ~= "patch";
 			if (!patchOk)
@@ -409,16 +409,16 @@ version (unittest)
 			return true;
 		}
 
-		private void apply(JSONValue body)
+		private void apply(Json body)
 		{
 			auto spec = body["spec"];
 			record.exists = true;
-			if (auto holder = "holderIdentity" in spec.object)
-				record.holder = holder.str;
-			if (auto renew = "renewTime" in spec.object)
-				record.renewTime = renew.str;
-			if (auto transitions = "leaseTransitions" in spec.object)
-				record.transitions = cast(int) transitions.integer;
+			if (auto holder = "holderIdentity" in spec)
+				record.holder = holder.get!string;
+			if (auto renew = "renewTime" in spec)
+				record.renewTime = renew.get!string;
+			if (auto transitions = "leaseTransitions" in spec)
+				record.transitions = cast(int) transitions.get!long;
 			record.resourceVersion = (++generation).to!string;
 		}
 	}

@@ -5,12 +5,12 @@ import agentcore.crds.schema;
 
 struct AgentStatus
 {
-	Phase phase;
-	string jobName;
-	@Description("RFC3339 timestamp when the run began.") @Format("date-time") string startedAt;
-	@Description("RFC3339 timestamp when the run ended.") @Format("date-time") string completedAt;
-	int exitCode;
-	string output;
-	string failureReason;
-	string prUrl;
+	@optional Phase phase;
+	@optional string jobName;
+	@optional @Description("RFC3339 timestamp when the run began.") @Format("date-time") string startedAt;
+	@optional @Description("RFC3339 timestamp when the run ended.") @Format("date-time") string completedAt;
+	@optional int exitCode;
+	@optional string output;
+	@optional string failureReason;
+	@optional string prUrl;
 }

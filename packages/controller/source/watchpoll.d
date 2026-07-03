@@ -3,7 +3,7 @@ module watchpoll;
 import core.time : MonoTime, seconds;
 import std.datetime.systime : Clock;
 import std.datetime.timezone : UTC;
-import std.json : JSONType, JSONValue, parseJSON;
+import vibe.data.json : Json, parseJsonString;
 import std.random : uniform;
 
 import vibe.core.core : runTask, sleep;
@@ -33,18 +33,18 @@ struct WatchEvent
 WatchEvent parseWatchLine(string line)
 {
 	WatchEvent event;
-	JSONValue document;
+	Json document;
 	try
-		document = parseJSON(line);
+		document = parseJsonString(line);
 	catch (Exception)
 		return event;
 
-	if (document.type != JSONType.object)
+	if (document.type != Json.Type.object)
 		return event;
-	if (auto type = "type" in document.object)
-		if (type.type == JSONType.string)
-			event.type = type.str;
-	if (auto object = "object" in document.object)
+	if (auto type = "type" in document)
+		if (type.type == Json.Type.string)
+			event.type = type.get!string;
+	if (auto object = "object" in document)
 	{
 		event.agent = parseAgent(*object);
 		event.resourceVersion = resourceVersionOf(*object);
@@ -53,27 +53,27 @@ WatchEvent parseWatchLine(string line)
 	return event;
 }
 
-private string resourceVersionOf(JSONValue object)
+private string resourceVersionOf(Json object)
 {
-	if (object.type != JSONType.object)
+	if (object.type != Json.Type.object)
 		return "";
-	if (auto meta = "metadata" in object.object)
-		if (meta.type == JSONType.object)
-			if (auto rv = "resourceVersion" in meta.object)
-				if (rv.type == JSONType.string)
-					return rv.str;
+	if (auto meta = "metadata" in object)
+		if (meta.type == Json.Type.object)
+			if (auto rv = "resourceVersion" in *meta)
+				if (rv.type == Json.Type.string)
+					return rv.get!string;
 	return "";
 }
 
 /// The `code` of an ERROR event's Status object (e.g. 410 when the watch's
 /// resourceVersion is too old). 0 for normal events, which carry no `code`.
-private int statusCodeOf(JSONValue object)
+private int statusCodeOf(Json object)
 {
-	if (object.type != JSONType.object)
+	if (object.type != Json.Type.object)
 		return 0;
-	if (auto code = "code" in object.object)
-		if (code.type == JSONType.integer)
-			return cast(int) code.integer;
+	if (auto code = "code" in object)
+		if (code.type == Json.Type.int_)
+			return cast(int) code.get!long;
 	return 0;
 }
 

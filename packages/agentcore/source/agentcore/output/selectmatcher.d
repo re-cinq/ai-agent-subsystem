@@ -1,7 +1,7 @@
 module agentcore.output.selectmatcher;
 
 import std.algorithm.searching : canFind;
-import std.json : JSONType, JSONValue, parseJSON;
+import vibe.data.json : Json, parseJsonString;
 
 import agentcore.crds.enums : SelectEvent, SelectRole;
 import agentcore.crds.output_selector : OutputSelector;
@@ -31,7 +31,7 @@ bool selected(const OutputSelector[] selectors, string provider, string payload)
 
 	Classified event;
 	try
-		event = classify(provider, parseJSON(payload));
+		event = classify(provider, parseJsonString(payload));
 	catch (Exception)
 		return false;
 
@@ -62,18 +62,17 @@ OutputSelector[] parseSelectors(string json)
 	OutputSelector[] selectors;
 	try
 	{
-		foreach (entry; parseJSON(json).array)
+		foreach (entry; parseJsonString(json).get!(Json[]))
 		{
-			auto object = entry.object;
-			auto event = "event" in object;
+			auto event = "event" in entry;
 			if (event is null)
 				continue;
 			OutputSelector selector;
-			selector.event = toSelectEvent((*event).str);
-			if (auto tool = "tool" in object)
-				selector.tool = (*tool).str;
-			if (auto contains = "contains" in object)
-				selector.contains = (*contains).str;
+			selector.event = toSelectEvent((*event).get!string);
+			if (auto tool = "tool" in entry)
+				selector.tool = (*tool).get!string;
+			if (auto contains = "contains" in entry)
+				selector.contains = (*contains).get!string;
 			selectors ~= selector;
 		}
 	}
@@ -103,14 +102,14 @@ private SelectEvent toSelectEvent(string name)
 /// grounded in real output: Claude's `stream-json` and Codex's `exec --json`. (Role
 /// filtering is intentionally omitted — the CRD's `SelectRole` has no "unset" value,
 /// so it cannot be distinguished from `assistant`.)
-Classified classify(string provider, JSONValue event)
+Classified classify(string provider, Json event)
 {
-	if (event.type != JSONType.object)
+	if (event.type != Json.Type.object)
 		return Classified.init;
 	return provider == "codex" ? classifyCodex(event) : classifyClaude(event);
 }
 
-private Classified classifyClaude(JSONValue event)
+private Classified classifyClaude(Json event)
 {
 	const type = strAt(event, "type");
 	switch (type)
@@ -132,7 +131,7 @@ private Classified classifyClaude(JSONValue event)
 /// Classify a Claude assistant/user message from its content blocks: a `tool_use`
 /// block is a tool_call, a `tool_result` block is a tool_result, otherwise the
 /// joined text is a message.
-private Classified fromContent(JSONValue[] content, SelectEvent fallback)
+private Classified fromContent(Json[] content, SelectEvent fallback)
 {
 	string text;
 	foreach (block; content)
@@ -154,7 +153,7 @@ private Classified fromContent(JSONValue[] content, SelectEvent fallback)
 /// an `agent_message` (select `message`). Lifecycle, in-progress (`item.started`/
 /// `item.updated`) and internal `reasoning` events don't map; they're dropped from
 /// sinks while stdout keeps the full stream.
-private Classified classifyCodex(JSONValue event)
+private Classified classifyCodex(Json event)
 {
 	const type = strAt(event, "type");
 	if (type == "turn.completed")
@@ -168,7 +167,7 @@ private Classified classifyCodex(JSONValue event)
 /// (`agent_message`) is a message; a shell `command_execution`, an `mcp_tool_call`, a
 /// `file_change` or a `web_search` is a tool_call (carrying the command text or the
 /// tool name for narrowing). Reasoning and anything unrecognised stay unclassified.
-private Classified classifyCodexItem(JSONValue item)
+private Classified classifyCodexItem(Json item)
 {
 	switch (strAt(item, "type"))
 	{
@@ -186,30 +185,31 @@ private Classified classifyCodexItem(JSONValue item)
 	}
 }
 
-private JSONValue childObject(JSONValue event, string key)
+private Json childObject(Json event, string key)
 {
-	if (auto value = key in event.object)
-		if (value.type == JSONType.object)
-			return *value;
-	return JSONValue.init;
+	if (event.type == Json.Type.object)
+		if (auto value = key in event)
+			if (value.type == Json.Type.object)
+				return *value;
+	return Json.init;
 }
 
-private JSONValue[] messageContent(JSONValue event)
+private Json[] messageContent(Json event)
 {
-	if (auto message = "message" in event.object)
-		if (message.type == JSONType.object)
-			if (auto content = "content" in message.object)
-				if (content.type == JSONType.array)
-					return content.array;
+	if (auto message = "message" in event)
+		if (message.type == Json.Type.object)
+			if (auto content = "content" in *message)
+				if (content.type == Json.Type.array)
+					return content.get!(Json[]);
 	return null;
 }
 
-private string strAt(JSONValue object, string key)
+private string strAt(Json object, string key)
 {
-	if (object.type != JSONType.object)
+	if (object.type != Json.Type.object)
 		return "";
-	if (auto value = key in object.object)
-		return value.type == JSONType.string ? value.str : "";
+	if (auto value = key in object)
+		return value.type == Json.Type.string ? value.get!string : "";
 	return "";
 }
 

@@ -3,6 +3,10 @@
 	"versions": {
 		"fluent-asserts": "2.0.5",
 		"libdparse": "0.25.1",
-		"silly": "1.2.0-dev.2"
+		"silly": "1.2.0-dev.2",
+		"stdx-allocator": "2.77.5",
+		"vibe-container": "1.7.1",
+		"vibe-d": "0.10.3",
+		"vibe-serialization": "1.2.0"
 	}
 }

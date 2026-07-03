@@ -1,6 +1,6 @@
 module agentcore.output.terminal;
 
-import std.json : JSONType, JSONValue, parseJSON;
+import vibe.data.json : Json, parseJsonString;
 
 version (unittest) import fluent.asserts;
 
@@ -26,8 +26,8 @@ Terminal terminalFor(string provider, string payload) nothrow
 {
 	try
 	{
-		auto event = parseJSON(payload);
-		if (event.type != JSONType.object)
+		auto event = parseJsonString(payload);
+		if (event.type != Json.Type.object)
 			return Terminal.init;
 		return provider == "codex" ? codexTerminal(event) : claudeTerminal(event);
 	}
@@ -35,35 +35,35 @@ Terminal terminalFor(string provider, string payload) nothrow
 		return Terminal.init;
 }
 
-private Terminal claudeTerminal(JSONValue event)
+private Terminal claudeTerminal(Json event)
 {
 	if (strAt(event, "type") != "result")
 		return Terminal.init;
 	return Terminal(true, !boolAt(event, "is_error"));
 }
 
-private Terminal codexTerminal(JSONValue event)
+private Terminal codexTerminal(Json event)
 {
 	if (strAt(event, "type") != "turn.completed")
 		return Terminal.init;
 	return Terminal(true, true);
 }
 
-private string strAt(JSONValue object, string key)
+private string strAt(Json object, string key)
 {
-	if (object.type != JSONType.object)
+	if (object.type != Json.Type.object)
 		return "";
-	if (auto value = key in object.object)
-		return value.type == JSONType.string ? value.str : "";
+	if (auto value = key in object)
+		return value.type == Json.Type.string ? value.get!string : "";
 	return "";
 }
 
-private bool boolAt(JSONValue object, string key)
+private bool boolAt(Json object, string key)
 {
-	if (object.type != JSONType.object)
+	if (object.type != Json.Type.object)
 		return false;
-	if (auto value = key in object.object)
-		return value.type == JSONType.true_;
+	if (auto value = key in object)
+		return value.type == Json.Type.bool_ && value.get!bool;
 	return false;
 }
 

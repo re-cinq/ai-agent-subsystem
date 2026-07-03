@@ -4,6 +4,6 @@ import agentcore.crds.schema;
 
 struct EnvVar
 {
-	@Required string name;
-	@Required string value;
+	@optional @Required string name;
+	@optional @Required string value;
 }

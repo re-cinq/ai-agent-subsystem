@@ -1,6 +1,6 @@
 module agentcore.crds.agent_definition_spec;
 
-import std.json : JSONValue;
+import vibe.data.json : Json;
 
 import agentcore.crds.schema;
 import agentcore.crds.enums : PermissionMode;
@@ -10,25 +10,25 @@ import agentcore.crds.output_spec : OutputSpec;
 @Description("The reusable recipe for a coding agent task.")
 struct AgentDefinitionSpec
 {
-	@Description("Human summary for operators.")
+	@optional @Description("Human summary for operators.")
 	string description;
 
-	@Description("Model id (e.g. claude-sonnet-4-6). If omitted, the runtime default is used.")
+	@optional @Description("Model id (e.g. claude-sonnet-4-6). If omitted, the runtime default is used.")
 	string model;
 
-	@Description("Task template; {placeholder} tokens are filled from an Agent's parameters.")
+	@optional @Description("Task template; {placeholder} tokens are filled from an Agent's parameters.")
 	string prompt;
 
-	@Json("allowed_tools") string[] allowedTools;
-	@Json("disallowed_tools") string[] disallowedTools;
-	@Json("permission_mode") PermissionMode permissionMode = PermissionMode.bypass;
-	@Json("max_turns") @Minimum(1) int maxTurns;
+	@optional @wire("allowed_tools") string[] allowedTools;
+	@optional @wire("disallowed_tools") string[] disallowedTools;
+	@optional @wire("permission_mode") PermissionMode permissionMode = PermissionMode.bypass;
+	@optional @wire("max_turns") @Minimum(1) int maxTurns;
 
-	AgentResources resources;
-	OutputSpec output;
+	@optional AgentResources resources;
+	@optional OutputSpec output;
 
-	@Json("tool_config") @PreserveUnknownFields @Description("Raw passthrough for tool-specific knobs.")
-	JSONValue toolConfig;
+	@optional @wire("tool_config") @PreserveUnknownFields @Description("Raw passthrough for tool-specific knobs.")
+	Json toolConfig;
 }
 
 version (unittest) import fluent.asserts;

@@ -1,6 +1,6 @@
 module agentcore.output.output;
 
-import std.json : parseJSON;
+import vibe.data.json : Json, parseJsonString;
 import std.process : environment;
 import std.stdio : File, stdout;
 
@@ -29,18 +29,17 @@ SinkSpec[] parseSinks(string json)
 	SinkSpec[] sinks;
 	try
 	{
-		foreach (entry; parseJSON(json).array)
+		foreach (entry; parseJsonString(json).get!(Json[]))
 		{
-			auto obj = entry.object;
-			auto type = "type" in obj;
+			auto type = "type" in entry;
 			if (type is null)
 				continue;
 			SinkSpec s;
-			s.type = toSinkType((*type).str);
-			if (auto url = "url" in obj)
-				s.url = (*url).str;
-			if (auto path = "path" in obj)
-				s.path = (*path).str;
+			s.type = toSinkType((*type).get!string);
+			if (auto url = "url" in entry)
+				s.url = (*url).get!string;
+			if (auto path = "path" in entry)
+				s.path = (*path).get!string;
 			sinks ~= s;
 		}
 	}

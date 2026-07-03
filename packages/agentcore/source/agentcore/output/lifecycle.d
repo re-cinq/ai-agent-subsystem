@@ -1,6 +1,6 @@
 module agentcore.output.lifecycle;
 
-import std.json : JSONValue;
+import vibe.data.json : Json;
 import std.typecons : Nullable;
 
 version (unittest) import fluent.asserts;
@@ -44,17 +44,17 @@ string toJson(in LifecycleEvent e) nothrow
 {
 	try
 	{
-		JSONValue[string] o;
-		o["kind"] = JSONValue(lifecycleKind);
-		o["phase"] = JSONValue(cast(string) e.phase);
-		o["status"] = JSONValue(cast(string) e.status);
+		Json[string] o;
+		o["kind"] = Json(lifecycleKind);
+		o["phase"] = Json(cast(string) e.phase);
+		o["status"] = Json(cast(string) e.status);
 		if (e.tool.length)
-			o["tool"] = JSONValue(e.tool);
+			o["tool"] = Json(e.tool);
 		if (e.reason.length)
-			o["reason"] = JSONValue(e.reason);
+			o["reason"] = Json(e.reason);
 		if (!e.exitCode.isNull)
-			o["exitCode"] = JSONValue(e.exitCode.get);
-		return JSONValue(o).toString();
+			o["exitCode"] = Json(e.exitCode.get);
+		return Json(o).toString();
 	}
 	catch (Exception)
 		return `{"kind":"lifecycle","status":"failed"}`;

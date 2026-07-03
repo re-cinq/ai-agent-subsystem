@@ -172,7 +172,7 @@ private void pruneHistory(KubeClient client, string ns, string stationRef, const
 version (unittest)
 {
 	import fluent.asserts;
-	import std.json : JSONValue, parseJSON;
+	import vibe.data.json : Json, parseJsonString;
 	import agentcore.crds.enums : ConcurrencyPolicy;
 	import agentcore.reconcile.reconcile : JobState;
 
@@ -187,8 +187,8 @@ version (unittest)
 		PodResult podResultValue;
 		bool podReadThrows; /// simulate the pod being GC'd between podNameForJob and podResult
 
-		JSONValue[] createdJobs;
-		JSONValue[] statusPatches;
+		Json[] createdJobs;
+		Json[] statusPatches;
 		string[] patchedNames;
 		string[] deletedAgents;
 
@@ -204,7 +204,7 @@ version (unittest)
 			return definition;
 		}
 
-		override void createJob(string ns, JSONValue job)
+		override void createJob(string ns, Json job)
 		{
 			createdJobs ~= job;
 		}
@@ -217,7 +217,7 @@ version (unittest)
 			return outcome;
 		}
 
-		override void patchAgentStatus(string ns, string name, JSONValue patch)
+		override void patchAgentStatus(string ns, string name, Json patch)
 		{
 			patchedNames ~= name;
 			statusPatches ~= patch;
@@ -257,7 +257,7 @@ unittest
 	auto client = new FakeKubeClient;
 	client.station.metadata.name = "stn";
 	client.station.spec.agentDefRef = "def";
-	client.station.spec.template_ = parseJSON(
+	client.station.spec.template_ = parseJsonString(
 		`{"spec":{"containers":[{"name":"agent","image":"node:22"}]}}`);
 	client.definition.spec.model = "claude-sonnet-4-6";
 	client.definition.spec.prompt = "Fix it";
@@ -266,9 +266,9 @@ unittest
 
 	client.createdJobs.length.should.equal(1);
 	client.patchedNames.should.equal(["run-1"]);
-	client.statusPatches[0]["status"]["phase"].str.should.equal("Running");
-	client.statusPatches[0]["status"]["jobName"].str.should.equal("agent-job-run-1");
-	client.statusPatches[0]["status"]["startedAt"].str.should.equal("2026-06-22T12:00:00Z");
+	client.statusPatches[0]["status"]["phase"].get!string.should.equal("Running");
+	client.statusPatches[0]["status"]["jobName"].get!string.should.equal("agent-job-run-1");
+	client.statusPatches[0]["status"]["startedAt"].get!string.should.equal("2026-06-22T12:00:00Z");
 }
 
 unittest
@@ -279,7 +279,7 @@ unittest
 	auto client = new FakeKubeClient;
 	client.station.metadata.name = "stn";
 	client.station.spec.agentDefRef = "def";
-	client.station.spec.template_ = parseJSON(
+	client.station.spec.template_ = parseJsonString(
 		`{"spec":{"containers":[{"name":"agent","image":"node:22"}]}}`);
 	client.definition.spec.model = "claude-sonnet-4-6";
 	client.definition.spec.prompt = "Fix it";
@@ -288,7 +288,7 @@ unittest
 	agent.metadata.resourceVersion = "4242";
 	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null);
 
-	client.statusPatches[0]["metadata"]["resourceVersion"].str.should.equal("4242");
+	client.statusPatches[0]["metadata"]["resourceVersion"].get!string.should.equal("4242");
 }
 
 unittest
@@ -300,8 +300,8 @@ unittest
 	reconcileAgent(client, "ai-agents", pendingAgent("run-2", "gone"), "img", "2026-06-22T12:00:00Z", null);
 
 	client.createdJobs.length.should.equal(0);
-	client.statusPatches[0]["status"]["phase"].str.should.equal("Failed");
-	client.statusPatches[0]["status"]["failureReason"].str.should
+	client.statusPatches[0]["status"]["phase"].get!string.should.equal("Failed");
+	client.statusPatches[0]["status"]["failureReason"].get!string.should
 		.equal("Station or AgentDefinition not found");
 }
 
@@ -312,7 +312,7 @@ unittest
 	client.station.metadata.name = "stn";
 	client.station.spec.agentDefRef = "def";
 	client.station.spec.maxConcurrentRuns = 1;
-	client.station.spec.template_ = parseJSON(`{"spec":{"containers":[{"name":"agent"}]}}`);
+	client.station.spec.template_ = parseJsonString(`{"spec":{"containers":[{"name":"agent"}]}}`);
 
 	Agent active; // one run already in flight for this Station
 	active.metadata.name = "run-active";
@@ -333,7 +333,7 @@ unittest
 	client.station.metadata.name = "stn";
 	client.station.spec.agentDefRef = "def";
 	client.station.spec.concurrencyPolicy = ConcurrencyPolicy.replace;
-	client.station.spec.template_ = parseJSON(`{"spec":{"containers":[{"name":"agent"}]}}`);
+	client.station.spec.template_ = parseJsonString(`{"spec":{"containers":[{"name":"agent"}]}}`);
 
 	Agent running; // the in-flight run Replace should cancel
 	running.metadata.name = "run-old";
@@ -347,8 +347,8 @@ unittest
 	client.deletedAgents.should.equal(["run-old"]);
 	client.createdJobs.length.should.equal(1);
 	client.patchedNames.should.equal(["run-new"]);
-	client.statusPatches[0]["status"]["phase"].str.should.equal("Running");
-	client.statusPatches[0]["status"]["jobName"].str.should.equal("agent-job-run-new");
+	client.statusPatches[0]["status"]["phase"].get!string.should.equal("Running");
+	client.statusPatches[0]["status"]["jobName"].get!string.should.equal("agent-job-run-new");
 }
 
 unittest
@@ -383,9 +383,9 @@ unittest
 
 	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", [old, foreign]);
 
-	client.statusPatches[0]["status"]["phase"].str.should.equal("Succeeded");
-	client.statusPatches[0]["status"]["output"].str.should.equal("the wrapped event log");
-	client.statusPatches[0]["status"]["exitCode"].integer.should.equal(0);
+	client.statusPatches[0]["status"]["phase"].get!string.should.equal("Succeeded");
+	client.statusPatches[0]["status"]["output"].get!string.should.equal("the wrapped event log");
+	client.statusPatches[0]["status"]["exitCode"].get!long.should.equal(0);
 	client.deletedAgents.should.equal(["old-success"]);
 }
 
@@ -406,10 +406,10 @@ unittest
 
 	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null);
 
-	client.statusPatches[0]["status"]["phase"].str.should.equal("Failed");
-	client.statusPatches[0]["status"]["exitCode"].integer.should.equal(42);
-	client.statusPatches[0]["status"]["output"].str.should.equal("boom in the log");
-	client.statusPatches[0]["status"]["failureReason"].str.should.equal("BackoffLimitExceeded");
+	client.statusPatches[0]["status"]["phase"].get!string.should.equal("Failed");
+	client.statusPatches[0]["status"]["exitCode"].get!long.should.equal(42);
+	client.statusPatches[0]["status"]["output"].get!string.should.equal("boom in the log");
+	client.statusPatches[0]["status"]["failureReason"].get!string.should.equal("BackoffLimitExceeded");
 }
 
 unittest
@@ -429,9 +429,9 @@ unittest
 
 	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null);
 
-	client.statusPatches[0]["status"]["phase"].str.should.equal("Succeeded");
-	client.statusPatches[0]["status"]["output"].str.should.equal("");
-	client.statusPatches[0]["status"]["failureReason"].str.should.equal(runOutputUnavailable);
+	client.statusPatches[0]["status"]["phase"].get!string.should.equal("Succeeded");
+	client.statusPatches[0]["status"]["output"].get!string.should.equal("");
+	client.statusPatches[0]["status"]["failureReason"].get!string.should.equal(runOutputUnavailable);
 }
 
 unittest
@@ -453,9 +453,9 @@ unittest
 
 	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null);
 
-	client.statusPatches[0]["status"]["phase"].str.should.equal("Failed");
-	client.statusPatches[0]["status"]["failureReason"].str.should.equal("BackoffLimitExceeded");
-	client.statusPatches[0]["status"]["exitCode"].integer.should.equal(1);
+	client.statusPatches[0]["status"]["phase"].get!string.should.equal("Failed");
+	client.statusPatches[0]["status"]["failureReason"].get!string.should.equal("BackoffLimitExceeded");
+	client.statusPatches[0]["status"]["exitCode"].get!long.should.equal(1);
 }
 
 unittest
@@ -477,9 +477,9 @@ unittest
 
 	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null);
 
-	client.statusPatches[0]["status"]["phase"].str.should.equal("Failed");
-	client.statusPatches[0]["status"]["exitCode"].integer.should.equal(1);
-	client.statusPatches[0]["status"]["output"].str.should.equal("partial log");
+	client.statusPatches[0]["status"]["phase"].get!string.should.equal("Failed");
+	client.statusPatches[0]["status"]["exitCode"].get!long.should.equal(1);
+	client.statusPatches[0]["status"]["output"].get!string.should.equal("partial log");
 }
 
 unittest
@@ -498,8 +498,8 @@ unittest
 
 	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null);
 
-	client.statusPatches[0]["status"]["phase"].str.should.equal("Failed");
-	client.statusPatches[0]["status"]["failureReason"].str.should.equal(runRecordUnavailable);
+	client.statusPatches[0]["status"]["phase"].get!string.should.equal("Failed");
+	client.statusPatches[0]["status"]["failureReason"].get!string.should.equal(runRecordUnavailable);
 }
 
 unittest

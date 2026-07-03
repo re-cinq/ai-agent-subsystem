@@ -8,8 +8,8 @@ import agentcore.crds.repo_ref : RepoRef;
 
 struct AgentResources
 {
-	EnvVar[] env;
-	SecretRef[] secrets;
-	@Json("mcp_servers") McpServer[] mcpServers;
-	RepoRef[] repos;
+	@optional EnvVar[] env;
+	@optional SecretRef[] secrets;
+	@optional @wire("mcp_servers") McpServer[] mcpServers;
+	@optional RepoRef[] repos;
 }

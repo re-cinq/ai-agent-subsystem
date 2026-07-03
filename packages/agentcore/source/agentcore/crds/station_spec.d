@@ -1,6 +1,6 @@
 module agentcore.crds.station_spec;
 
-import std.json : JSONValue;
+import vibe.data.json : Json;
 
 import agentcore.crds.enums : ConcurrencyPolicy;
 import agentcore.crds.schema;
@@ -8,24 +8,24 @@ import agentcore.crds.schema;
 @Description("The runtime template that pairs a recipe with a Pod template.")
 struct StationSpec
 {
-	@Required @Description("Name of the AgentDefinition this Station runs.")
+	@optional @Required @Description("Name of the AgentDefinition this Station runs.")
 	string agentDefRef;
 
-	@Minimum(1) @Description("Wall-clock limit per run; becomes the Job's activeDeadlineSeconds.")
+	@optional @Minimum(1) @Description("Wall-clock limit per run; becomes the Job's activeDeadlineSeconds.")
 	int deadlineMinutes = 30;
 
-	@Minimum(0) int successfulRunsHistoryLimit = 3;
-	@Minimum(0) int failedRunsHistoryLimit = 3;
+	@optional @Minimum(0) int successfulRunsHistoryLimit = 3;
+	@optional @Minimum(0) int failedRunsHistoryLimit = 3;
 
-	@Minimum(0) @Description("Max Agents of this Station running at once; 0 is unlimited. A Pending Agent waits while at the limit.")
+	@optional @Minimum(0) @Description("Max Agents of this Station running at once; 0 is unlimited. A Pending Agent waits while at the limit.")
 	int maxConcurrentRuns = 0;
 
-	@Description("At the limit: Allow queues (default), Forbid caps at one, Replace cancels the oldest run for the new one.")
+	@optional @Description("At the limit: Allow queues (default), Forbid caps at one, Replace cancels the oldest run for the new one.")
 	ConcurrencyPolicy concurrencyPolicy = ConcurrencyPolicy.allow;
 
-	@Required @Json("template") @PreserveUnknownFields
+	@optional @Required @wire("template") @PreserveUnknownFields
 	@Description("Standard Kubernetes PodTemplateSpec; the container named \"agent\" is wired with the recipe.")
-	JSONValue template_;
+	Json template_;
 }
 
 version (unittest) import fluent.asserts;

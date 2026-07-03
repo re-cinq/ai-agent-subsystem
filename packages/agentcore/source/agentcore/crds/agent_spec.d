@@ -5,17 +5,17 @@ import agentcore.crds.schema;
 @Description("One run of a recipe in a Station.")
 struct AgentSpec
 {
-	@Required @Description("The Station to run in (which selects the recipe).")
+	@optional @Required @Description("The Station to run in (which selects the recipe).")
 	string stationRef;
 
-	@Description("External id for correlation.")
+	@optional @Description("External id for correlation.")
 	string taskId;
 
-	@Description("GitHub repo in owner/name form.")
+	@optional @Description("GitHub repo in owner/name form.")
 	string targetRepo;
 
-	string branch;
+	@optional string branch;
 
-	@Description("Per-run values; fill the prompt {placeholder} tokens and pass to the agent.")
+	@optional @Description("Per-run values; fill the prompt {placeholder} tokens and pass to the agent.")
 	string[string] parameters;
 }
