@@ -202,7 +202,11 @@ final class HttpKubeClient : KubeClient, LeaseClient
 	/// last one observed; the controller seeds it from the list). A 410 Gone means
 	/// that resourceVersion is too old to replay — surfaced as `WatchExpired` so
 	/// the caller re-lists and resyncs rather than silently re-watching from a dead
-	/// cursor.
+	/// cursor. Any other non-200 (401 expired token, 403 RBAC regression, 5xx)
+	/// throws: streaming its error body as "lines" would parse to zero events and
+	/// look like a clean close, so the inform loop would reconnect every 2s forever
+	/// with no log and no backoff while reconciliation silently degraded to the
+	/// poll (#89). Throwing routes it to the loop's error path instead.
 	void watchAgents(string ns, string resourceVersion, scope void delegate(string line) onLine)
 	{
 		const url = crCollectionUrl(ns, "agents") ~ watchQuery(resourceVersion, watchTimeoutSeconds);
@@ -213,6 +217,11 @@ final class HttpKubeClient : KubeClient, LeaseClient
 				{
 					res.dropBody();
 					throw new WatchExpired("watch resourceVersion " ~ resourceVersion ~ " is too old (410 Gone)");
+				}
+				if (res.statusCode != 200)
+				{
+					res.dropBody();
+					throw new Exception("watch agents: unexpected status " ~ res.statusCode.to!string);
 				}
 				while (!res.bodyReader.empty)
 				{
