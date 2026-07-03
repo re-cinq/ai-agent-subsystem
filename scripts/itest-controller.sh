@@ -211,6 +211,23 @@ metadata: { name: secret-run, namespace: ai-agents }
 spec: { stationRef: secret-station }
 YAML
 
+echo "== assert the rendered Job carries both env channels =="
+# Guard against the vacuous pass (#86): the mock only compares the keys when
+# AGENT_EXPECT_API_KEY is set, so a controller that silently drops resources.env
+# and resources.secrets (the #85 parser bug) produced a Job with neither variable
+# and the run "Succeeded" without checking anything. Assert the wiring on the Job
+# spec itself, from outside the channel under test, before trusting the outcome.
+job=agent-job-$agent
+for _ in $(seq 1 24); do
+	k -n ai-agents get job "$job" >/dev/null 2>&1 && break
+	sleep 5
+done
+secret_key="$(k -n ai-agents get job "$job" -o jsonpath='{.spec.template.spec.containers[?(@.name=="agent")].env[?(@.name=="ANTHROPIC_API_KEY")].valueFrom.secretKeyRef.key}' 2>/dev/null || true)"
+[ "$secret_key" = "ANTHROPIC_API_KEY" ] || fail "Job spec has no ANTHROPIC_API_KEY secretKeyRef env (resources.secrets dropped?)"
+expect_env="$(k -n ai-agents get job "$job" -o jsonpath='{.spec.template.spec.containers[?(@.name=="agent")].env[?(@.name=="AGENT_EXPECT_API_KEY")].value}' 2>/dev/null || true)"
+[ "$expect_env" = "$fake_key" ] || fail "Job spec has no AGENT_EXPECT_API_KEY literal env (resources.env dropped?) -> the mock's key check would be skipped"
+echo "  PASS  Job spec carries the secretKeyRef and the literal expectation env"
+
 echo "== wait for $agent to reach a terminal phase (<=4m) =="
 phase="$(wait_terminal "$agent")"
 
