@@ -62,9 +62,9 @@ spec:
                   type: string
                   description: "At the limit: Allow queues (default), Forbid caps at one, Replace cancels the oldest run for the new one."
                   enum:
-                    - Allow
-                    - Forbid
-                    - Replace
+                    - "Allow"
+                    - "Forbid"
+                    - "Replace"
                 template:
                   type: object
                   description: "Standard Kubernetes PodTemplateSpec; the container named \"agent\" is wired with the recipe."

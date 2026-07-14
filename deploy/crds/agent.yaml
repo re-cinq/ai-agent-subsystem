@@ -64,10 +64,10 @@ spec:
                 phase:
                   type: string
                   enum:
-                    - Pending
-                    - Running
-                    - Succeeded
-                    - Failed
+                    - "Pending"
+                    - "Running"
+                    - "Succeeded"
+                    - "Failed"
                 jobName:
                   type: string
                 startedAt:
