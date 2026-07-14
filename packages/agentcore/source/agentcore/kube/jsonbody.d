@@ -365,12 +365,13 @@ unittest
 unittest
 {
 	// An unrecognised enum string keeps the field's default instead of throwing:
-	// a typo'd sink type degrades to stdout, permission_mode stays bypass.
+	// a typo'd sink type degrades to stdout, a typo'd permission_mode to the secure
+	// default (auto) — never opening up to bypass.
 	auto definition = parseAgentDefinition(parseJsonString(`{
 		"metadata":{"name":"typo"},
 		"spec":{"permission_mode":"noneuchmode",
 			"output":{"sinks":[{"type":"htpp","url":"http://c"}]}}}`));
-	definition.spec.permissionMode.should.equal(PermissionMode.bypass);
+	definition.spec.permissionMode.should.equal(PermissionMode.auto_);
 	definition.spec.output.sinks[0].type.should.equal(SinkType.stdout);
 }
 

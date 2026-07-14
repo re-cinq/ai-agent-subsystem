@@ -4,8 +4,6 @@ import std.traits : OriginalType;
 import vibe.data.json : Json, JsonSerializer;
 import vibe.data.serialization : name, deserializeWithPolicy, serializeWithPolicy;
 
-import agentcore.crds.enums : PermissionMode;
-
 // The CRD parse contract (kept from the hand-rolled parser it replaces, #85): the API
 // server is trusted to send well-formed JSON, but every field is treated as optional and
 // an unrecognised enum string degrades to the field's default instead of throwing. That
@@ -33,16 +31,14 @@ bool isEnumWireValue(E)(string value) @safe if (is(E == enum))
 	return false;
 }
 
-/// The member an unrecognised wire value degrades to — the same default the CRD
-/// struct field declares, so the parser and the CRD schema agree. `.init` (the first
-/// member) is right for every enum whose default is its first member; `PermissionMode`
-/// is the one whose declared default (`bypass`) is not, so it is named explicitly.
+/// The member an unrecognised wire value degrades to — the same default the CRD struct
+/// field declares, so the parser and the CRD schema agree. Every CRD enum declares its
+/// first member as the default (`PermissionMode.auto_` is the secure default), so `.init`
+/// is always right — including the security-sensitive fallback for a typo'd
+/// `permission_mode`, which must never silently open up to `bypass`.
 private E lenientDefault(E)() @safe if (is(E == enum))
 {
-	static if (is(E == PermissionMode))
-		return PermissionMode.bypass;
-	else
-		return E.init;
+	return E.init;
 }
 
 /// vibe serialization policy for the CRD model: string-backed enums (de)serialize by their
