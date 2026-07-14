@@ -21,7 +21,7 @@ final class CodexAgent : Agent
 			cmd ~= ["--model", recipe.model];
 		if (recipe.permissionMode == PermissionMode.bypass)
 			cmd ~= "--dangerously-bypass-approvals-and-sandbox";
-		cmd ~= renderedPrompt;
+		cmd ~= ["--", renderedPrompt];
 		return cmd;
 	}
 }
@@ -38,5 +38,15 @@ version (unittest) import fluent.asserts;
 	cmd.should.contain("--json");
 	cmd.should.contain("gpt-5-codex");
 	cmd.should.contain("--dangerously-bypass-approvals-and-sandbox"); // bypass is the default
+	cmd[$ - 2].should.equal("--"); // prompt fenced behind end-of-options
 	cmd[$ - 1].should.equal("Refactor");
+}
+
+@safe unittest
+{
+	// #136: a leading-dash prompt is data, not a codex flag — the -- fence guarantees it.
+	AgentDefinitionSpec recipe;
+	const cmd = (new CodexAgent).command(recipe, "--help");
+	cmd[$ - 2].should.equal("--");
+	cmd[$ - 1].should.equal("--help");
 }
