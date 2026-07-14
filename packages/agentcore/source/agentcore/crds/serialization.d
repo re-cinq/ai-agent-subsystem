@@ -22,6 +22,17 @@ E toEnumMember(E)(string value, E fallback) @safe if (is(E == enum))
 	return fallback;
 }
 
+/// Whether `value` is the wire string of some member of the string-backed enum `E`.
+/// Lets a parser tell a real value from a typo the lenient fallback would otherwise
+/// mask by collapsing it to `.init`.
+bool isEnumWireValue(E)(string value) @safe if (is(E == enum))
+{
+	static foreach (member; __traits(allMembers, E))
+		if (value == cast(string) __traits(getMember, E, member))
+			return true;
+	return false;
+}
+
 /// The member an unrecognised wire value degrades to — the same default the CRD
 /// struct field declares, so the parser and the CRD schema agree. `.init` (the first
 /// member) is right for every enum whose default is its first member; `PermissionMode`
