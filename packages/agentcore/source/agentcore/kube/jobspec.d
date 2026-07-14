@@ -97,8 +97,9 @@ private Json deepCopy(Json value)
 private Json withRunLabels(Json template_, Agent agent, Station station)
 {
 	auto pod = template_;
-	Json meta = ("metadata" in pod) ? pod["metadata"] : Json.emptyObject;
-	Json labels = (meta.type == Json.Type.object && ("labels" in meta))
+	Json meta = ("metadata" in pod && pod["metadata"].type == Json.Type.object)
+		? pod["metadata"] : Json.emptyObject;
+	Json labels = ("labels" in meta && meta["labels"].type == Json.Type.object)
 		? meta["labels"] : Json.emptyObject;
 	labels[labelComponent] = componentJob;
 	labels[labelAgent] = agent.metadata.name;
@@ -183,7 +184,10 @@ private Json withBundleMount(Json container)
 {
 	Json[] mounts;
 	if (auto existing = "volumeMounts" in container)
-		mounts = (*existing).get!(Json[]).dup;
+		if (existing.type == Json.Type.array)
+			foreach (m; (*existing).get!(Json[]))
+				if (!isNamed(m, bundleVolume))
+					mounts ~= m;
 	Json[string] mount;
 	mount["name"] = Json(bundleVolume);
 	mount["mountPath"] = Json(bundleRoot);
@@ -191,11 +195,23 @@ private Json withBundleMount(Json container)
 	return Json(mounts);
 }
 
+/// Whether `entry` is an object with a `name` field equal to `name`. Used to drop a
+/// Station-supplied volume/mount that collides with the bundle's reserved `agent`
+/// name so the assembled pod carries exactly one — the kubelet rejects duplicates.
+private bool isNamed(Json entry, string name)
+{
+	return entry.type == Json.Type.object && ("name" in entry)
+		&& entry["name"].type == Json.Type.string && entry["name"].get!string == name;
+}
+
 private Json withBundleVolume(Json spec)
 {
 	Json[] volumes;
 	if (auto existing = "volumes" in spec)
-		volumes = (*existing).get!(Json[]).dup;
+		if (existing.type == Json.Type.array)
+			foreach (v; (*existing).get!(Json[]))
+				if (!isNamed(v, bundleVolume))
+					volumes ~= v;
 	Json[string] volume;
 	volume["name"] = Json(bundleVolume);
 	volume["emptyDir"] = Json.emptyObject;
@@ -564,6 +580,66 @@ unittest
 	labels["agents.re-cinq.com/component"].get!string.should.equal("job");
 	labels["agents.re-cinq.com/agent"].get!string.should.equal("bug-fixer-run-1");
 	labels["agents.re-cinq.com/station"].get!string.should.equal("bug-fixer-station");
+}
+
+unittest
+{
+	// #126: a Station pod template with an explicit null metadata, and a volume/mount
+	// already named "agent", must not throw a raw Json error or emit a duplicate "agent"
+	// name (the kubelet rejects duplicate volume/mount names). Labels still apply, and
+	// exactly one bundle volume + mount survives, at the bundle path.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	station.spec.template_ = parseJsonString(
+		`{"metadata":null,"spec":{"containers":[{"name":"agent","image":"node:22",`
+		~ `"volumeMounts":[{"name":"agent","mountPath":"/somewhere"}]}],`
+		~ `"volumes":[{"name":"agent","emptyDir":{}}]}}`);
+
+	auto job = buildJob(agent, station, definition, "img");
+
+	job["spec"]["template"]["metadata"]["labels"]["agents.re-cinq.com/component"]
+		.get!string.should.equal("job");
+
+	auto pod = job["spec"]["template"]["spec"];
+	int agentVolumes;
+	foreach (v; pod["volumes"].get!(Json[]))
+		if (v["name"].get!string == "agent")
+			agentVolumes++;
+	agentVolumes.should.equal(1);
+
+	int agentMounts;
+	string mountPath;
+	foreach (m; agentContainer(job)["volumeMounts"].get!(Json[]))
+		if (m["name"].get!string == "agent")
+		{
+			agentMounts++;
+			mountPath = m["mountPath"].get!string;
+		}
+	agentMounts.should.equal(1);
+	mountPath.should.equal(bundleRoot);
+}
+
+unittest
+{
+	// #126: every template node that can be an explicit JSON null — metadata.labels, the
+	// agent container's volumeMounts, and the pod spec's volumes — is handled without a raw
+	// Json throw, and the run still gets its label plus the bundle volume/mount.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	station.spec.template_ = parseJsonString(
+		`{"metadata":{"labels":null},"spec":{"containers":[{"name":"agent","image":"node:22",`
+		~ `"volumeMounts":null}],"volumes":null}}`);
+
+	auto job = buildJob(agent, station, definition, "img");
+
+	job["spec"]["template"]["metadata"]["labels"]["agents.re-cinq.com/component"]
+		.get!string.should.equal("job");
+	job["spec"]["template"]["spec"]["volumes"].get!(Json[]).length.should.equal(1);
+	agentContainer(job)["volumeMounts"].get!(Json[]).length.should.equal(1);
 }
 
 unittest
