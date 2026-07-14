@@ -332,10 +332,13 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 	strVar(envSinks, sinksJson(recipe.output.sinks));
 	// An http sink's `headers_secret` names a key in the agent-secrets Secret holding
 	// the auth headers; inject that key as an env var of the same name so the pod's
-	// sink delivery can resolve it. Dedup so multiple sinks sharing a secret inject once.
+	// sink delivery can resolve it. Dedup so multiple sinks sharing a secret inject once,
+	// and drop any name colliding with a controller-owned var so it can't shadow the wire
+	// contract (a `headers_secret` of AGENT_SINKS would otherwise last-wins the real value).
 	bool[string] headerSecretsInjected;
 	foreach (sink; recipe.output.sinks)
 		if (sink.type == SinkType.http && sink.headersSecret.length
+			&& !isReservedEnvName(sink.headersSecret)
 			&& sink.headersSecret !in headerSecretsInjected)
 		{
 			secretVar(sink.headersSecret, sink.headersSecret);
@@ -673,6 +676,28 @@ unittest
 	sinks[0].headersSecret.should.equal("SINK_HEADERS");
 	// The header Secret key is injected as an env var so deliverSinks can read it.
 	envSecretKey(container, "SINK_HEADERS").should.equal("SINK_HEADERS");
+}
+
+unittest
+{
+	// #137: an http sink's headers_secret that reuses a controller-owned env name must not
+	// shadow the real value — the collision is dropped like any other reserved-name reuse.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.output.sinks = [OutputSink(SinkType.http, "http://collector", "AGENT_SINKS")];
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img"));
+
+	// Exactly one AGENT_SINKS entry, and it is the controller's literal sinks value —
+	// not a secretKeyRef injected from the colliding header secret.
+	int sinksEntries;
+	foreach (entry; container["env"].get!(Json[]))
+		if (entry["name"].get!string == "AGENT_SINKS")
+			sinksEntries++;
+	sinksEntries.should.equal(1);
+	parseSinks(envValue(container, "AGENT_SINKS")).length.should.equal(1);
 }
 
 unittest
