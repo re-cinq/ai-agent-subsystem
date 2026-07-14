@@ -215,7 +215,7 @@ string redactUrlCredentials(string s) @safe pure
 		result ~= s[i .. schemeEnd];
 		size_t j = schemeEnd;
 		ptrdiff_t at = -1;
-		while (j < s.length && s[j] != ' ' && s[j] != '/')
+		while (j < s.length && s[j] != ' ' && s[j] != '/' && s[j] != '?' && s[j] != '#')
 		{
 			if (s[j] == '@')
 				at = j;
@@ -237,4 +237,7 @@ version (unittest) import fluent.asserts;
 	// a url without userinfo is untouched.
 	redactUrlCredentials("git clone -- https://github.com/o/app /ws/app")
 		.should.equal("git clone -- https://github.com/o/app /ws/app");
+	// an '@' in a query (no path) is not credentials — the host is not swallowed.
+	redactUrlCredentials("curl https://host?next=a@b")
+		.should.equal("curl https://host?next=a@b");
 }

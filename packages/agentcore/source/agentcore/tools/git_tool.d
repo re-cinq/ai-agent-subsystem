@@ -32,14 +32,34 @@ private string stripUserinfo(string url) @safe pure
 	if (scheme < 0)
 		return url;
 	const hostStart = scheme + 3;
-	const rest = url[hostStart .. $];
-	const at = rest.indexOf('@');
+	// The authority ends at the first '/', '?' or '#'; userinfo is everything up to the
+	// LAST '@' within it (a password may itself contain an unencoded '@').
+	size_t authEnd = url.length;
+	foreach (i; hostStart .. url.length)
+		if (url[i] == '/' || url[i] == '?' || url[i] == '#')
+		{
+			authEnd = i;
+			break;
+		}
+	ptrdiff_t at = -1;
+	foreach (i; hostStart .. authEnd)
+		if (url[i] == '@')
+			at = i;
 	if (at < 0)
 		return url;
-	const slash = rest.indexOf('/');
-	if (slash >= 0 && at > slash)
-		return url; // the '@' is in the path, not userinfo
-	return url[0 .. hostStart] ~ rest[at + 1 .. $];
+	// An ssh login is not a secret (like the scp-style user@host), so keep the user and
+	// strip only a `:password`. For http(s) the whole userinfo is dropped — even a bare
+	// username, which for GitHub/GitLab is often the token itself.
+	const userScheme = url[0 .. scheme];
+	if (userScheme == "ssh" || userScheme == "git+ssh")
+	{
+		const userinfo = url[hostStart .. at];
+		const colon = userinfo.indexOf(':');
+		if (colon < 0)
+			return url; // just a login, nothing to strip
+		return url[0 .. hostStart] ~ userinfo[0 .. colon] ~ url[at .. $];
+	}
+	return url[0 .. hostStart] ~ url[at + 1 .. $];
 }
 
 /// Where a repo is cloned: its explicit `path` when set (resolved under the
@@ -183,6 +203,20 @@ unittest
 	auto clone = git.steps(ctx)[1];
 	clone.canFind!(a => a.canFind("token")).should.equal(false);
 	clone.should.equal(["git", "clone", "--", "https://github.com/o/app.git", "/ws/app"]);
+}
+
+unittest
+{
+	// #117 review: a password containing an unencoded '@' must be fully stripped — the
+	// userinfo ends at the LAST '@' in the authority, not the first.
+	repoUrl("https://user:p@ss@github.com/o/app").should.equal("https://github.com/o/app");
+
+	// An ssh login is not a secret: keep `user@`, but strip a `:password` if present.
+	repoUrl("ssh://git@github.com/o/app.git").should.equal("ssh://git@github.com/o/app.git");
+	repoUrl("ssh://user:secret@github.com/o/app.git").should.equal("ssh://user@github.com/o/app.git");
+
+	// An '@' in a query/fragment (no path) is not userinfo and must be left alone.
+	repoUrl("https://github.com/o/app?ref=a@b").should.equal("https://github.com/o/app?ref=a@b");
 }
 
 unittest
