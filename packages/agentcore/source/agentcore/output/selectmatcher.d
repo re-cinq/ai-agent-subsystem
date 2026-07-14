@@ -5,7 +5,8 @@ import vibe.data.json : Json, parseJsonString;
 
 import agentcore.crds.enums : SelectEvent, SelectRole;
 import agentcore.crds.output_selector : OutputSelector;
-import agentcore.crds.serialization : fromJson;
+import agentcore.crds.serialization : fromJson, isEnumWireValue;
+import agentcore.core.log : logError;
 
 /// A provider event normalized to the recipe's vocabulary: its `SelectEvent` type
 /// plus the tool name and text needed to evaluate a selector's `tool`/`contains`.
@@ -55,8 +56,10 @@ bool selected(const OutputSelector[] selectors, string provider, string payload)
 /// Parse the `AGENT_SELECT` env var (the recipe's `output.select` the controller
 /// injected as JSON) back into the `OutputSelector` CRD structs — the same type the
 /// controller serialized, so no field is dropped here. An entry missing its `event` is
-/// skipped (the controller never emits one); a malformed document yields an empty list
-/// rather than throwing.
+/// skipped (the controller never emits one); an entry whose `event` is not a known
+/// `SelectEvent` wire value is skipped too, so a typo can't silently degrade to the
+/// enum's first member (tool_call) and start matching tool calls; a malformed document
+/// yields an empty list rather than throwing.
 OutputSelector[] parseSelectors(string json)
 {
 	if (json.length == 0)
@@ -66,8 +69,24 @@ OutputSelector[] parseSelectors(string json)
 	try
 	{
 		foreach (entry; parseJsonString(json).get!(Json[]))
-			if ("event" in entry)
-				selectors ~= fromJson!OutputSelector(entry);
+		{
+			auto event = "event" in entry;
+			if (event is null || event.type != Json.Type.string)
+				continue;
+			if (!isEnumWireValue!SelectEvent(event.get!string))
+			{
+				// An unknown event can't map to a SelectEvent, so the entry is dropped
+				// rather than silently degrading to the enum's first member (tool_call).
+				// The CRD enum rejects this at admission so it should be unreachable; log
+				// it so a selector that slipped past validation is diagnosable, and note
+				// the drop is fail-open (if it was the only selector, everything passes) —
+				// stdout still carries the full stream regardless.
+				logError("[selectmatcher] dropping output.select entry with unknown event '"
+						~ event.get!string ~ "'");
+				continue;
+			}
+			selectors ~= fromJson!OutputSelector(entry);
+		}
 	}
 	catch (Exception)
 		return null;
@@ -195,6 +214,17 @@ unittest
 {
 	// No selectors -> everything passes.
 	selected(null, "claude", `{"type":"result"}`).should.equal(true);
+}
+
+unittest
+{
+	// #114: an unrecognized event string is dropped, not silently degraded to the enum's
+	// first member (tool_call) — a typo'd selector must never start matching tool calls.
+	parseSelectors(`[{"event":"reslt"}]`).length.should.equal(0);
+
+	auto ok = parseSelectors(`[{"event":"result"}]`);
+	ok.length.should.equal(1);
+	ok[0].event.should.equal(SelectEvent.result);
 }
 
 unittest
