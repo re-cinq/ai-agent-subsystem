@@ -104,7 +104,7 @@ ReconcileEffect reconcileAgent(KubeClient client, string ns, Agent agent, string
 		return ReconcileEffect.init;
 	case ActionKind.complete:
 		client.patchAgentStatus(ns, agent.metadata.name,
-			statusPatch(decision, agent.status.jobName, now, agent.metadata.resourceVersion));
+			statusPatch(decision, jobName, now, agent.metadata.resourceVersion));
 		pruneHistory(client, ns, agent.spec.stationRef, cached);
 		return ReconcileEffect.init;
 	}
@@ -577,4 +577,7 @@ unittest
 	client.statusPatches.length.should.equal(1);
 	client.statusPatches[0]["status"]["phase"].get!string.should.equal("Failed");
 	client.statusPatches[0]["status"]["failureReason"].get!string.should.equal(runRecordUnavailable);
+	// The recovered (derived) Job name is written into the terminal record, so the run
+	// no longer ends with a permanently empty jobName.
+	client.statusPatches[0]["status"]["jobName"].get!string.should.equal("agent-job-run-11");
 }

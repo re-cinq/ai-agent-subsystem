@@ -31,6 +31,11 @@ Json statusPatch(Decision decision, string jobName, string timestamp, string res
 		status["completedAt"] = timestamp;
 		break;
 	case ActionKind.complete:
+		// Record the Job the run used, so a run whose jobName was recovered from the
+		// derived name (an Agent left Running with an empty status.jobName) still ends
+		// with a complete terminal record instead of a permanently empty jobName column.
+		if (jobName.length)
+			status["jobName"] = jobName;
 		status["exitCode"] = decision.exitCode;
 		status["output"] = decision.output;
 		if (decision.failureReason.length)
