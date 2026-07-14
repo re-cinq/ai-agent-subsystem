@@ -15,7 +15,7 @@ import agentcore.crds.serialization : toJson;
 import agentcore.vendors.select : agentForModel;
 import agentcore.kube.bundle : bundleRoot, supervisorPath;
 import agentcore.core.env;
-import agentcore.kube.jobs : jobNameFor;
+import agentcore.kube.jobs : jobNameFor, safeName;
 import agentcore.core.prompt : renderPrompt;
 
 enum crApiVersion = "agents.re-cinq.com/v1alpha1";
@@ -73,9 +73,14 @@ Json buildJob(Agent agent, Station station, AgentDefinition definition, string a
 	auto template_ = wirePodTemplate(deepCopy(station.spec.template_), commandFor(argv), env, agentImage);
 	template_ = withRunLabels(template_, agent, station);
 
+	// A deadlineMinutes of 0 (explicitly set, or slipped past the schema-only @Minimum)
+	// would render activeDeadlineSeconds 0, which the Job controller treats as an
+	// already-exceeded deadline and fails the run instantly. Hold it to at least a minute.
+	const deadlineMinutes = station.spec.deadlineMinutes < 1 ? 1 : station.spec.deadlineMinutes;
+
 	Json[string] spec;
 	spec["ttlSecondsAfterFinished"] = Json(jobTtlSeconds);
-	spec["activeDeadlineSeconds"] = Json(station.spec.deadlineMinutes * 60);
+	spec["activeDeadlineSeconds"] = Json(long(deadlineMinutes) * 60);
 	spec["backoffLimit"] = Json(0);
 	spec["template"] = template_;
 
@@ -102,8 +107,8 @@ private Json withRunLabels(Json template_, Agent agent, Station station)
 	Json labels = ("labels" in meta && meta["labels"].type == Json.Type.object)
 		? meta["labels"] : Json.emptyObject;
 	labels[labelComponent] = componentJob;
-	labels[labelAgent] = agent.metadata.name;
-	labels[labelStation] = station.metadata.name;
+	labels[labelAgent] = safeName(agent.metadata.name);
+	labels[labelStation] = safeName(station.metadata.name);
 	meta["labels"] = labels;
 	pod["metadata"] = meta;
 	return pod;
@@ -653,6 +658,35 @@ unittest
 
 	auto pod = buildJob(agent, station, definition, "img")["spec"]["template"]["spec"];
 	pod["automountServiceAccountToken"].get!bool.should.equal(false);
+}
+
+unittest
+{
+	// #115: a deadlineMinutes of 0 must not render activeDeadlineSeconds 0, which the Job
+	// controller treats as an already-exceeded deadline and fails the run instantly.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	station.spec.deadlineMinutes = 0;
+
+	auto job = buildJob(agent, station, definition, "img");
+	job["spec"]["activeDeadlineSeconds"].get!long.should.equal(60);
+}
+
+unittest
+{
+	// #115: a very large deadlineMinutes must not overflow `int * 60` into a negative
+	// activeDeadlineSeconds, which the API server rejects on every reconcile. Widening to
+	// long keeps it a huge-but-positive value the API server accepts.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	station.spec.deadlineMinutes = int.max;
+
+	auto job = buildJob(agent, station, definition, "img");
+	job["spec"]["activeDeadlineSeconds"].get!long.should.equal(long(int.max) * 60);
 }
 
 unittest
