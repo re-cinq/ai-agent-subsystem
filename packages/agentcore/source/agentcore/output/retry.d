@@ -20,12 +20,15 @@ struct RetryPolicy
 /// delay doubled once per prior attempt, capped at `maxDelayMs`.
 int backoffMs(int attempt, RetryPolicy policy) @safe pure nothrow
 {
-	long delay = policy.baseDelayMs;
+	const cap = policy.maxDelayMs < 0 ? 0 : policy.maxDelayMs;
+	long delay = policy.baseDelayMs < 0 ? 0 : policy.baseDelayMs;
+	if (delay == 0 || delay >= cap)
+		return cast(int)(delay > cap ? cap : delay);
 	foreach (_; 1 .. attempt)
 	{
 		delay *= 2;
-		if (delay >= policy.maxDelayMs)
-			return policy.maxDelayMs;
+		if (delay >= cap)
+			return cap;
 	}
 	return cast(int) delay;
 }
@@ -43,8 +46,10 @@ bool shouldRetry(int attempt, RetryPolicy policy) @safe pure nothrow
 bool withRetry(RetryPolicy policy, scope bool delegate() nothrow attempt,
 	scope void delegate(int ms) nothrow sleepMs) nothrow
 {
-	foreach (n; 1 .. policy.maxAttempts + 1)
+	const attempts = policy.maxAttempts < 1 ? 1 : policy.maxAttempts;
+	foreach (i; 0 .. attempts)
 	{
+		const n = i + 1;
 		if (attempt())
 			return true;
 		if (!shouldRetry(n, policy))
@@ -121,4 +126,39 @@ unittest
 	ok.should.equal(false);
 	calls.should.equal(3);
 	slept.should.equal([200, 400]); // no sleep after the final failed attempt
+}
+
+unittest
+{
+	// #113: an int.max maxAttempts must not overflow the loop bound into zero tries.
+	RetryPolicy huge;
+	huge.maxAttempts = int.max;
+	int calls;
+	const ok = withRetry(huge, () { calls++; return calls == 2; }, (int) {});
+	ok.should.equal(true);
+	calls.should.equal(2);
+}
+
+unittest
+{
+	// #113: maxAttempts below 1 still makes the one guaranteed delivery try.
+	RetryPolicy none;
+	none.maxAttempts = 0;
+	int calls;
+	const ok = withRetry(none, () { calls++; return false; }, (int) {});
+	ok.should.equal(false);
+	calls.should.equal(1);
+}
+
+@safe unittest
+{
+	// #113: a negative base or cap must never produce a negative backoff.
+	RetryPolicy negativeBase;
+	negativeBase.baseDelayMs = -200;
+	backoffMs(1, negativeBase).should.equal(0);
+	backoffMs(4, negativeBase).should.equal(0);
+
+	RetryPolicy negativeCap;
+	negativeCap.maxDelayMs = -1;
+	backoffMs(3, negativeCap).should.equal(0);
 }
