@@ -21,7 +21,7 @@ struct AgentDefinitionSpec
 
 	@optional @wire("allowed_tools") string[] allowedTools;
 	@optional @wire("disallowed_tools") string[] disallowedTools;
-	@optional @wire("permission_mode") PermissionMode permissionMode = PermissionMode.bypass;
+	@optional @wire("permission_mode") PermissionMode permissionMode = PermissionMode.auto_;
 	@optional @wire("max_turns") @Minimum(1) int maxTurns;
 
 	@optional AgentResources resources;
@@ -35,7 +35,7 @@ version (unittest) import fluent.asserts;
 
 @safe unittest
 {
-	AgentDefinitionSpec.init.permissionMode.should.equal(PermissionMode.bypass);
+	AgentDefinitionSpec.init.permissionMode.should.equal(PermissionMode.auto_);
 	static assert(jsonNameOf!(AgentDefinitionSpec.allowedTools) == "allowed_tools");
 	static assert(jsonNameOf!(AgentDefinitionSpec.permissionMode) == "permission_mode");
 	static assert(descriptionOf!(AgentDefinitionSpec.model).length > 0);

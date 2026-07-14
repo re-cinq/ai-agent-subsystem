@@ -37,7 +37,7 @@ version (unittest) import fluent.asserts;
 	cmd[1].should.equal("exec");
 	cmd.should.contain("--json");
 	cmd.should.contain("gpt-5-codex");
-	cmd.should.contain("--dangerously-bypass-approvals-and-sandbox"); // bypass is the default
+	cmd.should.not.contain("--dangerously-bypass-approvals-and-sandbox"); // auto is the default
 	cmd[$ - 2].should.equal("--"); // prompt fenced behind end-of-options
 	cmd[$ - 1].should.equal("Refactor");
 }
@@ -49,4 +49,12 @@ version (unittest) import fluent.asserts;
 	const cmd = (new CodexAgent).command(recipe, "--help");
 	cmd[$ - 2].should.equal("--");
 	cmd[$ - 1].should.equal("--help");
+}
+
+@safe unittest
+{
+	// Explicit bypass adds the sandbox-skip flag.
+	AgentDefinitionSpec recipe;
+	recipe.permissionMode = PermissionMode.bypass;
+	(new CodexAgent).command(recipe, "p").should.contain("--dangerously-bypass-approvals-and-sandbox");
 }

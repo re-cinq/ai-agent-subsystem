@@ -73,10 +73,18 @@ version (unittest) import fluent.asserts;
 
 @safe unittest
 {
-	// Defaults: permissionMode is bypass, empty model -> default.
+	// Defaults: permissionMode is auto (allow/deny enforced, no bypass), empty model -> default.
 	AgentDefinitionSpec recipe;
 	const cmd = (new ClaudeAgent).command(recipe, "p");
-	cmd.should.contain("--dangerously-skip-permissions");
+	cmd.should.not.contain("--dangerously-skip-permissions");
 	cmd.should.contain(defaultModel);
 	cmd.should.not.contain("--allowedTools");
+}
+
+@safe unittest
+{
+	// Explicit bypass skips the permission prompts.
+	AgentDefinitionSpec recipe;
+	recipe.permissionMode = PermissionMode.bypass;
+	(new ClaudeAgent).command(recipe, "p").should.contain("--dangerously-skip-permissions");
 }

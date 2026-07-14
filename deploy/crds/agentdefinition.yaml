@@ -52,7 +52,6 @@ spec:
                     type: string
                 permission_mode:
                   type: string
-                  default: "bypass"
                   enum:
                     - "auto"
                     - "bypass"
