@@ -2,6 +2,7 @@ module agentcore.tools.git_tool;
 
 import std.algorithm.searching : canFind;
 import std.path : buildNormalizedPath;
+import std.string : indexOf;
 
 import agentcore.crds.repo_ref : RepoRef;
 import agentcore.tools.initcontext : InitContext;
@@ -17,8 +18,28 @@ string repoUrl(string urlOrOwnerName) @safe pure
 	if (urlOrOwnerName.length == 0)
 		return "";
 	if (urlOrOwnerName.canFind("://") || urlOrOwnerName.canFind('@'))
-		return urlOrOwnerName;
+		return stripUserinfo(urlOrOwnerName);
 	return "https://github.com/" ~ urlOrOwnerName ~ ".git";
+}
+
+/// Remove any `userinfo@` from a `scheme://userinfo@host/...` url so credentials a
+/// caller embedded in the url can't reach the clone argv or a logged step. An scp-style
+/// `user@host:path` (no scheme) is left as-is: there the `user` is an ssh login, not a
+/// secret, and there is no password component.
+private string stripUserinfo(string url) @safe pure
+{
+	const scheme = url.indexOf("://");
+	if (scheme < 0)
+		return url;
+	const hostStart = scheme + 3;
+	const rest = url[hostStart .. $];
+	const at = rest.indexOf('@');
+	if (at < 0)
+		return url;
+	const slash = rest.indexOf('/');
+	if (slash >= 0 && at > slash)
+		return url; // the '@' is in the path, not userinfo
+	return url[0 .. hostStart] ~ rest[at + 1 .. $];
 }
 
 /// Where a repo is cloned: its explicit `path` when set (resolved under the
@@ -142,6 +163,26 @@ unittest
 	repoUrl("https://github.com/o/app").should.equal("https://github.com/o/app");
 	repoUrl("git@github.com:o/app.git").should.equal("git@github.com:o/app.git");
 	repoUrl("").should.equal("");
+}
+
+unittest
+{
+	// #117: userinfo embedded in an http(s) url is stripped so credentials can't leak into
+	// the clone argv (visible in /proc/<pid>/cmdline) or a logged step. The secure path for
+	// private repos is token_secret (env-based), not credentials in the url.
+	repoUrl("https://user:token@github.com/o/app").should.equal("https://github.com/o/app");
+	repoUrl("https://x-access-token@github.com/o/app.git").should.equal("https://github.com/o/app.git");
+	// an scp-style user@host is an ssh login, not a secret, and is left intact.
+	repoUrl("git@github.com:o/app.git").should.equal("git@github.com:o/app.git");
+
+	// the stripped url is what lands in the clone argv.
+	auto git = new GitTool;
+	InitContext ctx;
+	ctx.workspaceDir = "/ws";
+	ctx.repos = [RepoRef("app", "https://user:token@github.com/o/app.git")];
+	auto clone = git.steps(ctx)[1];
+	clone.canFind!(a => a.canFind("token")).should.equal(false);
+	clone.should.equal(["git", "clone", "--", "https://github.com/o/app.git", "/ws/app"]);
 }
 
 unittest
