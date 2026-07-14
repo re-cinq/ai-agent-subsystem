@@ -329,12 +329,20 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 		env ~= Json(entry);
 	}
 
-	strVar(envSinks, sinksJson(recipe.output.sinks));
-	// An http sink's `headers_secret` names a key in the agent-secrets Secret holding
-	// the auth headers; inject that key as an env var of the same name so the pod's
-	// sink delivery can resolve it. Dedup so multiple sinks sharing a secret inject once.
+	// An http sink's `headers_secret` names a key in the agent-secrets Secret holding the
+	// auth headers, injected below as an env var of the same name. A name colliding with a
+	// controller-owned var is dropped up front — on the serialized sinks too, not just the
+	// env injection: otherwise the pod's `sinkHeaders()` would still resolve that reserved
+	// name from the environment (where it holds the controller's value) and post it to the
+	// sink as an auth header. Blanking it here makes pod-side resolution return "".
+	auto sinks = recipe.output.sinks.dup;
+	foreach (ref sink; sinks)
+		if (sink.type == SinkType.http && isReservedEnvName(sink.headersSecret))
+			sink.headersSecret = "";
+
+	strVar(envSinks, sinksJson(sinks));
 	bool[string] headerSecretsInjected;
-	foreach (sink; recipe.output.sinks)
+	foreach (sink; sinks)
 		if (sink.type == SinkType.http && sink.headersSecret.length
 			&& sink.headersSecret !in headerSecretsInjected)
 		{
@@ -673,6 +681,32 @@ unittest
 	sinks[0].headersSecret.should.equal("SINK_HEADERS");
 	// The header Secret key is injected as an env var so deliverSinks can read it.
 	envSecretKey(container, "SINK_HEADERS").should.equal("SINK_HEADERS");
+}
+
+unittest
+{
+	// #137: an http sink's headers_secret that reuses a controller-owned env name must not
+	// shadow the real value — the collision is dropped like any other reserved-name reuse.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.output.sinks = [OutputSink(SinkType.http, "http://collector", "AGENT_SINKS")];
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img"));
+
+	// Exactly one AGENT_SINKS entry, and it is the controller's literal sinks value —
+	// not a secretKeyRef injected from the colliding header secret.
+	int sinksEntries;
+	foreach (entry; container["env"].get!(Json[]))
+		if (entry["name"].get!string == "AGENT_SINKS")
+			sinksEntries++;
+	sinksEntries.should.equal(1);
+	auto sinks = parseSinks(envValue(container, "AGENT_SINKS"));
+	sinks.length.should.equal(1);
+	// The serialized sink no longer carries the reserved name, so pod-side sinkHeaders()
+	// can't resolve the controller-owned AGENT_SINKS value and post it as an auth header.
+	sinks[0].headersSecret.should.equal("");
 }
 
 unittest
