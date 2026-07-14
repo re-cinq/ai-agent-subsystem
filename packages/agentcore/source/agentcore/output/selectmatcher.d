@@ -6,6 +6,7 @@ import vibe.data.json : Json, parseJsonString;
 import agentcore.crds.enums : SelectEvent, SelectRole;
 import agentcore.crds.output_selector : OutputSelector;
 import agentcore.crds.serialization : fromJson, isEnumWireValue;
+import agentcore.core.log : logError;
 
 /// A provider event normalized to the recipe's vocabulary: its `SelectEvent` type
 /// plus the tool name and text needed to evaluate a selector's `tool`/`contains`.
@@ -70,9 +71,20 @@ OutputSelector[] parseSelectors(string json)
 		foreach (entry; parseJsonString(json).get!(Json[]))
 		{
 			auto event = "event" in entry;
-			if (event is null || event.type != Json.Type.string
-				|| !isEnumWireValue!SelectEvent(event.get!string))
+			if (event is null || event.type != Json.Type.string)
 				continue;
+			if (!isEnumWireValue!SelectEvent(event.get!string))
+			{
+				// An unknown event can't map to a SelectEvent, so the entry is dropped
+				// rather than silently degrading to the enum's first member (tool_call).
+				// The CRD enum rejects this at admission so it should be unreachable; log
+				// it so a selector that slipped past validation is diagnosable, and note
+				// the drop is fail-open (if it was the only selector, everything passes) —
+				// stdout still carries the full stream regardless.
+				logError("[selectmatcher] dropping output.select entry with unknown event '"
+						~ event.get!string ~ "'");
+				continue;
+			}
 			selectors ~= fromJson!OutputSelector(entry);
 		}
 	}
