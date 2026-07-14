@@ -40,6 +40,8 @@ spec:
               properties:
                 agentDefRef:
                   type: string
+                  pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+                  maxLength: 253
                   description: "Name of the AgentDefinition this Station runs."
                 deadlineMinutes:
                   type: integer

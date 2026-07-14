@@ -85,7 +85,7 @@ export interface AgentDefinitionSpec {
   /** Model id (e.g. claude-sonnet-4-6). If omitted, the runtime default is used. */
   model?: string;
   /** Task template; {placeholder} tokens are filled from an Agent's parameters. */
-  prompt?: string;
+  prompt: string;
   allowed_tools?: string[];
   disallowed_tools?: string[];
   permission_mode?: PermissionMode;

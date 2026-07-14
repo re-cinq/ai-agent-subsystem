@@ -16,7 +16,7 @@ struct AgentDefinitionSpec
 	@optional @Description("Model id (e.g. claude-sonnet-4-6). If omitted, the runtime default is used.")
 	string model;
 
-	@optional @Description("Task template; {placeholder} tokens are filled from an Agent's parameters.")
+	@optional @Required @Description("Task template; {placeholder} tokens are filled from an Agent's parameters.")
 	string prompt;
 
 	@optional @wire("allowed_tools") string[] allowedTools;
@@ -36,6 +36,7 @@ version (unittest) import fluent.asserts;
 @safe unittest
 {
 	AgentDefinitionSpec.init.permissionMode.should.equal(PermissionMode.auto_);
+	static assert(isRequired!(AgentDefinitionSpec.prompt));
 	static assert(jsonNameOf!(AgentDefinitionSpec.allowedTools) == "allowed_tools");
 	static assert(jsonNameOf!(AgentDefinitionSpec.permissionMode) == "permission_mode");
 	static assert(descriptionOf!(AgentDefinitionSpec.model).length > 0);

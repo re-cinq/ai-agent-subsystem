@@ -86,6 +86,12 @@ private struct Deco
 	long minimum;
 	/// The field's `@Format` (e.g. "date-time"), or "".
 	string format;
+	/// The field's `@Pattern` regex (`pattern` in the schema), or "".
+	string pattern;
+	/// Whether the field carries a `@MaxLength` bound.
+	bool hasMaxLength;
+	/// The `@MaxLength` bound (valid only when `hasMaxLength`).
+	long maxLength;
 }
 
 /// Builds the `Deco` for field `name` of struct `T` from its UDAs and default
@@ -101,6 +107,13 @@ private Deco decoOf(T, string name)()
 	{
 		d.hasMinimum = true;
 		d.minimum = getUDAs!(member, Minimum)[0].value;
+	}
+	static if (hasUDA!(member, Pattern))
+		d.pattern = getUDAs!(member, Pattern)[0].regex;
+	static if (hasUDA!(member, MaxLength))
+	{
+		d.hasMaxLength = true;
+		d.maxLength = getUDAs!(member, MaxLength)[0].value;
 	}
 	enum initial = __traits(getMember, T.init, name);
 	static if (is(FT == enum))
@@ -179,6 +192,10 @@ private string emitType(FT)(size_t indent, Deco d)
 			s ~= pad ~ "default: " ~ d.defaultLit ~ "\n";
 		if (d.format.length)
 			s ~= pad ~ "format: " ~ d.format ~ "\n";
+		if (d.pattern.length)
+			s ~= pad ~ "pattern: " ~ yamlStr(d.pattern) ~ "\n";
+		if (d.hasMaxLength)
+			s ~= pad ~ "maxLength: " ~ d.maxLength.to!string ~ "\n";
 		s ~= describe_();
 	}
 	else static if (isAssociativeArray!FT)
@@ -368,4 +385,17 @@ unittest
 {
 	// A string field's default is emitted, quoted.
 	emitType!string(0, Deco("", `"v1alpha1"`)).canFind(`default: "v1alpha1"`).should.equal(true);
+}
+
+unittest
+{
+	// A string field's @Pattern (quoted) and @MaxLength become schema constraints, so a
+	// bad cross-resource ref is rejected at admission instead of only at reconcile.
+	Deco d;
+	d.pattern = "^[a-z0-9]+$";
+	d.hasMaxLength = true;
+	d.maxLength = 253;
+	const yaml = emitType!string(0, d);
+	yaml.canFind(`pattern: "^[a-z0-9]+$"`).should.equal(true);
+	yaml.canFind("maxLength: 253").should.equal(true);
 }
