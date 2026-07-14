@@ -34,15 +34,35 @@ private string ind(size_t levels)
 	return s;
 }
 
-/// Renders `value` as a double-quoted YAML scalar, escaping `\` and `"`.
+/// Renders `value` as a double-quoted YAML scalar, escaping `\`, `"`, and the control
+/// characters that would otherwise break the line (newline, tab, carriage return) — so a
+/// multi-line `@Description` can never emit invalid YAML.
 private string yamlStr(string value)
 {
 	string s = "\"";
-	foreach (c; value)
+	foreach (char c; value)
 	{
-		if (c == '\\' || c == '"')
-			s ~= '\\';
-		s ~= c;
+		switch (c)
+		{
+		case '\\':
+			s ~= "\\\\";
+			break;
+		case '"':
+			s ~= "\\\"";
+			break;
+		case '\n':
+			s ~= "\\n";
+			break;
+		case '\t':
+			s ~= "\\t";
+			break;
+		case '\r':
+			s ~= "\\r";
+			break;
+		default:
+			s ~= c;
+			break;
+		}
 	}
 	return s ~ "\"";
 }
@@ -92,6 +112,11 @@ private Deco decoOf(T, string name)()
 		if (initial != FT.init)
 			d.defaultLit = initial ? "true" : "false";
 	}
+	else static if (isSomeString!FT)
+	{
+		if (initial != FT.init)
+			d.defaultLit = yamlStr(initial);
+	}
 	return d;
 }
 
@@ -119,11 +144,11 @@ private string emitType(FT)(size_t indent, Deco d)
 	{
 		s ~= pad ~ "type: " ~ st!(SchemaType.string) ~ "\n";
 		if (d.defaultLit.length)
-			s ~= pad ~ "default: " ~ d.defaultLit ~ "\n";
+			s ~= pad ~ "default: " ~ yamlStr(d.defaultLit) ~ "\n";
 		s ~= describe_();
 		s ~= pad ~ "enum:\n";
 		static foreach (member; EnumMembers!FT)
-			s ~= pad ~ "  - " ~ cast(string) member ~ "\n";
+			s ~= pad ~ "  - " ~ yamlStr(cast(string) member) ~ "\n";
 	}
 	else static if (isIntegral!FT)
 	{
@@ -137,11 +162,15 @@ private string emitType(FT)(size_t indent, Deco d)
 	else static if (isBoolean!FT)
 	{
 		s ~= pad ~ "type: " ~ st!(SchemaType.boolean) ~ "\n";
+		if (d.defaultLit.length)
+			s ~= pad ~ "default: " ~ d.defaultLit ~ "\n";
 		s ~= describe_();
 	}
 	else static if (isSomeString!FT)
 	{
 		s ~= pad ~ "type: " ~ st!(SchemaType.string) ~ "\n";
+		if (d.defaultLit.length)
+			s ~= pad ~ "default: " ~ d.defaultLit ~ "\n";
 		if (d.format.length)
 			s ~= pad ~ "format: " ~ d.format ~ "\n";
 		s ~= describe_();
@@ -285,4 +314,49 @@ int writeStructures(string[] args)
 
 	writeln("wrote agentdefinition.yaml, station.yaml, agent.yaml to ", dir);
 	return 0;
+}
+
+version (unittest)
+{
+	import fluent.asserts;
+	import std.algorithm.searching : canFind;
+}
+
+unittest
+{
+	// yamlStr escapes quotes, backslashes, and the control chars that would otherwise
+	// break the YAML line — so a multi-line @Description can't emit invalid YAML.
+	yamlStr("plain").should.equal(`"plain"`);
+	yamlStr(`a"b\c`).should.equal(`"a\"b\\c"`);
+	yamlStr("line1\nline2\tend").should.equal(`"line1\nline2\tend"`);
+}
+
+unittest
+{
+	// An enum's default and members are emitted as quoted scalars, so a future value like
+	// `on`/`no`/`null` can't reparse as a YAML bool/null.
+	enum Mode : string
+	{
+		red = "red",
+		green = "green",
+	}
+
+	const yaml = emitType!Mode(0, Deco("", "green"));
+	yaml.canFind(`default: "green"`).should.equal(true);
+	yaml.canFind(`- "red"`).should.equal(true);
+	yaml.canFind(`- "green"`).should.equal(true);
+}
+
+unittest
+{
+	// A bool field's default is emitted (the boolean arm previously dropped it silently).
+	emitType!bool(0, Deco("", "true")).canFind("default: true").should.equal(true);
+	// No default -> no default line.
+	emitType!bool(0, Deco.init).canFind("default:").should.equal(false);
+}
+
+unittest
+{
+	// A string field's default is emitted, quoted.
+	emitType!string(0, Deco("", `"v1alpha1"`)).canFind(`default: "v1alpha1"`).should.equal(true);
 }
