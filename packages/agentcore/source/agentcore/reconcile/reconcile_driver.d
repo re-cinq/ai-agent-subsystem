@@ -66,9 +66,16 @@ ReconcileEffect reconcileAgent(KubeClient client, string ns, Agent agent, string
 
 	JobOutcome outcome;
 	bool hasOutcome = false;
-	if (phase == Phase.running && agent.status.jobName.length)
+	string jobName = agent.status.jobName;
+	if (phase == Phase.running)
 	{
-		outcome = observeJob(client, ns, agent.status.jobName);
+		// A Running Agent whose status never recorded its jobName (a controller crash
+		// between the Running patch and the jobName write) would otherwise observe no
+		// outcome and stay Running forever. The Job name is derived from the Agent name,
+		// so fall back to it and let observeJob resolve the run or report it terminal.
+		if (jobName.length == 0)
+			jobName = jobNameFor(agent.metadata.name);
+		outcome = observeJob(client, ns, jobName);
 		hasOutcome = true;
 	}
 
@@ -97,7 +104,7 @@ ReconcileEffect reconcileAgent(KubeClient client, string ns, Agent agent, string
 		return ReconcileEffect.init;
 	case ActionKind.complete:
 		client.patchAgentStatus(ns, agent.metadata.name,
-			statusPatch(decision, agent.status.jobName, now, agent.metadata.resourceVersion));
+			statusPatch(decision, jobName, now, agent.metadata.resourceVersion));
 		pruneHistory(client, ns, agent.spec.stationRef, cached);
 		return ReconcileEffect.init;
 	}
@@ -547,4 +554,30 @@ unittest
 
 	client.statusPatches.length.should.equal(0);
 	client.createdJobs.length.should.equal(0);
+}
+
+unittest
+{
+	// #125: a Running Agent whose status never recorded its jobName (a controller crash
+	// between the Running patch and the jobName write) must not stay Running forever. The
+	// Job name is derived from the Agent name, so the run is observed under it and repaired;
+	// here the Job is gone, so the Agent completes Failed instead of stalling with no patch.
+	auto client = new FakeKubeClient;
+	client.jobMissing = true;
+	client.station.metadata.name = "stn";
+
+	Agent agent;
+	agent.metadata.name = "run-11";
+	agent.spec.stationRef = "stn";
+	agent.status.phase = Phase.running;
+	agent.status.jobName = "";
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null);
+
+	client.statusPatches.length.should.equal(1);
+	client.statusPatches[0]["status"]["phase"].get!string.should.equal("Failed");
+	client.statusPatches[0]["status"]["failureReason"].get!string.should.equal(runRecordUnavailable);
+	// The recovered (derived) Job name is written into the terminal record, so the run
+	// no longer ends with a permanently empty jobName.
+	client.statusPatches[0]["status"]["jobName"].get!string.should.equal("agent-job-run-11");
 }
