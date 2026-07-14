@@ -99,7 +99,7 @@ private Json withRunLabels(Json template_, Agent agent, Station station)
 	auto pod = template_;
 	Json meta = ("metadata" in pod && pod["metadata"].type == Json.Type.object)
 		? pod["metadata"] : Json.emptyObject;
-	Json labels = (meta.type == Json.Type.object && ("labels" in meta))
+	Json labels = ("labels" in meta && meta["labels"].type == Json.Type.object)
 		? meta["labels"] : Json.emptyObject;
 	labels[labelComponent] = componentJob;
 	labels[labelAgent] = agent.metadata.name;
@@ -184,9 +184,10 @@ private Json withBundleMount(Json container)
 {
 	Json[] mounts;
 	if (auto existing = "volumeMounts" in container)
-		foreach (m; (*existing).get!(Json[]))
-			if (!isNamed(m, bundleVolume))
-				mounts ~= m;
+		if (existing.type == Json.Type.array)
+			foreach (m; (*existing).get!(Json[]))
+				if (!isNamed(m, bundleVolume))
+					mounts ~= m;
 	Json[string] mount;
 	mount["name"] = Json(bundleVolume);
 	mount["mountPath"] = Json(bundleRoot);
@@ -207,9 +208,10 @@ private Json withBundleVolume(Json spec)
 {
 	Json[] volumes;
 	if (auto existing = "volumes" in spec)
-		foreach (v; (*existing).get!(Json[]))
-			if (!isNamed(v, bundleVolume))
-				volumes ~= v;
+		if (existing.type == Json.Type.array)
+			foreach (v; (*existing).get!(Json[]))
+				if (!isNamed(v, bundleVolume))
+					volumes ~= v;
 	Json[string] volume;
 	volume["name"] = Json(bundleVolume);
 	volume["emptyDir"] = Json.emptyObject;
@@ -609,6 +611,27 @@ unittest
 		}
 	agentMounts.should.equal(1);
 	mountPath.should.equal(bundleRoot);
+}
+
+unittest
+{
+	// #126: every template node that can be an explicit JSON null — metadata.labels, the
+	// agent container's volumeMounts, and the pod spec's volumes — is handled without a raw
+	// Json throw, and the run still gets its label plus the bundle volume/mount.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	station.spec.template_ = parseJsonString(
+		`{"metadata":{"labels":null},"spec":{"containers":[{"name":"agent","image":"node:22",`
+		~ `"volumeMounts":null}],"volumes":null}}`);
+
+	auto job = buildJob(agent, station, definition, "img");
+
+	job["spec"]["template"]["metadata"]["labels"]["agents.re-cinq.com/component"]
+		.get!string.should.equal("job");
+	job["spec"]["template"]["spec"]["volumes"].get!(Json[]).length.should.equal(1);
+	agentContainer(job)["volumeMounts"].get!(Json[]).length.should.equal(1);
 }
 
 unittest
