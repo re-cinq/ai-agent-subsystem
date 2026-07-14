@@ -80,7 +80,7 @@ Json buildJob(Agent agent, Station station, AgentDefinition definition, string a
 
 	Json[string] spec;
 	spec["ttlSecondsAfterFinished"] = Json(jobTtlSeconds);
-	spec["activeDeadlineSeconds"] = Json(deadlineMinutes * 60);
+	spec["activeDeadlineSeconds"] = Json(long(deadlineMinutes) * 60);
 	spec["backoffLimit"] = Json(0);
 	spec["template"] = template_;
 
@@ -588,6 +588,21 @@ unittest
 
 	auto job = buildJob(agent, station, definition, "img");
 	job["spec"]["activeDeadlineSeconds"].get!long.should.equal(60);
+}
+
+unittest
+{
+	// #115: a very large deadlineMinutes must not overflow `int * 60` into a negative
+	// activeDeadlineSeconds, which the API server rejects on every reconcile. Widening to
+	// long keeps it a huge-but-positive value the API server accepts.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	station.spec.deadlineMinutes = int.max;
+
+	auto job = buildJob(agent, station, definition, "img");
+	job["spec"]["activeDeadlineSeconds"].get!long.should.equal(long(int.max) * 60);
 }
 
 unittest

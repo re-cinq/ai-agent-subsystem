@@ -20,7 +20,14 @@ string safeName(string name, size_t maxLen = maxNameLength) @safe pure nothrow
 	if (name.length <= maxLen)
 		return name;
 	const suffix = "-" ~ fnv1aHex(name);
-	return name[0 .. maxLen - suffix.length] ~ suffix;
+	const keepLen = maxLen > suffix.length ? maxLen - suffix.length : 0;
+	auto keep = name[0 .. keepLen];
+	// Agent CR names are DNS-1123 subdomains and may contain '.', so the cut can land on a
+	// '.' or '-'; trim any trailing separator or the '-' before the hash would start a new
+	// label (`.-<hash>` / `--<hash>`), which the API server rejects as an invalid name.
+	while (keep.length && (keep[$ - 1] == '.' || keep[$ - 1] == '-'))
+		keep = keep[0 .. $ - 1];
+	return keep ~ suffix;
 }
 
 /// 8-hex-char FNV-1a digest of `s` — a small, dependency-free `pure nothrow` hash used
@@ -62,4 +69,23 @@ version (unittest) import fluent.asserts;
 {
 	// Names already within the limit are untouched.
 	safeName("short").should.equal("short");
+}
+
+@safe unittest
+{
+	// #115: an Agent name (DNS-1123, so dots are legal) whose truncation boundary lands on
+	// a '.' must not leave the kept prefix ending in a separator — otherwise the '-' before
+	// the hash starts a new empty label and the API server rejects the name. The character
+	// right before the "-<hash>" suffix must be alphanumeric.
+	string dotted;
+	foreach (_; 0 .. 43)
+		dotted ~= 'a';
+	dotted ~= '.';
+	foreach (_; 0 .. 20)
+		dotted ~= 'b';
+
+	const job = jobNameFor(dotted); // "agent-job-" + 64 chars -> truncated
+	job.length.should.be.lessThan(maxNameLength + 1);
+	const beforeSuffix = job[$ - 10]; // suffix is '-' + 8 hex = 9 chars
+	(beforeSuffix != '.' && beforeSuffix != '-').should.equal(true);
 }
