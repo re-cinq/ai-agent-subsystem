@@ -8,7 +8,8 @@ import agentcore.crds.schema;
 @Description("The runtime template that pairs a recipe with a Pod template.")
 struct StationSpec
 {
-	@optional @Required @Description("Name of the AgentDefinition this Station runs.")
+	@optional @Required @Pattern(dns1123Subdomain) @MaxLength(253)
+	@Description("Name of the AgentDefinition this Station runs.")
 	string agentDefRef;
 
 	@optional @Minimum(1) @Description("Wall-clock limit per run; becomes the Job's activeDeadlineSeconds.")

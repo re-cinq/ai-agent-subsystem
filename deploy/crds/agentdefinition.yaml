@@ -32,6 +32,8 @@ spec:
           properties:
             spec:
               type: object
+              required:
+                - prompt
               properties:
                 description:
                   type: string
