@@ -4,6 +4,7 @@
 module crdgen;
 
 import std.conv : to;
+import std.format : format;
 import std.file : mkdirRecurse, write;
 import std.meta : AliasSeq;
 import std.path : buildPath;
@@ -60,7 +61,12 @@ private string yamlStr(string value)
 			s ~= "\\r";
 			break;
 		default:
-			s ~= c;
+			// Any remaining C0 control char is invalid raw inside a double-quoted YAML
+			// scalar, so escape it as \xXX rather than emitting it verbatim.
+			if (c < 0x20)
+				s ~= format("\\x%02x", c);
+			else
+				s ~= c;
 			break;
 		}
 	}
@@ -100,7 +106,7 @@ private Deco decoOf(T, string name)()
 	static if (is(FT == enum))
 	{
 		if (initial != FT.init)
-			d.defaultLit = cast(string) initial;
+			d.defaultLit = yamlStr(cast(string) initial);
 	}
 	else static if (isIntegral!FT)
 	{
@@ -144,7 +150,7 @@ private string emitType(FT)(size_t indent, Deco d)
 	{
 		s ~= pad ~ "type: " ~ st!(SchemaType.string) ~ "\n";
 		if (d.defaultLit.length)
-			s ~= pad ~ "default: " ~ yamlStr(d.defaultLit) ~ "\n";
+			s ~= pad ~ "default: " ~ d.defaultLit ~ "\n";
 		s ~= describe_();
 		s ~= pad ~ "enum:\n";
 		static foreach (member; EnumMembers!FT)
@@ -329,19 +335,22 @@ unittest
 	yamlStr("plain").should.equal(`"plain"`);
 	yamlStr(`a"b\c`).should.equal(`"a\"b\\c"`);
 	yamlStr("line1\nline2\tend").should.equal(`"line1\nline2\tend"`);
+	// Any other C0 control char (here a form feed) is escaped, not emitted raw.
+	yamlStr("a\x0cb").should.equal(`"a\x0cb"`);
 }
 
 unittest
 {
 	// An enum's default and members are emitted as quoted scalars, so a future value like
-	// `on`/`no`/`null` can't reparse as a YAML bool/null.
+	// `on`/`no`/`null` can't reparse as a YAML bool/null. decoOf pre-quotes defaultLit
+	// (the same convention as every other type), and emitType emits it raw.
 	enum Mode : string
 	{
 		red = "red",
 		green = "green",
 	}
 
-	const yaml = emitType!Mode(0, Deco("", "green"));
+	const yaml = emitType!Mode(0, Deco("", `"green"`));
 	yaml.canFind(`default: "green"`).should.equal(true);
 	yaml.canFind(`- "red"`).should.equal(true);
 	yaml.canFind(`- "green"`).should.equal(true);
