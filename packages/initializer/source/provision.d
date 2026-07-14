@@ -5,7 +5,7 @@ import std.algorithm.searching : canFind;
 import std.array : array, join;
 import std.conv : to;
 import std.process : environment, spawnProcess, wait;
-import std.string : toStringz;
+import std.string : toStringz, indexOf;
 
 import core.sys.posix.unistd : access, W_OK;
 
@@ -66,7 +66,8 @@ int provision(InitContext ctx)
 			const code = runStep(step);
 			if (code != 0)
 				return fail(sinks, source,
-					"[init] " ~ tool.name ~ " step failed (exit " ~ code.to!string ~ "): " ~ step.join(" "),
+					"[init] " ~ tool.name ~ " step failed (exit " ~ code.to!string ~ "): "
+						~ redactUrlCredentials(step.join(" ")),
 					failedStep(tool.name, code), code);
 		}
 	}
@@ -107,7 +108,8 @@ private int ensurePrerequisites(Tool[] active, const OutputSink[] sinks, in Even
 		const code = runStep(step);
 		if (code != 0)
 			return fail(sinks, source,
-				"[init] prerequisite install failed (exit " ~ code.to!string ~ "): " ~ step.join(" "),
+				"[init] prerequisite install failed (exit " ~ code.to!string ~ "): "
+					~ redactUrlCredentials(step.join(" ")),
 				failedReason("install"), code);
 	}
 
@@ -192,4 +194,50 @@ private bool homeWritable()
 {
 	const home = environment.get("HOME", "");
 	return home.length > 0 && access(home.toStringz, W_OK) == 0;
+}
+
+/// Redact any `scheme://userinfo@host` credentials from a step string before it is
+/// logged or emitted to a sink, so a repo url that carried embedded credentials never
+/// reaches pod logs. Defense in depth behind repoUrl, which already strips userinfo.
+string redactUrlCredentials(string s) @safe pure
+{
+	string result;
+	size_t i = 0;
+	while (i < s.length)
+	{
+		const rel = s[i .. $].indexOf("://");
+		if (rel < 0)
+		{
+			result ~= s[i .. $];
+			break;
+		}
+		const schemeEnd = i + rel + 3;
+		result ~= s[i .. schemeEnd];
+		size_t j = schemeEnd;
+		ptrdiff_t at = -1;
+		while (j < s.length && s[j] != ' ' && s[j] != '/' && s[j] != '?' && s[j] != '#')
+		{
+			if (s[j] == '@')
+				at = j;
+			j++;
+		}
+		result ~= at >= 0 ? "<redacted>@" ~ s[at + 1 .. j] : s[schemeEnd .. j];
+		i = j;
+	}
+	return result;
+}
+
+version (unittest) import fluent.asserts;
+
+@safe unittest
+{
+	// #117: credentials embedded in a url are redacted from a logged/emitted step string.
+	redactUrlCredentials("git clone -- https://user:tok@github.com/o/app /ws/app")
+		.should.equal("git clone -- https://<redacted>@github.com/o/app /ws/app");
+	// a url without userinfo is untouched.
+	redactUrlCredentials("git clone -- https://github.com/o/app /ws/app")
+		.should.equal("git clone -- https://github.com/o/app /ws/app");
+	// an '@' in a query (no path) is not credentials — the host is not swallowed.
+	redactUrlCredentials("curl https://host?next=a@b")
+		.should.equal("curl https://host?next=a@b");
 }
