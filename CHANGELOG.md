@@ -6,6 +6,13 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+- Run pods now carry `cluster-autoscaler.kubernetes.io/safe-to-evict: "false"`, so a
+  cluster-autoscaler node scale-down no longer evicts a live run mid-flight — with
+  `backoffLimit: 0` a single eviction failed the whole attempt with
+  `BackoffLimitExceeded` and no output. Station-supplied pod annotations are
+  preserved (the run's stamp wins on its key).
+
 ## v0.6.0
 
 ### Fixed
