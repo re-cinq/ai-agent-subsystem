@@ -22,6 +22,10 @@ enum crApiVersion = "agents.re-cinq.com/v1alpha1";
 enum agentContainerName = "agent";
 enum initContainerName = "init";
 enum bundleVolume = "agent";
+/// The clone/edit workspace shared between init (clones as root) and agent (edits as
+/// uid 1000). Init and agent are separate filesystems — without this volume the clone
+/// dies with the init container's layer and the agent finds no repo.
+enum workspaceVolume = "workspace";
 
 /// Labels stamped on every run pod. `component=job` is the selector the
 /// `agent-job-egress` NetworkPolicy matches on — without it the policy matches no
@@ -185,18 +189,24 @@ private bool isAgentContainer(Json container)
 		&& container["name"].get!string == agentContainerName;
 }
 
+private Json reservedMount(string name, string path)
+{
+	Json[string] mount;
+	mount["name"] = Json(name);
+	mount["mountPath"] = Json(path);
+	return Json(mount);
+}
+
 private Json withBundleMount(Json container)
 {
 	Json[] mounts;
 	if (auto existing = "volumeMounts" in container)
 		if (existing.type == Json.Type.array)
 			foreach (m; (*existing).get!(Json[]))
-				if (!isNamed(m, bundleVolume))
+				if (!isNamed(m, bundleVolume) && !isNamed(m, workspaceVolume))
 					mounts ~= m;
-	Json[string] mount;
-	mount["name"] = Json(bundleVolume);
-	mount["mountPath"] = Json(bundleRoot);
-	mounts ~= Json(mount);
+	mounts ~= reservedMount(bundleVolume, bundleRoot);
+	mounts ~= reservedMount(workspaceVolume, defaultWorkspace);
 	return Json(mounts);
 }
 
@@ -209,27 +219,29 @@ private bool isNamed(Json entry, string name)
 		&& entry["name"].type == Json.Type.string && entry["name"].get!string == name;
 }
 
+private Json emptyDirVolume(string name)
+{
+	Json[string] volume;
+	volume["name"] = Json(name);
+	volume["emptyDir"] = Json.emptyObject;
+	return Json(volume);
+}
+
 private Json withBundleVolume(Json spec)
 {
 	Json[] volumes;
 	if (auto existing = "volumes" in spec)
 		if (existing.type == Json.Type.array)
 			foreach (v; (*existing).get!(Json[]))
-				if (!isNamed(v, bundleVolume))
+				if (!isNamed(v, bundleVolume) && !isNamed(v, workspaceVolume))
 					volumes ~= v;
-	Json[string] volume;
-	volume["name"] = Json(bundleVolume);
-	volume["emptyDir"] = Json.emptyObject;
-	volumes ~= Json(volume);
+	volumes ~= emptyDirVolume(bundleVolume);
+	volumes ~= emptyDirVolume(workspaceVolume);
 	return Json(volumes);
 }
 
 private Json initContainer(string agentImage, Json env)
 {
-	Json[string] mount;
-	mount["name"] = Json(bundleVolume);
-	mount["mountPath"] = Json(bundleRoot);
-
 	Json[string] security;
 	security["runAsUser"] = Json(0);
 
@@ -237,7 +249,10 @@ private Json initContainer(string agentImage, Json env)
 	container["name"] = Json(initContainerName);
 	container["image"] = Json(agentImage);
 	container["env"] = env;
-	container["volumeMounts"] = Json([Json(mount)]);
+	container["volumeMounts"] = Json([
+		reservedMount(bundleVolume, bundleRoot),
+		reservedMount(workspaceVolume, defaultWorkspace),
+	]);
 	container["securityContext"] = Json(security);
 	container["resources"] = initResources();
 	return Json(container);
@@ -380,6 +395,20 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 		{
 			secretVar(repo.tokenSecret, repo.tokenSecret);
 			secretsInjected[repo.tokenSecret] = true;
+		}
+	// `gh` (and every tool reading the conventional variable) authenticates via GH_TOKEN;
+	// the per-task key carries a run-scoped name, so the first repo credential is also
+	// aliased to the standard name — without it the agent's gh calls run unauthenticated
+	// and 404 on private repos.
+	foreach (repo; recipe.resources.repos)
+		if (repo.tokenSecret.length)
+		{
+			if ("GH_TOKEN" !in secretsInjected)
+			{
+				secretVar("GH_TOKEN", repo.tokenSecret);
+				secretsInjected["GH_TOKEN"] = true;
+			}
+			break;
 		}
 	if (recipe.output.select.length)
 		strVar(envSelect, selectJson(recipe.output.select));
@@ -643,7 +672,7 @@ unittest
 {
 	// #126: every template node that can be an explicit JSON null — metadata.labels, the
 	// agent container's volumeMounts, and the pod spec's volumes — is handled without a raw
-	// Json throw, and the run still gets its label plus the bundle volume/mount.
+	// Json throw, and the run still gets its label plus the bundle + workspace volume/mounts.
 	Agent agent;
 	Station station;
 	AgentDefinition definition;
@@ -656,8 +685,8 @@ unittest
 
 	job["spec"]["template"]["metadata"]["labels"]["agents.re-cinq.com/component"]
 		.get!string.should.equal("job");
-	job["spec"]["template"]["spec"]["volumes"].get!(Json[]).length.should.equal(1);
-	agentContainer(job)["volumeMounts"].get!(Json[]).length.should.equal(1);
+	job["spec"]["template"]["spec"]["volumes"].get!(Json[]).length.should.equal(2);
+	agentContainer(job)["volumeMounts"].get!(Json[]).length.should.equal(2);
 }
 
 unittest
@@ -804,6 +833,42 @@ unittest
 	auto container = agentContainer(buildJob(agent, station, definition, "img"));
 
 	envSecretKey(container, "GH_TOKEN_abc12345").should.equal("GH_TOKEN_abc12345");
+	// `gh` (and every tool reading the conventional variable) authenticates via GH_TOKEN;
+	// the per-task key carries a run-scoped name, so the first repo credential is also
+	// aliased to the standard name — without it the agent's `gh pr view/diff/comment`
+	// runs unauthenticated and 404s on private repos.
+	envSecretKey(container, "GH_TOKEN").should.equal("GH_TOKEN_abc12345");
+}
+
+unittest
+{
+	// The init container clones into the workspace and the agent container edits it —
+	// the two are separate filesystems unless the workspace is a shared volume, so
+	// without one the clone vanishes when init exits and the agent finds no repo.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+
+	auto pod = buildJob(agent, station, definition, "img")["spec"]["template"]["spec"];
+
+	int workspaceVolumes;
+	foreach (v; pod["volumes"].get!(Json[]))
+		if (isNamed(v, workspaceVolume))
+			workspaceVolumes++;
+	workspaceVolumes.should.equal(1);
+
+	string initMount, agentMount;
+	foreach (m; pod["initContainers"][0]["volumeMounts"].get!(Json[]))
+		if (isNamed(m, workspaceVolume))
+			initMount = m["mountPath"].get!string;
+	foreach (container; pod["containers"].get!(Json[]))
+		if (isAgentContainer(container))
+			foreach (m; container["volumeMounts"].get!(Json[]))
+				if (isNamed(m, workspaceVolume))
+					agentMount = m["mountPath"].get!string;
+	initMount.should.equal(defaultWorkspace);
+	agentMount.should.equal(defaultWorkspace);
 }
 
 unittest

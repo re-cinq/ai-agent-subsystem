@@ -6,6 +6,19 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.6.0
+
+### Fixed
+- The run pod now shares a `workspace` volume between the init and agent containers —
+  previously the clone landed in the init container's own filesystem layer and vanished
+  when init exited, so the agent found no repo (#164).
+- The init container hands `$HOME` and the workspace to the agent uid/gid after
+  provisioning. fsGroup only chowns volume roots at mount; everything init (root) created
+  was root-owned 0755, so the agent could neither write its HOME (Claude Code fails on
+  `mkdir $HOME/.claude/session-env`) nor edit the cloned repo (#164).
+- The first repo credential is also injected as `GH_TOKEN` — the per-task key carries a
+  run-scoped name, so `gh` ran unauthenticated and 404'd on private repos (#164).
+
 ## v0.5.1
 
 Re-release of v0.5.0 with **no code changes**. The v0.5.0 tag could not carry a GitHub

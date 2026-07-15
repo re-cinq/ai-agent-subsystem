@@ -7,7 +7,9 @@ import std.conv : to;
 import std.process : environment, spawnProcess, wait;
 import std.string : toStringz, indexOf;
 
-import core.sys.posix.unistd : access, W_OK;
+import core.sys.posix.unistd : access, geteuid, lchown, W_OK;
+
+import agentcore.kube.jobspec : agentUid, agentGid;
 
 import agentcore.crds.enums : SinkType;
 import agentcore.core.env : defaultWorkspace, envModel, envRepos, envWorkspace;
@@ -72,8 +74,36 @@ int provision(InitContext ctx)
 		}
 	}
 
+	// This init runs as root; the agent container runs as agentUid/agentGid (jobspec
+	// nonRootSecurity). fsGroup only chowns the volume roots at mount — everything the
+	// provisioning above created is root-owned 0755, so the agent could neither write
+	// its HOME (Claude fails on mkdir $HOME/.claude/session-env) nor edit the cloned
+	// workspace. Hand both trees over before declaring init done.
+	if (geteuid() == 0)
+		foreach (root; [environment.get("HOME", ""), ctx.workspaceDir])
+			if (!chownTree(root))
+				return fail(sinks, source,
+					"[init] chown of " ~ root ~ " to the agent uid failed",
+					failedReason("chown"), 2);
+
 	notify(sinks, source, LifecycleEvent(Phase.init_, Status.succeeded).toJson);
 	return 0;
+}
+
+/// Recursively hand `root` (and everything under it) to the agent uid/gid. Symlinks
+/// are re-owned, never followed — a repo can contain hostile links. Missing/empty
+/// roots are fine (nothing to hand over).
+private bool chownTree(string root)
+{
+	import std.file : dirEntries, exists, SpanMode;
+
+	if (root.length == 0 || !root.exists)
+		return true;
+
+	bool ok = lchown(root.toStringz, agentUid, agentGid) == 0;
+	foreach (entry; dirEntries(root, SpanMode.depth, false))
+		ok = lchown(entry.name.toStringz, agentUid, agentGid) == 0 && ok;
+	return ok;
 }
 
 /// The tools this run needs, in execution order — those whose `steps` are non-empty.
