@@ -28,6 +28,11 @@ spec:
     - Bash(npm run test:*)
   disallowed_tools:
     - Bash(rm *)
+  # Inject the API key from the agent-secrets Secret as ANTHROPIC_API_KEY.
+  resources:
+    secrets:
+      - name: ANTHROPIC_API_KEY
+        ref: ANTHROPIC_API_KEY
   output:
     format: stream-json
     sinks:

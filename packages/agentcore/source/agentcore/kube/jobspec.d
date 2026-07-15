@@ -36,6 +36,11 @@ enum labelAgent = "agents.re-cinq.com/agent";
 enum labelStation = "agents.re-cinq.com/station";
 enum componentJob = "job";
 
+/// Tells the cluster autoscaler not to evict a run pod when consolidating nodes.
+/// Runs are one-shot Jobs (`backoffLimit` 0): a scale-down eviction mid-run fails
+/// the whole attempt with `BackoffLimitExceeded` and no agent output.
+enum safeToEvictAnnotation = "cluster-autoscaler.kubernetes.io/safe-to-evict";
+
 /// How long a finished Job (and its pod) lingers before the TTL-after-finished GC
 /// removes it. The controller reads the pod's exit code + captured stdout back into
 /// the Agent status on the terminal transition, so this is the window it has to
@@ -75,7 +80,7 @@ Json buildJob(Agent agent, Station station, AgentDefinition definition, string a
 	auto env = runEnv(agent, station, recipe);
 
 	auto template_ = wirePodTemplate(deepCopy(station.spec.template_), commandFor(argv), env, agentImage);
-	template_ = withRunLabels(template_, agent, station);
+	template_ = withRunMetadata(template_, agent, station);
 
 	// A deadlineMinutes of 0 (explicitly set, or slipped past the schema-only @Minimum)
 	// would render activeDeadlineSeconds 0, which the Job controller treats as an
@@ -101,9 +106,12 @@ private Json deepCopy(Json value)
 	return parseJsonString(value.toString());
 }
 
-/// Merge the run labels into the pod template's `metadata.labels`, preserving any
-/// labels the Station's template already carries (ours win on the run keys).
-private Json withRunLabels(Json template_, Agent agent, Station station)
+/// Merge the run labels and annotations into the pod template's metadata, preserving
+/// anything the Station's template already carries (ours win on the run keys). A run
+/// is one-shot (`backoffLimit` 0), so the safe-to-evict annotation keeps the cluster
+/// autoscaler from consolidating a node out from under a live run — an eviction would
+/// fail the whole attempt.
+private Json withRunMetadata(Json template_, Agent agent, Station station)
 {
 	auto pod = template_;
 	Json meta = ("metadata" in pod && pod["metadata"].type == Json.Type.object)
@@ -114,6 +122,10 @@ private Json withRunLabels(Json template_, Agent agent, Station station)
 	labels[labelAgent] = safeName(agent.metadata.name);
 	labels[labelStation] = safeName(station.metadata.name);
 	meta["labels"] = labels;
+	Json annotations = ("annotations" in meta && meta["annotations"].type == Json.Type.object)
+		? meta["annotations"] : Json.emptyObject;
+	annotations[safeToEvictAnnotation] = Json("false");
+	meta["annotations"] = annotations;
 	pod["metadata"] = meta;
 	return pod;
 }
@@ -627,6 +639,38 @@ unittest
 	labels["agents.re-cinq.com/component"].get!string.should.equal("job");
 	labels["agents.re-cinq.com/agent"].get!string.should.equal("bug-fixer-run-1");
 	labels["agents.re-cinq.com/station"].get!string.should.equal("bug-fixer-station");
+}
+
+unittest
+{
+	// A run is one-shot (backoffLimit 0), so a cluster-autoscaler scale-down that
+	// evicts the pod mid-run kills the whole attempt. The safe-to-evict annotation
+	// tells the autoscaler to consolidate around live runs instead.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+
+	auto annotations = buildJob(agent, station, definition, "img")["spec"]["template"]["metadata"]["annotations"];
+	annotations["cluster-autoscaler.kubernetes.io/safe-to-evict"].get!string.should.equal("false");
+}
+
+unittest
+{
+	// Station-supplied pod annotations survive the merge; the run's safe-to-evict
+	// stamp wins on its own key.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	station.spec.template_ = parseJsonString(
+		`{"metadata":{"annotations":{"example.com/keep":"yes",`
+		~ `"cluster-autoscaler.kubernetes.io/safe-to-evict":"true"}},`
+		~ `"spec":{"containers":[{"name":"agent","image":"node:22"}]}}`);
+
+	auto annotations = buildJob(agent, station, definition, "img")["spec"]["template"]["metadata"]["annotations"];
+	annotations["example.com/keep"].get!string.should.equal("yes");
+	annotations["cluster-autoscaler.kubernetes.io/safe-to-evict"].get!string.should.equal("false");
 }
 
 unittest

@@ -31,6 +31,8 @@ spec:
         runAsUser: 1000
         runAsGroup: 1000
         fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: controller
           image: ghcr.io/re-cinq/ai-agent-controller:latest
@@ -49,7 +51,7 @@ spec:
             # Image whose init container injects the agent runtime + supervisor
             # into each run pod. Override with ai-agent:dev for local clusters.
             - name: AGENT_IMAGE
-              value: ghcr.io/re-cinq/ai-agent@sha256:d36dcb72b69d8d57c31b5d29ea731b1eade49325dfbcd0d6ebbe8ff20b29ddda
+              value: ghcr.io/re-cinq/ai-agent@sha256:191865beed61d2a32ef1660691c9b1b99982c48a5590b7fe575ce10b6638cd1e
             # Bytes of run-pod log kept in status.output (the tail). Bounds the
             # Agent object under etcd's ~1.5 MB per-object limit. Default 256 KiB.
             - name: MAX_OUTPUT_BYTES
