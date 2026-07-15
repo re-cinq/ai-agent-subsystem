@@ -7,9 +7,14 @@ import std.conv : to;
 import std.process : environment, spawnProcess, wait;
 import std.string : toStringz, indexOf;
 
-import core.sys.posix.unistd : access, geteuid, lchown, W_OK;
+import core.sys.posix.sys.types : gid_t, uid_t;
+import core.sys.posix.unistd : access, geteuid, W_OK;
 
 import agentcore.kube.jobspec : agentUid, agentGid;
+
+// druntime's core.sys.posix.unistd lacks lchown on some compilers (ldc's musl
+// bindings); declare the POSIX prototype directly.
+private extern (C) int lchown(scope const char* path, uid_t owner, gid_t group) @system nothrow @nogc;
 
 import agentcore.crds.enums : SinkType;
 import agentcore.core.env : defaultWorkspace, envModel, envRepos, envWorkspace;
