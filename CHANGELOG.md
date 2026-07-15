@@ -6,6 +6,12 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.5.1
+
+Re-release of v0.5.0 with **no code changes**. The v0.5.0 tag could not carry a GitHub
+Release (an immutable-release tag collision), so the digest-pinned images and
+`install.yaml` ship under v0.5.1 instead. Pin consumers to the v0.5.1 digests.
+
 ## v0.5.0
 
 ### Changed
