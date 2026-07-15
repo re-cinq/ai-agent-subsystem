@@ -362,15 +362,25 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 			sink.headersSecret = "";
 
 	strVar(envSinks, sinksJson(sinks));
-	bool[string] headerSecretsInjected;
+	bool[string] secretsInjected;
 	foreach (sink; sinks)
 		if (sink.type == SinkType.http && sink.headersSecret.length
-			&& sink.headersSecret !in headerSecretsInjected)
+			&& sink.headersSecret !in secretsInjected)
 		{
 			secretVar(sink.headersSecret, sink.headersSecret);
-			headerSecretsInjected[sink.headersSecret] = true;
+			secretsInjected[sink.headersSecret] = true;
 		}
 	strVar(envRepos, reposJson(recipe.resources.repos));
+	// A repo's token_secret names an agent-secrets key holding its git credential; inject it
+	// as a secretKeyRef env of the same name so the init container's clone authenticates.
+	// Without it the clone runs with an empty token and fails "Invalid username or token".
+	foreach (repo; recipe.resources.repos)
+		if (repo.tokenSecret.length && !isReservedEnvName(repo.tokenSecret)
+			&& repo.tokenSecret !in secretsInjected)
+		{
+			secretVar(repo.tokenSecret, repo.tokenSecret);
+			secretsInjected[repo.tokenSecret] = true;
+		}
 	if (recipe.output.select.length)
 		strVar(envSelect, selectJson(recipe.output.select));
 	strVar(envWorkspace, defaultWorkspace);
@@ -394,8 +404,11 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 		if (!isReservedEnvName(variable.name))
 			strVar(variable.name, variable.value);
 	foreach (secret; recipe.resources.secrets)
-		if (!isReservedEnvName(secret.name))
+		if (!isReservedEnvName(secret.name) && secret.name !in secretsInjected)
+		{
 			secretVar(secret.name, secret.ref_);
+			secretsInjected[secret.name] = true;
+		}
 	strVar(homeEnv, bundleRoot);
 	strVar(pathEnv, "/agent/.local/bin:/usr/local/bin:/usr/bin:/bin");
 	return Json(env);
@@ -771,6 +784,26 @@ unittest
 	auto selectors = parseSelectors(envValue(container, "AGENT_SELECT"));
 	selectors.length.should.equal(1);
 	selectors[0].event.should.equal(SelectEvent.result);
+}
+
+unittest
+{
+	// A repo's token_secret names the agent-secrets key holding its git credential, and
+	// must be injected as a secretKeyRef env of the same name — the init container's clone
+	// reads `$<token_secret>` for auth. Without the env the clone runs with an empty token
+	// and fails ("Invalid username or token"). The field is a credential channel, not just
+	// AGENT_REPOS metadata.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.resources.repos = [
+		RepoRef("target", "https://github.com/octo/app.git", "main", "", "GH_TOKEN_abc12345"),
+	];
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img"));
+
+	envSecretKey(container, "GH_TOKEN_abc12345").should.equal("GH_TOKEN_abc12345");
 }
 
 unittest
