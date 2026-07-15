@@ -6,12 +6,46 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.6.1
+
+### Fixed
+- Run pods now carry `cluster-autoscaler.kubernetes.io/safe-to-evict: "false"`, so a
+  cluster-autoscaler node scale-down no longer evicts a live run mid-flight — with
+  `backoffLimit: 0` a single eviction failed the whole attempt with
+  `BackoffLimitExceeded` and no output. Station-supplied pod annotations are
+  preserved (the run's stamp wins on its key) (#168).
+
+## v0.6.0
+
+### Fixed
+- The run pod now shares a `workspace` volume between the init and agent containers —
+  previously the clone landed in the init container's own filesystem layer and vanished
+  when init exited, so the agent found no repo (#164).
+- The init container hands `$HOME` and the workspace to the agent uid/gid after
+  provisioning. fsGroup only chowns volume roots at mount; everything init (root) created
+  was root-owned 0755, so the agent could neither write its HOME (Claude Code fails on
+  `mkdir $HOME/.claude/session-env`) nor edit the cloned repo (#164).
+- The first repo credential is also injected as `GH_TOKEN` — the per-task key carries a
+  run-scoped name, so `gh` ran unauthenticated and 404'd on private repos (#164).
+
+## v0.5.1
+
+Re-release of v0.5.0 with **no code changes**. The v0.5.0 tag could not carry a GitHub
+Release (an immutable-release tag collision), so the digest-pinned images and
+`install.yaml` ship under v0.5.1 instead. Pin consumers to the v0.5.1 digests.
+
+## v0.5.0
+
 ### Changed
 - Migrated all JSON handling from `std.json` to `vibe.data.json`; CRD parsing is now a
   single lenient policy (`CrdPolicy` + `@optional`/`@wire`) so it cannot drift (#97).
 - Agent-CLI installation is abstracted behind `AgentSetup` (claude / codex / opencode) (#96).
 
 ### Fixed
+- A repo's `token_secret` is now injected as a `secretKeyRef` env of the same name, so the
+  init container's `git clone` authenticates. It was serialised into `AGENT_REPOS` as
+  metadata but never materialised as an env var, so every clone ran with an empty token and
+  failed `remote: Invalid username or token` — stalling the assembly-line walk (#160).
 - The controller surfaces non-200 watch responses instead of spinning in a silent dead
   loop (#94), and the inform, poll and election loops now contain library-level `Error`s
   so one bad interaction can't crash the HA controller (#92).

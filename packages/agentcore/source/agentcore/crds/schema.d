@@ -26,6 +26,23 @@ struct Minimum
 	long value;
 }
 
+/// Regex a string field's value must match (`pattern` in the schema).
+struct Pattern
+{
+	string regex;
+}
+
+/// Inclusive upper bound on a string field's length (`maxLength` in the schema).
+struct MaxLength
+{
+	long value;
+}
+
+/// The DNS-1123 subdomain a Kubernetes object name must match. Reused as the `@Pattern`
+/// for cross-resource ref fields (stationRef/agentDefRef) so a name typo is rejected at
+/// admission instead of only failing later at reconcile. Paired with `@MaxLength(253)`.
+enum dns1123Subdomain = `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`;
+
 /// Marks a field as required in the CRD schema.
 enum Required;
 

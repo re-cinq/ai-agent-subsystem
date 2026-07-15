@@ -27,6 +27,12 @@ import sink : emit;
 /// How often the wait loop polls the agent's exit / terminal-event state.
 private enum pollInterval = 20.msecs;
 
+/// Defensive ceiling on a single stdout event line, so a malformed agent stream with no
+/// newline can't buffer without bound. Well above any real stream-json event; a line past
+/// it throws, the reader task stops (the run still ends via process exit), rather than
+/// growing memory until the pod is OOM-killed.
+private enum maxEventLineBytes = 16 * 1024 * 1024;
+
 /// Cap on how long the final stdout drain waits for the reader to reach EOF before the
 /// hard exit — long enough to flush a large final burst, short enough that a grandchild
 /// holding the pipe open can't stall pod teardown.
@@ -102,7 +108,7 @@ int supervise(string[] agentArgv)
 		{
 			while (!pipes.stdout.empty)
 			{
-				auto raw = pipes.stdout.readLine(size_t.max, "\n");
+				auto raw = pipes.stdout.readLine(maxEventLineBytes, "\n");
 				if (raw.length == 0)
 					continue;
 				const payload = cast(string) raw.idup;

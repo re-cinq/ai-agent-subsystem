@@ -5,7 +5,8 @@ import agentcore.crds.schema;
 @Description("One run of a recipe in a Station.")
 struct AgentSpec
 {
-	@optional @Required @Description("The Station to run in (which selects the recipe).")
+	@optional @Required @Pattern(dns1123Subdomain) @MaxLength(253)
+	@Description("The Station to run in (which selects the recipe).")
 	string stationRef;
 
 	@optional @Description("External id for correlation.")

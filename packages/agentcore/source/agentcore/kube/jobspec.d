@@ -15,13 +15,17 @@ import agentcore.crds.serialization : toJson;
 import agentcore.vendors.select : agentForModel;
 import agentcore.kube.bundle : bundleRoot, supervisorPath;
 import agentcore.core.env;
-import agentcore.kube.jobs : jobNameFor;
+import agentcore.kube.jobs : jobNameFor, safeName;
 import agentcore.core.prompt : renderPrompt;
 
 enum crApiVersion = "agents.re-cinq.com/v1alpha1";
 enum agentContainerName = "agent";
 enum initContainerName = "init";
 enum bundleVolume = "agent";
+/// The clone/edit workspace shared between init (clones as root) and agent (edits as
+/// uid 1000). Init and agent are separate filesystems — without this volume the clone
+/// dies with the init container's layer and the agent finds no repo.
+enum workspaceVolume = "workspace";
 
 /// Labels stamped on every run pod. `component=job` is the selector the
 /// `agent-job-egress` NetworkPolicy matches on — without it the policy matches no
@@ -31,6 +35,11 @@ enum labelComponent = "agents.re-cinq.com/component";
 enum labelAgent = "agents.re-cinq.com/agent";
 enum labelStation = "agents.re-cinq.com/station";
 enum componentJob = "job";
+
+/// Tells the cluster autoscaler not to evict a run pod when consolidating nodes.
+/// Runs are one-shot Jobs (`backoffLimit` 0): a scale-down eviction mid-run fails
+/// the whole attempt with `BackoffLimitExceeded` and no agent output.
+enum safeToEvictAnnotation = "cluster-autoscaler.kubernetes.io/safe-to-evict";
 
 /// How long a finished Job (and its pod) lingers before the TTL-after-finished GC
 /// removes it. The controller reads the pod's exit code + captured stdout back into
@@ -71,11 +80,16 @@ Json buildJob(Agent agent, Station station, AgentDefinition definition, string a
 	auto env = runEnv(agent, station, recipe);
 
 	auto template_ = wirePodTemplate(deepCopy(station.spec.template_), commandFor(argv), env, agentImage);
-	template_ = withRunLabels(template_, agent, station);
+	template_ = withRunMetadata(template_, agent, station);
+
+	// A deadlineMinutes of 0 (explicitly set, or slipped past the schema-only @Minimum)
+	// would render activeDeadlineSeconds 0, which the Job controller treats as an
+	// already-exceeded deadline and fails the run instantly. Hold it to at least a minute.
+	const deadlineMinutes = station.spec.deadlineMinutes < 1 ? 1 : station.spec.deadlineMinutes;
 
 	Json[string] spec;
 	spec["ttlSecondsAfterFinished"] = Json(jobTtlSeconds);
-	spec["activeDeadlineSeconds"] = Json(station.spec.deadlineMinutes * 60);
+	spec["activeDeadlineSeconds"] = Json(long(deadlineMinutes) * 60);
 	spec["backoffLimit"] = Json(0);
 	spec["template"] = template_;
 
@@ -92,18 +106,26 @@ private Json deepCopy(Json value)
 	return parseJsonString(value.toString());
 }
 
-/// Merge the run labels into the pod template's `metadata.labels`, preserving any
-/// labels the Station's template already carries (ours win on the run keys).
-private Json withRunLabels(Json template_, Agent agent, Station station)
+/// Merge the run labels and annotations into the pod template's metadata, preserving
+/// anything the Station's template already carries (ours win on the run keys). A run
+/// is one-shot (`backoffLimit` 0), so the safe-to-evict annotation keeps the cluster
+/// autoscaler from consolidating a node out from under a live run — an eviction would
+/// fail the whole attempt.
+private Json withRunMetadata(Json template_, Agent agent, Station station)
 {
 	auto pod = template_;
-	Json meta = ("metadata" in pod) ? pod["metadata"] : Json.emptyObject;
-	Json labels = (meta.type == Json.Type.object && ("labels" in meta))
+	Json meta = ("metadata" in pod && pod["metadata"].type == Json.Type.object)
+		? pod["metadata"] : Json.emptyObject;
+	Json labels = ("labels" in meta && meta["labels"].type == Json.Type.object)
 		? meta["labels"] : Json.emptyObject;
 	labels[labelComponent] = componentJob;
-	labels[labelAgent] = agent.metadata.name;
-	labels[labelStation] = station.metadata.name;
+	labels[labelAgent] = safeName(agent.metadata.name);
+	labels[labelStation] = safeName(station.metadata.name);
 	meta["labels"] = labels;
+	Json annotations = ("annotations" in meta && meta["annotations"].type == Json.Type.object)
+		? meta["annotations"] : Json.emptyObject;
+	annotations[safeToEvictAnnotation] = Json("false");
+	meta["annotations"] = annotations;
 	pod["metadata"] = meta;
 	return pod;
 }
@@ -179,36 +201,59 @@ private bool isAgentContainer(Json container)
 		&& container["name"].get!string == agentContainerName;
 }
 
+private Json reservedMount(string name, string path)
+{
+	Json[string] mount;
+	mount["name"] = Json(name);
+	mount["mountPath"] = Json(path);
+	return Json(mount);
+}
+
 private Json withBundleMount(Json container)
 {
 	Json[] mounts;
 	if (auto existing = "volumeMounts" in container)
-		mounts = (*existing).get!(Json[]).dup;
-	Json[string] mount;
-	mount["name"] = Json(bundleVolume);
-	mount["mountPath"] = Json(bundleRoot);
-	mounts ~= Json(mount);
+		if (existing.type == Json.Type.array)
+			foreach (m; (*existing).get!(Json[]))
+				if (!isNamed(m, bundleVolume) && !isNamed(m, workspaceVolume))
+					mounts ~= m;
+	mounts ~= reservedMount(bundleVolume, bundleRoot);
+	mounts ~= reservedMount(workspaceVolume, defaultWorkspace);
 	return Json(mounts);
+}
+
+/// Whether `entry` is an object with a `name` field equal to `name`. Used to drop a
+/// Station-supplied volume/mount that collides with the bundle's reserved `agent`
+/// name so the assembled pod carries exactly one — the kubelet rejects duplicates.
+private bool isNamed(Json entry, string name)
+{
+	return entry.type == Json.Type.object && ("name" in entry)
+		&& entry["name"].type == Json.Type.string && entry["name"].get!string == name;
+}
+
+private Json emptyDirVolume(string name)
+{
+	Json[string] volume;
+	volume["name"] = Json(name);
+	volume["emptyDir"] = Json.emptyObject;
+	return Json(volume);
 }
 
 private Json withBundleVolume(Json spec)
 {
 	Json[] volumes;
 	if (auto existing = "volumes" in spec)
-		volumes = (*existing).get!(Json[]).dup;
-	Json[string] volume;
-	volume["name"] = Json(bundleVolume);
-	volume["emptyDir"] = Json.emptyObject;
-	volumes ~= Json(volume);
+		if (existing.type == Json.Type.array)
+			foreach (v; (*existing).get!(Json[]))
+				if (!isNamed(v, bundleVolume) && !isNamed(v, workspaceVolume))
+					volumes ~= v;
+	volumes ~= emptyDirVolume(bundleVolume);
+	volumes ~= emptyDirVolume(workspaceVolume);
 	return Json(volumes);
 }
 
 private Json initContainer(string agentImage, Json env)
 {
-	Json[string] mount;
-	mount["name"] = Json(bundleVolume);
-	mount["mountPath"] = Json(bundleRoot);
-
 	Json[string] security;
 	security["runAsUser"] = Json(0);
 
@@ -216,7 +261,10 @@ private Json initContainer(string agentImage, Json env)
 	container["name"] = Json(initContainerName);
 	container["image"] = Json(agentImage);
 	container["env"] = env;
-	container["volumeMounts"] = Json([Json(mount)]);
+	container["volumeMounts"] = Json([
+		reservedMount(bundleVolume, bundleRoot),
+		reservedMount(workspaceVolume, defaultWorkspace),
+	]);
 	container["securityContext"] = Json(security);
 	container["resources"] = initResources();
 	return Json(container);
@@ -329,19 +377,51 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 		env ~= Json(entry);
 	}
 
-	strVar(envSinks, sinksJson(recipe.output.sinks));
-	// An http sink's `headers_secret` names a key in the agent-secrets Secret holding
-	// the auth headers; inject that key as an env var of the same name so the pod's
-	// sink delivery can resolve it. Dedup so multiple sinks sharing a secret inject once.
-	bool[string] headerSecretsInjected;
-	foreach (sink; recipe.output.sinks)
+	// An http sink's `headers_secret` names a key in the agent-secrets Secret holding the
+	// auth headers, injected below as an env var of the same name. A name colliding with a
+	// controller-owned var is dropped up front — on the serialized sinks too, not just the
+	// env injection: otherwise the pod's `sinkHeaders()` would still resolve that reserved
+	// name from the environment (where it holds the controller's value) and post it to the
+	// sink as an auth header. Blanking it here makes pod-side resolution return "".
+	auto sinks = recipe.output.sinks.dup;
+	foreach (ref sink; sinks)
+		if (sink.type == SinkType.http && isReservedEnvName(sink.headersSecret))
+			sink.headersSecret = "";
+
+	strVar(envSinks, sinksJson(sinks));
+	bool[string] secretsInjected;
+	foreach (sink; sinks)
 		if (sink.type == SinkType.http && sink.headersSecret.length
-			&& sink.headersSecret !in headerSecretsInjected)
+			&& sink.headersSecret !in secretsInjected)
 		{
 			secretVar(sink.headersSecret, sink.headersSecret);
-			headerSecretsInjected[sink.headersSecret] = true;
+			secretsInjected[sink.headersSecret] = true;
 		}
 	strVar(envRepos, reposJson(recipe.resources.repos));
+	// A repo's token_secret names an agent-secrets key holding its git credential; inject it
+	// as a secretKeyRef env of the same name so the init container's clone authenticates.
+	// Without it the clone runs with an empty token and fails "Invalid username or token".
+	foreach (repo; recipe.resources.repos)
+		if (repo.tokenSecret.length && !isReservedEnvName(repo.tokenSecret)
+			&& repo.tokenSecret !in secretsInjected)
+		{
+			secretVar(repo.tokenSecret, repo.tokenSecret);
+			secretsInjected[repo.tokenSecret] = true;
+		}
+	// `gh` (and every tool reading the conventional variable) authenticates via GH_TOKEN;
+	// the per-task key carries a run-scoped name, so the first repo credential is also
+	// aliased to the standard name — without it the agent's gh calls run unauthenticated
+	// and 404 on private repos.
+	foreach (repo; recipe.resources.repos)
+		if (repo.tokenSecret.length)
+		{
+			if ("GH_TOKEN" !in secretsInjected)
+			{
+				secretVar("GH_TOKEN", repo.tokenSecret);
+				secretsInjected["GH_TOKEN"] = true;
+			}
+			break;
+		}
 	if (recipe.output.select.length)
 		strVar(envSelect, selectJson(recipe.output.select));
 	strVar(envWorkspace, defaultWorkspace);
@@ -365,8 +445,11 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 		if (!isReservedEnvName(variable.name))
 			strVar(variable.name, variable.value);
 	foreach (secret; recipe.resources.secrets)
-		if (!isReservedEnvName(secret.name))
+		if (!isReservedEnvName(secret.name) && secret.name !in secretsInjected)
+		{
 			secretVar(secret.name, secret.ref_);
+			secretsInjected[secret.name] = true;
+		}
 	strVar(homeEnv, bundleRoot);
 	strVar(pathEnv, "/agent/.local/bin:/usr/local/bin:/usr/bin:/bin");
 	return Json(env);
@@ -560,6 +643,98 @@ unittest
 
 unittest
 {
+	// A run is one-shot (backoffLimit 0), so a cluster-autoscaler scale-down that
+	// evicts the pod mid-run kills the whole attempt. The safe-to-evict annotation
+	// tells the autoscaler to consolidate around live runs instead.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+
+	auto annotations = buildJob(agent, station, definition, "img")["spec"]["template"]["metadata"]["annotations"];
+	annotations["cluster-autoscaler.kubernetes.io/safe-to-evict"].get!string.should.equal("false");
+}
+
+unittest
+{
+	// Station-supplied pod annotations survive the merge; the run's safe-to-evict
+	// stamp wins on its own key.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	station.spec.template_ = parseJsonString(
+		`{"metadata":{"annotations":{"example.com/keep":"yes",`
+		~ `"cluster-autoscaler.kubernetes.io/safe-to-evict":"true"}},`
+		~ `"spec":{"containers":[{"name":"agent","image":"node:22"}]}}`);
+
+	auto annotations = buildJob(agent, station, definition, "img")["spec"]["template"]["metadata"]["annotations"];
+	annotations["example.com/keep"].get!string.should.equal("yes");
+	annotations["cluster-autoscaler.kubernetes.io/safe-to-evict"].get!string.should.equal("false");
+}
+
+unittest
+{
+	// #126: a Station pod template with an explicit null metadata, and a volume/mount
+	// already named "agent", must not throw a raw Json error or emit a duplicate "agent"
+	// name (the kubelet rejects duplicate volume/mount names). Labels still apply, and
+	// exactly one bundle volume + mount survives, at the bundle path.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	station.spec.template_ = parseJsonString(
+		`{"metadata":null,"spec":{"containers":[{"name":"agent","image":"node:22",`
+		~ `"volumeMounts":[{"name":"agent","mountPath":"/somewhere"}]}],`
+		~ `"volumes":[{"name":"agent","emptyDir":{}}]}}`);
+
+	auto job = buildJob(agent, station, definition, "img");
+
+	job["spec"]["template"]["metadata"]["labels"]["agents.re-cinq.com/component"]
+		.get!string.should.equal("job");
+
+	auto pod = job["spec"]["template"]["spec"];
+	int agentVolumes;
+	foreach (v; pod["volumes"].get!(Json[]))
+		if (v["name"].get!string == "agent")
+			agentVolumes++;
+	agentVolumes.should.equal(1);
+
+	int agentMounts;
+	string mountPath;
+	foreach (m; agentContainer(job)["volumeMounts"].get!(Json[]))
+		if (m["name"].get!string == "agent")
+		{
+			agentMounts++;
+			mountPath = m["mountPath"].get!string;
+		}
+	agentMounts.should.equal(1);
+	mountPath.should.equal(bundleRoot);
+}
+
+unittest
+{
+	// #126: every template node that can be an explicit JSON null — metadata.labels, the
+	// agent container's volumeMounts, and the pod spec's volumes — is handled without a raw
+	// Json throw, and the run still gets its label plus the bundle + workspace volume/mounts.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	station.spec.template_ = parseJsonString(
+		`{"metadata":{"labels":null},"spec":{"containers":[{"name":"agent","image":"node:22",`
+		~ `"volumeMounts":null}],"volumes":null}}`);
+
+	auto job = buildJob(agent, station, definition, "img");
+
+	job["spec"]["template"]["metadata"]["labels"]["agents.re-cinq.com/component"]
+		.get!string.should.equal("job");
+	job["spec"]["template"]["spec"]["volumes"].get!(Json[]).length.should.equal(2);
+	agentContainer(job)["volumeMounts"].get!(Json[]).length.should.equal(2);
+}
+
+unittest
+{
 	// The run pod must not mount a ServiceAccount token: the run needs no API access,
 	// and a mounted token is a live credential exposed to the untrusted agent code.
 	Agent agent;
@@ -569,6 +744,35 @@ unittest
 
 	auto pod = buildJob(agent, station, definition, "img")["spec"]["template"]["spec"];
 	pod["automountServiceAccountToken"].get!bool.should.equal(false);
+}
+
+unittest
+{
+	// #115: a deadlineMinutes of 0 must not render activeDeadlineSeconds 0, which the Job
+	// controller treats as an already-exceeded deadline and fails the run instantly.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	station.spec.deadlineMinutes = 0;
+
+	auto job = buildJob(agent, station, definition, "img");
+	job["spec"]["activeDeadlineSeconds"].get!long.should.equal(60);
+}
+
+unittest
+{
+	// #115: a very large deadlineMinutes must not overflow `int * 60` into a negative
+	// activeDeadlineSeconds, which the API server rejects on every reconcile. Widening to
+	// long keeps it a huge-but-positive value the API server accepts.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	station.spec.deadlineMinutes = int.max;
+
+	auto job = buildJob(agent, station, definition, "img");
+	job["spec"]["activeDeadlineSeconds"].get!long.should.equal(long(int.max) * 60);
 }
 
 unittest
@@ -657,6 +861,62 @@ unittest
 
 unittest
 {
+	// A repo's token_secret names the agent-secrets key holding its git credential, and
+	// must be injected as a secretKeyRef env of the same name — the init container's clone
+	// reads `$<token_secret>` for auth. Without the env the clone runs with an empty token
+	// and fails ("Invalid username or token"). The field is a credential channel, not just
+	// AGENT_REPOS metadata.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.resources.repos = [
+		RepoRef("target", "https://github.com/octo/app.git", "main", "", "GH_TOKEN_abc12345"),
+	];
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img"));
+
+	envSecretKey(container, "GH_TOKEN_abc12345").should.equal("GH_TOKEN_abc12345");
+	// `gh` (and every tool reading the conventional variable) authenticates via GH_TOKEN;
+	// the per-task key carries a run-scoped name, so the first repo credential is also
+	// aliased to the standard name — without it the agent's `gh pr view/diff/comment`
+	// runs unauthenticated and 404s on private repos.
+	envSecretKey(container, "GH_TOKEN").should.equal("GH_TOKEN_abc12345");
+}
+
+unittest
+{
+	// The init container clones into the workspace and the agent container edits it —
+	// the two are separate filesystems unless the workspace is a shared volume, so
+	// without one the clone vanishes when init exits and the agent finds no repo.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+
+	auto pod = buildJob(agent, station, definition, "img")["spec"]["template"]["spec"];
+
+	int workspaceVolumes;
+	foreach (v; pod["volumes"].get!(Json[]))
+		if (isNamed(v, workspaceVolume))
+			workspaceVolumes++;
+	workspaceVolumes.should.equal(1);
+
+	string initMount, agentMount;
+	foreach (m; pod["initContainers"][0]["volumeMounts"].get!(Json[]))
+		if (isNamed(m, workspaceVolume))
+			initMount = m["mountPath"].get!string;
+	foreach (container; pod["containers"].get!(Json[]))
+		if (isAgentContainer(container))
+			foreach (m; container["volumeMounts"].get!(Json[]))
+				if (isNamed(m, workspaceVolume))
+					agentMount = m["mountPath"].get!string;
+	initMount.should.equal(defaultWorkspace);
+	agentMount.should.equal(defaultWorkspace);
+}
+
+unittest
+{
 	// An http sink's headers_secret survives the controller→pod seam both ways: it
 	// round-trips on AGENT_SINKS, and its named Secret key is injected as an env var of
 	// the same name so the pod's sink delivery can resolve the auth headers at runtime.
@@ -673,6 +933,32 @@ unittest
 	sinks[0].headersSecret.should.equal("SINK_HEADERS");
 	// The header Secret key is injected as an env var so deliverSinks can read it.
 	envSecretKey(container, "SINK_HEADERS").should.equal("SINK_HEADERS");
+}
+
+unittest
+{
+	// #137: an http sink's headers_secret that reuses a controller-owned env name must not
+	// shadow the real value — the collision is dropped like any other reserved-name reuse.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.output.sinks = [OutputSink(SinkType.http, "http://collector", "AGENT_SINKS")];
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img"));
+
+	// Exactly one AGENT_SINKS entry, and it is the controller's literal sinks value —
+	// not a secretKeyRef injected from the colliding header secret.
+	int sinksEntries;
+	foreach (entry; container["env"].get!(Json[]))
+		if (entry["name"].get!string == "AGENT_SINKS")
+			sinksEntries++;
+	sinksEntries.should.equal(1);
+	auto sinks = parseSinks(envValue(container, "AGENT_SINKS"));
+	sinks.length.should.equal(1);
+	// The serialized sink no longer carries the reserved name, so pod-side sinkHeaders()
+	// can't resolve the controller-owned AGENT_SINKS value and post it as an auth header.
+	sinks[0].headersSecret.should.equal("");
 }
 
 unittest

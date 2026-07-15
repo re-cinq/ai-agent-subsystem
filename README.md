@@ -9,6 +9,54 @@ linked [dub](https://dub.pm) monorepo with **no runtime dependencies**.
 
 📖 **Documentation:** https://glowing-garbanzo-y7ek98q.pages.github.io/
 
+## Install
+
+> The prebuilt agent runtime image is **private**, so the published `install.yaml` is not pullable
+> from an arbitrary cluster. Third-party users build the two images from source and push them to a
+> registry their cluster can pull from, then install pointing at those.
+
+You need a Kubernetes cluster, `kubectl`, and Docker (with Buildx). Both images build from the repo
+root — build them, tag for **your** registry, and push:
+
+```sh
+REGISTRY=your-registry.example.com/your-project   # a registry your cluster can pull from
+TAG=v0.1.0
+
+docker build -f deploy/Dockerfile.controller       -t "$REGISTRY/ai-agent-controller:$TAG" .
+docker build -f scripts/container/Dockerfile.agent -t "$REGISTRY/ai-agent:$TAG"            .
+
+docker push "$REGISTRY/ai-agent-controller:$TAG"
+docker push "$REGISTRY/ai-agent:$TAG"
+```
+
+Point the manifests at your images. The controller image is set via the kustomize `images:` override
+in [`deploy/kustomization.yaml`](deploy/kustomization.yaml); the agent runtime the controller injects
+into each run pod is the `AGENT_IMAGE` env in [`deploy/controller.yaml`](deploy/controller.yaml):
+
+```sh
+( cd deploy && kustomize edit set image ghcr.io/re-cinq/ai-agent-controller="$REGISTRY/ai-agent-controller:$TAG" )
+# then set AGENT_IMAGE in deploy/controller.yaml to "$REGISTRY/ai-agent:$TAG"
+```
+
+If your registry needs credentials to pull, create an image pull secret in the `ai-agents` namespace
+and reference it from the controller Deployment (and the injected run pods). Then apply the
+kustomization — it stands the whole subsystem up in its own `ai-agents` namespace (CRDs, RBAC,
+NetworkPolicy, controller):
+
+```sh
+kubectl apply -k deploy
+```
+
+Verify the controller is up and reconciling:
+
+```sh
+kubectl -n ai-agents get deploy,pods
+kubectl -n ai-agents logs deploy/agent-controller
+```
+
+With the controller running, define your first recipe from the [`examples/`](examples/). See the
+[install guide](https://glowing-garbanzo-y7ek98q.pages.github.io/setup/install/) for more detail.
+
 ## The model
 
 Three Custom Resources reference each other in a chain:

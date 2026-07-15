@@ -28,6 +28,14 @@ import agentcore.reconcile.reconcile : JobOutcome;
 import incluster : ClusterConfig;
 
 enum crGroup = "agents.re-cinq.com";
+
+/// Defensive ceilings on how much a single API-server read may buffer, so a pathological
+/// or malformed response can't grow controller memory without bound. A watch line carries
+/// one object (etcd caps objects near 1.5 MiB); a LIST/GET body is one paginated page.
+/// Exceeding the ceiling throws — the watch/poll loop then backs off and reconnects, the
+/// same as any other read error, instead of reading unboundedly.
+enum maxWatchLineBytes = 4 * 1024 * 1024;
+enum maxResponseBytes = 64 * 1024 * 1024;
 enum crVersion = "v1alpha1";
 
 /// Last lines requested from a pod's log: a coarse cap on what crosses the wire.
@@ -256,7 +264,7 @@ final class HttpKubeClient : KubeClient, LeaseClient, AgentInformerClient
 				}
 				while (!res.bodyReader.empty)
 				{
-					auto line = cast(string) res.bodyReader.readLine(size_t.max, "\n");
+					auto line = cast(string) res.bodyReader.readLine(maxWatchLineBytes, "\n");
 					if (line.length)
 						onLine(line);
 				}
@@ -303,7 +311,7 @@ final class HttpKubeClient : KubeClient, LeaseClient, AgentInformerClient
 			(scope HTTPClientRequest req) { authorize(req); },
 			(scope HTTPClientResponse res) {
 				observed = res.statusCode;
-				const body = res.bodyReader.readAllUTF8();
+				const body = res.bodyReader.readAllUTF8(false, maxResponseBytes);
 				if (observed == 200)
 					document = parseJsonString(body);
 			});
@@ -328,7 +336,7 @@ final class HttpKubeClient : KubeClient, LeaseClient, AgentInformerClient
 			(scope HTTPClientRequest req) { authorize(req); },
 			(scope HTTPClientResponse res) {
 				status = res.statusCode;
-				body = res.bodyReader.readAllUTF8();
+				body = res.bodyReader.readAllUTF8(false, maxResponseBytes);
 			});
 		enforce(status == 200, what ~ ": unexpected status " ~ status.to!string);
 		return body;

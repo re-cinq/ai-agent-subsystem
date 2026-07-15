@@ -5,9 +5,16 @@ import std.algorithm.searching : canFind;
 import std.array : array, join;
 import std.conv : to;
 import std.process : environment, spawnProcess, wait;
-import std.string : toStringz;
+import std.string : toStringz, indexOf;
 
-import core.sys.posix.unistd : access, W_OK;
+import core.sys.posix.sys.types : gid_t, uid_t;
+import core.sys.posix.unistd : access, geteuid, W_OK;
+
+import agentcore.kube.jobspec : agentUid, agentGid;
+
+// druntime's core.sys.posix.unistd lacks lchown on some compilers (ldc's musl
+// bindings); declare the POSIX prototype directly.
+private extern (C) int lchown(scope const char* path, uid_t owner, gid_t group) @system nothrow @nogc;
 
 import agentcore.crds.enums : SinkType;
 import agentcore.core.env : defaultWorkspace, envModel, envRepos, envWorkspace;
@@ -66,13 +73,42 @@ int provision(InitContext ctx)
 			const code = runStep(step);
 			if (code != 0)
 				return fail(sinks, source,
-					"[init] " ~ tool.name ~ " step failed (exit " ~ code.to!string ~ "): " ~ step.join(" "),
+					"[init] " ~ tool.name ~ " step failed (exit " ~ code.to!string ~ "): "
+						~ redactUrlCredentials(step.join(" ")),
 					failedStep(tool.name, code), code);
 		}
 	}
 
+	// This init runs as root; the agent container runs as agentUid/agentGid (jobspec
+	// nonRootSecurity). fsGroup only chowns the volume roots at mount — everything the
+	// provisioning above created is root-owned 0755, so the agent could neither write
+	// its HOME (Claude fails on mkdir $HOME/.claude/session-env) nor edit the cloned
+	// workspace. Hand both trees over before declaring init done.
+	if (geteuid() == 0)
+		foreach (root; [environment.get("HOME", ""), ctx.workspaceDir])
+			if (!chownTree(root))
+				return fail(sinks, source,
+					"[init] chown of " ~ root ~ " to the agent uid failed",
+					failedReason("chown"), 2);
+
 	notify(sinks, source, LifecycleEvent(Phase.init_, Status.succeeded).toJson);
 	return 0;
+}
+
+/// Recursively hand `root` (and everything under it) to the agent uid/gid. Symlinks
+/// are re-owned, never followed — a repo can contain hostile links. Missing/empty
+/// roots are fine (nothing to hand over).
+private bool chownTree(string root)
+{
+	import std.file : dirEntries, exists, SpanMode;
+
+	if (root.length == 0 || !root.exists)
+		return true;
+
+	bool ok = lchown(root.toStringz, agentUid, agentGid) == 0;
+	foreach (entry; dirEntries(root, SpanMode.depth, false))
+		ok = lchown(entry.name.toStringz, agentUid, agentGid) == 0 && ok;
+	return ok;
 }
 
 /// The tools this run needs, in execution order — those whose `steps` are non-empty.
@@ -107,7 +143,8 @@ private int ensurePrerequisites(Tool[] active, const OutputSink[] sinks, in Even
 		const code = runStep(step);
 		if (code != 0)
 			return fail(sinks, source,
-				"[init] prerequisite install failed (exit " ~ code.to!string ~ "): " ~ step.join(" "),
+				"[init] prerequisite install failed (exit " ~ code.to!string ~ "): "
+					~ redactUrlCredentials(step.join(" ")),
 				failedReason("install"), code);
 	}
 
@@ -192,4 +229,50 @@ private bool homeWritable()
 {
 	const home = environment.get("HOME", "");
 	return home.length > 0 && access(home.toStringz, W_OK) == 0;
+}
+
+/// Redact any `scheme://userinfo@host` credentials from a step string before it is
+/// logged or emitted to a sink, so a repo url that carried embedded credentials never
+/// reaches pod logs. Defense in depth behind repoUrl, which already strips userinfo.
+string redactUrlCredentials(string s) @safe pure
+{
+	string result;
+	size_t i = 0;
+	while (i < s.length)
+	{
+		const rel = s[i .. $].indexOf("://");
+		if (rel < 0)
+		{
+			result ~= s[i .. $];
+			break;
+		}
+		const schemeEnd = i + rel + 3;
+		result ~= s[i .. schemeEnd];
+		size_t j = schemeEnd;
+		ptrdiff_t at = -1;
+		while (j < s.length && s[j] != ' ' && s[j] != '/' && s[j] != '?' && s[j] != '#')
+		{
+			if (s[j] == '@')
+				at = j;
+			j++;
+		}
+		result ~= at >= 0 ? "<redacted>@" ~ s[at + 1 .. j] : s[schemeEnd .. j];
+		i = j;
+	}
+	return result;
+}
+
+version (unittest) import fluent.asserts;
+
+@safe unittest
+{
+	// #117: credentials embedded in a url are redacted from a logged/emitted step string.
+	redactUrlCredentials("git clone -- https://user:tok@github.com/o/app /ws/app")
+		.should.equal("git clone -- https://<redacted>@github.com/o/app /ws/app");
+	// a url without userinfo is untouched.
+	redactUrlCredentials("git clone -- https://github.com/o/app /ws/app")
+		.should.equal("git clone -- https://github.com/o/app /ws/app");
+	// an '@' in a query (no path) is not credentials — the host is not swallowed.
+	redactUrlCredentials("curl https://host?next=a@b")
+		.should.equal("curl https://host?next=a@b");
 }

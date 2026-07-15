@@ -22,7 +22,7 @@ final class OpenCodeAgent : Agent
 		const model = opencodeModel(recipe.model);
 		if (model.length)
 			cmd ~= ["--model", model];
-		cmd ~= renderedPrompt;
+		cmd ~= ["--", renderedPrompt];
 		return cmd;
 	}
 }
@@ -50,6 +50,7 @@ version (unittest) import fluent.asserts;
 	cmd[0 .. 4].should.equal(["opencode", "run", "--format", "json"]);
 	cmd.should.contain("--model");
 	cmd.should.contain("anthropic/claude-sonnet-4-6"); // the "opencode/" prefix is stripped
+	cmd[$ - 2].should.equal("--"); // prompt fenced behind end-of-options
 	cmd[$ - 1].should.equal("Refactor");
 }
 
@@ -61,4 +62,14 @@ version (unittest) import fluent.asserts;
 	const cmd = (new OpenCodeAgent).command(recipe, "p");
 	cmd.should.not.contain("--model");
 	cmd[$ - 1].should.equal("p");
+}
+
+@safe unittest
+{
+	// #136: a leading-dash prompt is data, not an opencode flag — the -- fence guarantees it.
+	AgentDefinitionSpec recipe;
+	recipe.model = "opencode";
+	const cmd = (new OpenCodeAgent).command(recipe, "--help");
+	cmd[$ - 2].should.equal("--");
+	cmd[$ - 1].should.equal("--help");
 }
