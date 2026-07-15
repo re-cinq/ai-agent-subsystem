@@ -6,12 +6,18 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.5.0
+
 ### Changed
 - Migrated all JSON handling from `std.json` to `vibe.data.json`; CRD parsing is now a
   single lenient policy (`CrdPolicy` + `@optional`/`@wire`) so it cannot drift (#97).
 - Agent-CLI installation is abstracted behind `AgentSetup` (claude / codex / opencode) (#96).
 
 ### Fixed
+- A repo's `token_secret` is now injected as a `secretKeyRef` env of the same name, so the
+  init container's `git clone` authenticates. It was serialised into `AGENT_REPOS` as
+  metadata but never materialised as an env var, so every clone ran with an empty token and
+  failed `remote: Invalid username or token` — stalling the assembly-line walk (#160).
 - The controller surfaces non-200 watch responses instead of spinning in a silent dead
   loop (#94), and the inform, poll and election loops now contain library-level `Error`s
   so one bad interaction can't crash the HA controller (#92).
