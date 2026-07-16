@@ -3,7 +3,9 @@ module app;
 // Supervisor integration tests. Spawns the real `ai-agent-supervisor` binary
 // against the `ai-agent-mock` binary and asserts on its observable behaviour:
 //   - streaming + exit-code passthrough
-//   - every event is stamped with the run's source ids (agent/pod/station)
+//   - stdout carries the BARE event lines (pod logs / status.output are the
+//     station contract's own stream); source-id attribution rides only on
+//     sink deliveries
 //   - file + http sinks receive the (enriched) events
 //   - all handled signals: SIGTERM + SIGINT forwarded, SIGPIPE ignored
 //   - an agent crash surfaces as a non-zero exit
@@ -166,12 +168,12 @@ private void exitPassthrough()
 
 private void eventIds()
 {
-	writeln("events carry source ids");
+	writeln("stdout events are bare; source ids ride only on sinks");
 	auto r = run(["MOCK_LINES": "1"]);
-	check("event stamped with agent id", emitted(r.lines, `"agent":"test-agent"`));
-	check("event stamped with pod id", emitted(r.lines, `"pod":"test-pod"`));
-	check("event stamped with station id", emitted(r.lines, `"station":"test-station"`));
-	check("original payload nested under event", emitted(r.lines, `"i":0`));
+	check("stdout event not stamped with agent id", !emitted(r.lines, `"agent":"test-agent"`));
+	check("stdout event not stamped with pod id", !emitted(r.lines, `"pod":"test-pod"`));
+	check("stdout event not wrapped in an envelope", !emitted(r.lines, `"event":`));
+	check("payload forwarded bare", emitted(r.lines, `"i":0`));
 }
 
 private void fileSink()
