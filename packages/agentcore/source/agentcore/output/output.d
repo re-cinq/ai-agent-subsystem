@@ -109,27 +109,35 @@ string[] headerLines(string headers) @safe nothrow
 	return lines;
 }
 
-/// Emit one event: wrap `payload` in the run's envelope, echo it to stdout (pod logs),
-/// then fan it out to every configured sink. The single path the initializer and the
-/// supervisor both emit through — parameterised by the package's http poster, which
-/// varies (the initializer shells out to `curl`, the supervisor uses vibe). Fire-and-
-/// forget; never throws.
+/// Emit one event: echo the BARE `payload` to stdout (pod logs / status.output —
+/// the station contract's own line, station-contract.md "Envelope ownership"),
+/// then fan the attribution-wrapped line out to every configured sink. The
+/// `{"source", "event"}` envelope exists only where streams from many pods merge
+/// (http/file sinks); wrapping it onto stdout leaked it into Agent.status.output,
+/// where the Floor's result parsers expect the bare claude-style line. The single
+/// path the initializer and the supervisor both emit through — parameterised by
+/// the package's http poster, which varies (the initializer shells out to `curl`,
+/// the supervisor uses vibe). Fire-and-forget; never throws — an attempted
+/// double-wrap (wrapEvent's enforce) is logged as the bug it is, never nested.
 void emitEvent(const OutputSink[] sinks, in EventSource src, string payload,
 	HttpSink postHttp, string tag, bool toSinks = true) nothrow
 {
-	const line = wrapEvent(src, payload);
 	try
 	{
-		stdout.writeln(line);
+		stdout.writeln(payload);
 		stdout.flush();
 	}
 	catch (Exception)
 	{
 	}
-	// stdout (pod logs / status.output) always gets every event; sink delivery is
-	// gated by the recipe's output.select (the caller passes the verdict).
-	if (toSinks)
-		deliverSinks(sinks, line, postHttp, tag);
+	// stdout always gets every event; sink delivery is gated by the recipe's
+	// output.select (the caller passes the verdict).
+	if (!toSinks)
+		return;
+	try
+		deliverSinks(sinks, wrapEvent(src, payload), postHttp, tag);
+	catch (Exception e)
+		logError(tag ~ " BUG: " ~ e.msg);
 }
 
 /// Append `line` (with a trailing newline) to a file sink.
