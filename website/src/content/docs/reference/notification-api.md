@@ -13,15 +13,15 @@ Every event is delivered to each sink declared in `spec.output.sinks`. There are
 
 | `type` | Where it goes |
 | --- | --- |
-| `stdout` | Echoed to the pod logs. Always happens regardless of configured sinks — it is the source of truth. |
-| `http` | `POST`ed to the sink's `url`, one event per request. This is how a UI or indexer consumes runs live. |
-| `file` | Appended to the sink's `path` on the container filesystem. |
+| `stdout` | Echoed to the pod logs. Always happens regardless of configured sinks — it is the source of truth. Carries the **bare** event line, not the envelope: pod logs (and the `Agent.status.output` capped from them) come from exactly one pod, so attribution adds nothing there and downstream `status.output` parsers expect the tool's own line. |
+| `http` | `POST`ed to the sink's `url` **wrapped in the envelope below**, one event per request. This is how a UI or indexer consumes runs live. |
+| `file` | Appended to the sink's `path` on the container filesystem, wrapped in the envelope below. |
 
 Both the init container (setup phase) and the supervisor (agent phase) emit through the same path, so the two phases' streams look identical to a listener. A single run therefore produces one uniform event stream from start to finish.
 
 ## The envelope
 
-Every event is wrapped in an envelope carrying the run's identity, so a downstream workflow can correlate it back to its agent and pod:
+Every event **delivered to an http or file sink** is wrapped in an envelope carrying the run's identity, so a downstream workflow — where streams from many pods merge — can correlate it back to its agent and pod. The envelope is applied exactly once, at sink delivery; wrapping an already-wrapped line is refused (enforce) rather than nested:
 
 ```json
 {
@@ -83,7 +83,7 @@ A run that reaches the agent phase emits, at minimum, an `agent`/`started` at la
 
 ## Agent (tool-native) events
 
-Between the lifecycle events, the supervisor forwards each line the agent tool writes to stdout, verbatim, as the envelope's `event`. **These are produced by the tool adapter, not the subsystem** — the schema below describes Claude Code's `stream-json` output and may vary by model or tool. Treat the subsystem-owned contract (the envelope and lifecycle events above) as stable; treat these as the tool's format.
+Between the lifecycle events, the supervisor forwards each line the agent tool writes, verbatim — to pod-log stdout as-is, and to the sinks as the envelope's `event`. **These are produced by the tool adapter, not the subsystem** — the schema below describes Claude Code's `stream-json` output and may vary by model or tool. Treat the subsystem-owned contract (the envelope and lifecycle events above) as stable; treat these as the tool's format.
 
 Each is a JSON object with a `type` discriminator.
 

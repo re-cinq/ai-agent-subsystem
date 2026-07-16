@@ -6,6 +6,15 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+- stdout (pod logs, and the `Agent.status.output` capped from them) now carries the
+  bare event line; the `{"source", "event"}` attribution envelope is applied only at
+  sink delivery, where streams from many pods merge. Wrapping stdout leaked the
+  envelope into `status.output`, whose downstream parsers expect the tool's own
+  claude-style result line — a review could record its verdict while its findings
+  never parsed. `wrapEvent` now enforce-throws when asked to wrap an already-wrapped
+  line, so the envelope can never nest.
+
 ## v0.6.1
 
 ### Fixed
