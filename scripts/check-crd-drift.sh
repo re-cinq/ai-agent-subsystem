@@ -22,6 +22,6 @@ if diff -ru deploy/crds "$tmp"; then
 else
 	echo >&2
 	echo "ERROR: deploy/crds is out of sync with the D model." >&2
-	echo "Regenerate: ./packages/crdgen/ai-agent-crdgen write-structures deploy/crds" >&2
+	echo "Regenerate: make regen  (or: ./packages/crdgen/ai-agent-crdgen write-structures deploy/crds)" >&2
 	exit 1
 fi

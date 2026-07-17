@@ -8,6 +8,7 @@ on:
       - 'deploy/crds/**'
       - 'dub.json'
       - 'scripts/**'
+      - 'Makefile'
       - '.github/workflows/ci.yml'
   pull_request:
   workflow_dispatch:
@@ -19,34 +20,15 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: dlang-community/setup-dlang@d7d85fcde7c4cd5f9a6618fce1bccc316e1e910b # v2
         with:
-          compiler: dmd-latest
-      - name: Unit tests (agentcore)
-        run: dub test :agentcore
-      - name: Unit tests (controller)
-        run: dub test :controller
-      - name: Unit tests (tsgen)
-        run: dub test :tsgen
-      - name: Unit tests (supervisor)
-        run: dub test :supervisor
-      - name: Unit tests (initializer)
-        run: dub test :initializer
-      - name: Unit tests (crdgen)
-        run: dub test :crdgen
+          compiler: dmd-2.111.0
+      - name: Unit tests
+        run: make test
       - name: Build binaries
-        run: |
-          dub build :controller
-          dub build :supervisor
-          dub build :crdgen
-          dub build :tsgen
-          dub build :initializer
-      - name: CRD drift check
-        run: ./scripts/check-crd-drift.sh
-      - name: Contracts drift check
-        run: ./scripts/check-contracts-drift.sh
-      - name: Supervisor integration tests
-        run: ./scripts/itest-supervisor.sh
-      - name: Initializer integration tests
-        run: ./scripts/itest-initializer.sh
+        run: make build
+      - name: Drift checks (generated CRDs + TS contracts)
+        run: make drift
+      - name: Host integration tests (supervisor + initializer)
+        run: make itest
 
   agent-contracts:
     runs-on: ubuntu-latest
@@ -57,7 +39,7 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '20'
+          node-version: '22'
       - run: npm ci
       - name: Test (100% coverage gate)
         run: npm run test:coverage

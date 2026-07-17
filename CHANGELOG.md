@@ -6,6 +6,27 @@ the npm package versions.
 
 ## Unreleased
 
+### Added
+- A contributor on-ramp: root `CONTRIBUTING.md` (toolchain table, everyday commands,
+  integration-test tiers) and a root `Makefile` as the single dev entry point —
+  `make help` lists targets, and CI's main job now runs the same
+  `make test / build / drift / itest` it documents. `make hooks` installs a pre-push
+  hook running the generated-code drift checks locally (#175).
+- `scripts/ctest-init-portable.sh` extracts the init-container cross-distro test out
+  of CI-only workflow YAML so it runs locally too; the supervisor container workflow
+  now calls `ctest-supervisor.sh` (new `STAGE_DIR`/`BUILD_ONLY`/`SKIP_BUILD` knobs)
+  instead of carrying an inline copy that had already drifted (#175).
+
+### Changed
+- The toolchain is pinned: CI builds with `dmd-2.111.0` instead of a floating
+  `dmd-latest`, `dub.json` declares a compiler floor (frontend >= 2.094, bullseye's
+  LDC 1.24), and Node standardizes on 22 across CI with `.nvmrc` files (#175).
+
+### Fixed
+- The README's documentation links pointed at the retired
+  `glowing-garbanzo-y7ek98q.pages.github.io` hostname and omitted the site base, so
+  every link 404'd; they now target https://re-cinq.github.io/ai-agent-subsystem/ (#175).
+
 ## v0.6.2
 
 ### Fixed

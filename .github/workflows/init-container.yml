@@ -1,8 +1,10 @@
 name: Init container
 
-# Builds ai-agent-init once and exercises it on the top distros used as Kubernetes
-# base images, proving the init container self-bootstraps its prerequisites (git
-# via the distro package manager) and clones for real on each.
+# Cross-distro init-container test, driven by scripts/ctest-init-portable.sh (the
+# same script a dev runs locally): build ai-agent-init once and exercise it on the
+# top distros used as Kubernetes base images, proving the init container
+# self-bootstraps its prerequisites (git via the distro package manager) and
+# clones for real on each.
 #
 # The binary links druntime/phobos statically but glibc dynamically, so one build
 # on an old-glibc base (debian:bullseye, glibc 2.31) runs on every glibc distro in
@@ -15,12 +17,14 @@ on:
       - 'packages/**'
       - 'dub.json'
       - 'scripts/container/**'
+      - 'scripts/ctest-init-portable.sh'
       - '.github/workflows/init-container.yml'
   pull_request:
     paths:
       - 'packages/**'
       - 'dub.json'
       - 'scripts/container/**'
+      - 'scripts/ctest-init-portable.sh'
       - '.github/workflows/init-container.yml'
   workflow_dispatch:
 
@@ -31,18 +35,11 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Build (static D runtime, dynamic glibc) on old glibc
-        run: |
-          docker run --rm -v "$PWD:/src" -w /src debian:bullseye sh -euc '
-            export DEBIAN_FRONTEND=noninteractive
-            apt-get update
-            apt-get install -y --no-install-recommends ldc dub gcc libc6-dev zlib1g-dev
-            DFLAGS="-link-defaultlib-shared=false -L-lz" dub build :initializer --compiler=ldc2
-          '
-          cp packages/initializer/ai-agent-init ai-agent-init
+        run: BUILD_ONLY=1 STAGE_DIR=stage ./scripts/ctest-init-portable.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ai-agent-init
-          path: ai-agent-init
+          path: stage/ai-agent-init
           if-no-files-found: error
 
   test-glibc:
@@ -62,21 +59,9 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: ai-agent-init
-      - name: Build a throwaway origin repo (on the runner)
-        run: |
-          git config --global user.email ci@example.com
-          git config --global user.name ci
-          mkdir origin
-          ( cd origin && git init -q && echo hello > README.md && git add README.md \
-            && git -c commit.gpgsign=false commit -qm init && git tag v1 )
+          path: stage
       - name: Run init container on ${{ matrix.image }}
-        run: |
-          chmod +x ai-agent-init scripts/container/run-init.sh
-          docker run --rm \
-            -v "$PWD/ai-agent-init:/usr/local/bin/ai-agent-init:ro" \
-            -v "$PWD/origin:/origin:ro" \
-            -v "$PWD/scripts/container/run-init.sh:/run-init.sh:ro" \
-            "${{ matrix.image }}" /run-init.sh
+        run: SKIP_BUILD=1 STAGE_DIR=stage TARGETS="${{ matrix.image }}" ./scripts/ctest-init-portable.sh
 
   test-musl:
     name: alpine:3.20
@@ -84,15 +69,4 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Build + run init container on Alpine (native musl)
-        run: |
-          docker run --rm -v "$PWD:/src" -w /src alpine:3.20 sh -euc '
-            apk add --no-cache ldc dub gcc musl-dev zlib-dev git
-            DFLAGS="-link-defaultlib-shared=false -L-lz" dub build :initializer --compiler=ldc2
-            install -m755 packages/initializer/ai-agent-init /usr/local/bin/ai-agent-init
-            git config --global user.email ci@example.com
-            git config --global user.name ci
-            mkdir -p /origin && cd /origin && git init -q && echo hello > README.md \
-              && git add README.md && git -c commit.gpgsign=false commit -qm init && git tag v1
-            apk del git
-            cd /src && sh scripts/container/run-init.sh
-          '
+        run: TARGETS=alpine:3.20 ./scripts/ctest-init-portable.sh
