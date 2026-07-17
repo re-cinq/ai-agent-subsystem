@@ -5,7 +5,7 @@
 # structs in packages/agentcore/source/agentcore/crds (the same source crdgen reads).
 # Regenerate with:
 #
-#   dub run :tsgen -- emit packages/agent-contracts/src/types.generated.ts
+#   dub run :tsgen -c application -- emit packages/agent-contracts/src/types.generated.ts
 set -euo pipefail
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
@@ -21,6 +21,6 @@ if diff -u packages/agent-contracts/src/types.generated.ts "$tmp"; then
 else
 	echo >&2
 	echo "ERROR: packages/agent-contracts/src/types.generated.ts is out of sync with the D model." >&2
-	echo "Regenerate: dub run :tsgen -- emit packages/agent-contracts/src/types.generated.ts" >&2
+	echo "Regenerate: make regen  (or: dub run :tsgen -c application -- emit packages/agent-contracts/src/types.generated.ts)" >&2
 	exit 1
 fi

@@ -7,7 +7,7 @@ of truth: a run *is* a resource, and its result lives on the resource's `status`
 This is a clean-sheet, standalone rebuild of an internal subsystem, written in **D** as a statically
 linked [dub](https://dub.pm) monorepo with **no runtime dependencies**.
 
-📖 **Documentation:** https://glowing-garbanzo-y7ek98q.pages.github.io/
+📖 **Documentation:** https://re-cinq.github.io/ai-agent-subsystem/
 
 ## Install
 
@@ -55,7 +55,7 @@ kubectl -n ai-agents logs deploy/agent-controller
 ```
 
 With the controller running, define your first recipe from the [`examples/`](examples/). See the
-[install guide](https://glowing-garbanzo-y7ek98q.pages.github.io/setup/install/) for more detail.
+[install guide](https://re-cinq.github.io/ai-agent-subsystem/setup/install/) for more detail.
 
 ## The model
 
@@ -128,12 +128,19 @@ npm run build    # production build
 
 > Requires Node.js 22+.
 
+## Contributing
+
+[`CONTRIBUTING.md`](CONTRIBUTING.md) covers the toolchain, the `make` targets for building and
+testing, the integration-test tiers, and how the generated CRDs and TypeScript contracts stay in
+sync. The [building guide](https://re-cinq.github.io/ai-agent-subsystem/contribute/building/) on
+the docs site goes deeper.
+
 ## Status
 
 Active development. The controller, supervisor, initializer, and the `agentcore` library are
 implemented and covered by unit + integration tests, and tagged releases publish signed, SBOM'd
 images plus a one-command `install.yaml`. The CRD APIs are `v1alpha1` (pre-GA) and may still change.
-See the [roadmap](https://glowing-garbanzo-y7ek98q.pages.github.io/contribute/roadmap/) for direction.
+See the [roadmap](https://re-cinq.github.io/ai-agent-subsystem/contribute/roadmap/) for direction.
 
 ## Releases
 

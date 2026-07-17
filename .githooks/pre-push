@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Pre-push gate: the same generated-code drift checks CI runs, so a forgotten
+# `make regen` fails here instead of minutes later in CI. Installed via
+# `make hooks`; skip once with `git push --no-verify`.
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+./scripts/check-crd-drift.sh
+./scripts/check-contracts-drift.sh

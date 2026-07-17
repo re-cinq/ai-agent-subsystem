@@ -4,6 +4,9 @@
 	"authors": ["re-cinq"],
 	"license": "Apache-2.0",
 	"targetType": "none",
+	"toolchainRequirements": {
+		"frontend": ">=2.094"
+	},
 	"subPackages": [
 		"./packages/agentcore/",
 		"./packages/controller/",

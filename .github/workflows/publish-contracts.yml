@@ -26,12 +26,12 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: dlang-community/setup-dlang@d7d85fcde7c4cd5f9a6618fce1bccc316e1e910b # v2
         with:
-          compiler: dmd-latest
+          compiler: dmd-2.111.0
       - name: Contracts drift check (types match the D model)
         run: ./scripts/check-contracts-drift.sh
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '20'
+          node-version: '22'
           registry-url: 'https://registry.npmjs.org'
       - name: Upgrade npm for OIDC trusted publishing
         run: npm install -g npm@^11.5.1
