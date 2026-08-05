@@ -163,6 +163,7 @@ private Json wirePodTemplate(Json template_, Json[] command, Json env, string ag
 	auto spec = pod["spec"];
 	enforce(spec.type == Json.Type.object && ("containers" in spec),
 		"Station template.spec.containers is required");
+	enforceNoHostEscapes(spec);
 
 	Json[] containers;
 	bool wired = false;
@@ -199,6 +200,38 @@ private bool isAgentContainer(Json container)
 {
 	return container.type == Json.Type.object && ("name" in container)
 		&& container["name"].get!string == agentContainerName;
+}
+
+private bool jsonIsTrue(Json value)
+{
+	return value.type == Json.Type.bool_ && value.get!bool;
+}
+
+// The Station template is an x-kubernetes-preserve-unknown-fields passthrough, so a
+// Station author can smuggle a node escape into a pod that runs untrusted agent code:
+// host namespaces, a hostPath volume onto the node filesystem, or a privileged
+// sidecar. PSA `baseline` on the namespace blocks the host namespaces and the
+// privileged container at admission, but NOT the hostPath volume (that needs
+// `restricted`, which the root init container can't satisfy) — so reject all three
+// here. An agent run never legitimately needs any of them.
+private void enforceNoHostEscapes(Json spec)
+{
+	foreach (field; ["hostNetwork", "hostPID", "hostIPC"])
+		if (auto v = field in spec)
+			enforce(!jsonIsTrue(*v),
+				"Station template must not enable " ~ field ~ " on an agent run pod");
+
+	if (auto volumes = "volumes" in spec)
+		if ((*volumes).type == Json.Type.array)
+			foreach (v; (*volumes).get!(Json[]))
+				enforce(!(v.type == Json.Type.object && ("hostPath" in v)),
+					"Station template must not mount a hostPath volume into an agent run pod");
+
+	foreach (container; spec["containers"].get!(Json[]))
+		if (auto sc = "securityContext" in container)
+			if (auto privileged = "privileged" in *sc)
+				enforce(!jsonIsTrue(*privileged),
+					"Station template container must not be privileged");
 }
 
 private Json reservedMount(string name, string path)
@@ -254,9 +287,6 @@ private Json withBundleVolume(Json spec)
 
 private Json initContainer(string agentImage, Json env)
 {
-	Json[string] security;
-	security["runAsUser"] = Json(0);
-
 	Json[string] container;
 	container["name"] = Json(initContainerName);
 	container["image"] = Json(agentImage);
@@ -265,9 +295,31 @@ private Json initContainer(string agentImage, Json env)
 		reservedMount(bundleVolume, bundleRoot),
 		reservedMount(workspaceVolume, defaultWorkspace),
 	]);
-	container["securityContext"] = Json(security);
+	container["securityContext"] = initSecurity();
 	container["resources"] = initResources();
 	return Json(container);
+}
+
+// The init container provisions the shared bundle as root — it chowns the volume
+// roots to the agent uid and, on a base image that lacks git, installs it via the
+// distro package manager (which drops to an unprivileged fetch user mid-install).
+// That needs a few capabilities from the default set but not all of it, and never
+// privilege escalation through a setuid binary.
+private Json initSecurity()
+{
+	Json[string] caps;
+	caps["drop"] = Json([Json("ALL")]);
+	caps["add"] = Json([
+		Json("CHOWN"), Json("DAC_OVERRIDE"), Json("FOWNER"),
+		Json("SETUID"), Json("SETGID"),
+	]);
+
+	Json[string] security;
+	security["runAsUser"] = Json(0);
+	security["allowPrivilegeEscalation"] = Json(false);
+	security["capabilities"] = Json(caps);
+	security["seccompProfile"] = runtimeDefaultSeccomp();
+	return Json(security);
 }
 
 private Json nonRootSecurity()
@@ -608,7 +660,11 @@ unittest
 	// Both containers are preserved; the sidecar is untouched.
 	pod["containers"].get!(Json[]).length.should.equal(2);
 	pod["initContainers"][0]["image"].get!string.should.equal("ghcr.io/re-cinq/ai-agent:latest");
-	pod["initContainers"][0]["securityContext"]["runAsUser"].get!long.should.equal(0);
+	auto initSec = pod["initContainers"][0]["securityContext"];
+	initSec["runAsUser"].get!long.should.equal(0);
+	initSec["allowPrivilegeEscalation"].get!bool.should.equal(false);
+	initSec["capabilities"]["drop"][0].get!string.should.equal("ALL");
+	initSec["capabilities"]["add"][0].get!string.should.equal("CHOWN");
 	// The init must not be BestEffort, or the kernel OOM-kills it first under pressure.
 	pod["initContainers"][0]["resources"]["requests"]["memory"].get!string.should.equal("128Mi");
 	pod["volumes"][0]["name"].get!string.should.equal(bundleVolume);
@@ -623,6 +679,34 @@ unittest
 	// A concrete non-root UID/GID is required, else the kubelet rejects a root image.
 	container["securityContext"]["runAsUser"].get!long.should.equal(1000);
 	pod["securityContext"]["fsGroup"].get!long.should.equal(1000);
+}
+
+unittest
+{
+	// A Station template that smuggles a node escape past the preserve-unknown-fields
+	// passthrough — a host namespace, a hostPath volume, or a privileged sidecar — is
+	// rejected outright rather than reaching the kubelet.
+	import std.exception : assertThrown;
+
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+
+	fixtures(agent, station, definition);
+	station.spec.template_ = parseJsonString(
+		`{"spec":{"hostPID":true,"containers":[{"name":"agent","image":"node:22"}]}}`);
+	assertThrown(buildJob(agent, station, definition, "img"));
+
+	fixtures(agent, station, definition);
+	station.spec.template_ = parseJsonString(`{"spec":{"containers":[{"name":"agent",`
+		~ `"image":"node:22"}],"volumes":[{"name":"host","hostPath":{"path":"/"}}]}}`);
+	assertThrown(buildJob(agent, station, definition, "img"));
+
+	fixtures(agent, station, definition);
+	station.spec.template_ = parseJsonString(`{"spec":{"containers":[{"name":"agent",`
+		~ `"image":"node:22"},{"name":"sidecar","image":"busybox",`
+		~ `"securityContext":{"privileged":true}}]}}`);
+	assertThrown(buildJob(agent, station, definition, "img"));
 }
 
 unittest

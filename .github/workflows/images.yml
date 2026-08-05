@@ -32,9 +32,17 @@ permissions:
 
 jobs:
   publish:
-    # On main, only publish if the CI workflow that triggered us passed; tag
-    # releases and manual dispatch (no workflow_run context) always run.
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    # On main, only publish if the CI workflow that triggered us passed AND it ran
+    # on this repo's own main branch — a fork PR's CI also emits a workflow_run
+    # whose head_branch is the fork's branch name, so without the head_repository
+    # guard a fork that names its branch "main" could get its commit built, pushed
+    # to GHCR, and cosign-signed with our OIDC identity. Tag releases and manual
+    # dispatch (no workflow_run context) always run.
+    if: >-
+      ${{ github.event_name != 'workflow_run' ||
+          (github.event.workflow_run.conclusion == 'success' &&
+           github.event.workflow_run.head_repository.full_name == github.repository &&
+           github.event.workflow_run.head_branch == 'main') }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -124,10 +132,12 @@ jobs:
           merge-multiple: true
       - uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4 # provides `kubectl kustomize`
       - name: Render the digest-pinned install.yaml
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
           export CONTROLLER_DIGEST="$(cat digests/controller.digest)"
           export AGENT_DIGEST="$(cat digests/agent.digest)"
-          ./scripts/pin-image-digests.sh "${{ github.ref_name }}"
+          ./scripts/pin-image-digests.sh "$TAG"
           kubectl kustomize deploy > install.yaml
       - name: Create or update the release and upload install.yaml
         env:

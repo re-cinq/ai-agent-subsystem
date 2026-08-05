@@ -13,6 +13,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Least privilege: these jobs only build and test, never write to the repo or
+# registry. A read-only token caps what a malicious PR or dependency can do.
+permissions:
+  contents: read
+
 jobs:
   build-test:
     runs-on: ubuntu-latest

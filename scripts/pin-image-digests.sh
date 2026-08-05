@@ -7,6 +7,7 @@
 #
 # Rewrites, in place:
 #   - deploy/kustomization.yaml                 images[ai-agent-controller]  newTag/digest -> digest
+#   - deploy/controller.yaml                    controller image             tag/@digest    -> @digest
 #   - deploy/controller.yaml                    env AGENT_IMAGE              tag/@digest    -> @digest
 #   - website/.../setup/install.md              cosign verify <controller>@  @digest        -> @digest
 #
@@ -42,6 +43,19 @@ if n != 1:
 open(path, "w").write(new)
 PY
 
+# Controller: pinned inline in the Deployment too (not only via the kustomize
+# `images:` overlay) so a raw `kubectl apply -f deploy/controller.yaml` is safe.
+# The `-controller` suffix keeps this distinct from the ai-agent (agent) name.
+python3 - "$repo/deploy/controller.yaml" "$controller" "$controller_digest" <<'PY'
+import re, sys
+path, name, digest = sys.argv[1:4]
+text = open(path).read()
+new, n = re.subn(re.escape(name) + r"(?:@sha256:[0-9a-f]+|:[^\s\"']+)", name + "@" + digest, text)
+if n < 1:
+    sys.exit(f"controller image reference {name} not found in {path}")
+open(path, "w").write(new)
+PY
+
 # Agent: injected via the AGENT_IMAGE env, not a manifest image field, so pin it
 # directly in the Deployment.
 python3 - "$repo/deploy/controller.yaml" "$agent" "$agent_digest" <<'PY'
@@ -70,6 +84,8 @@ PY
 # floating tag, and the docs must verify the image it actually pins.
 grep -q "digest: ${controller_digest}" "$repo/deploy/kustomization.yaml" \
 	|| { echo "pin failed: controller digest not written to deploy/kustomization.yaml" >&2; exit 1; }
+grep -q "${controller}@${controller_digest}" "$repo/deploy/controller.yaml" \
+	|| { echo "pin failed: controller digest not written to deploy/controller.yaml" >&2; exit 1; }
 grep -q "@${agent_digest}" "$repo/deploy/controller.yaml" \
 	|| { echo "pin failed: agent digest not written to deploy/controller.yaml" >&2; exit 1; }
 grep -q "@${controller_digest}" "$repo/website/src/content/docs/setup/install.md" \
