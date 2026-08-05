@@ -32,3 +32,13 @@ website/.astro/
 *.log
 *.lst
 packages/tsgen/ai-agent-tsgen
+
+# Local secret material — never commit
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.crt
+kubeconfig
+kubeconfig.*

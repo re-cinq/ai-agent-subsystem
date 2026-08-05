@@ -29,6 +29,10 @@ on:
       - '.github/workflows/supervisor-container.yml'
   workflow_dispatch:
 
+# Least privilege: build + cross-distro test only, no repo or registry writes.
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build supervisor stack

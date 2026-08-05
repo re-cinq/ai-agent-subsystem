@@ -35,7 +35,10 @@ spec:
           type: RuntimeDefault
       containers:
         - name: controller
-          image: ghcr.io/re-cinq/ai-agent-controller:latest
+          # Pinned inline (not only via the kustomize `images:` overlay) so
+          # `kubectl apply -f deploy/controller.yaml` is safe standalone, not just
+          # `apply -k deploy`. Kept in sync by scripts/pin-image-digests.sh.
+          image: ghcr.io/re-cinq/ai-agent-controller@sha256:0d4ad7c0938bd83ee537c41a8dba9a178dc0690671ef97783508b538fa8d69f7
           imagePullPolicy: IfNotPresent
           env:
             - name: NAMESPACE

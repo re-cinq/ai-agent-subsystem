@@ -28,6 +28,11 @@ on:
       - '.github/workflows/controller.yml'
   workflow_dispatch:
 
+# Least privilege: builds images and drives a kind cluster locally, never writes
+# to the repo or pushes to a registry.
+permissions:
+  contents: read
+
 jobs:
   itest:
     name: Controller integration test (kind)

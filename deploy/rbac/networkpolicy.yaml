@@ -42,6 +42,9 @@ spec:
               - 10.0.0.0/8
               - 172.16.0.0/12
               - 192.168.0.0/16
+              # CGNAT range: GKE and some EKS/CNI setups place pod/service/node
+              # endpoints here, so it must be excluded alongside RFC1918.
+              - 100.64.0.0/10
               - 169.254.0.0/16
       ports:
         - protocol: TCP
