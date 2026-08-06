@@ -10,6 +10,7 @@ import agentcore.crds.output_selector : OutputSelector;
 import agentcore.crds.output_sink : OutputSink;
 import agentcore.crds.enums : SinkType;
 import agentcore.crds.repo_ref : RepoRef;
+import agentcore.crds.mcp_server : headerEnvName;
 import agentcore.crds.station : Station;
 import agentcore.crds.serialization : toJson;
 import agentcore.vendors.select : agentForModel;
@@ -449,6 +450,19 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 			secretVar(sink.headersSecret, sink.headersSecret);
 			secretsInjected[sink.headersSecret] = true;
 		}
+	// A live mcp_servers entry's `headers_secret` names an agent-secrets key holding its
+	// auth credential; inject it as a secretKeyRef env under the shell-safe name the
+	// Claude adapter references as `${NAME}` inside --mcp-config (headerEnvName). Without
+	// it the pod's `claude` connects to the gateway with no Authorization header and 401s.
+	foreach (server; recipe.resources.mcpServers)
+	{
+		const mcpEnv = headerEnvName(server);
+		if (mcpEnv.length && !isReservedEnvName(mcpEnv) && mcpEnv !in secretsInjected)
+		{
+			secretVar(mcpEnv, server.headersSecret);
+			secretsInjected[mcpEnv] = true;
+		}
+	}
 	strVar(envRepos, reposJson(recipe.resources.repos));
 	// A repo's token_secret names an agent-secrets key holding its git credential; inject it
 	// as a secretKeyRef env of the same name so the init container's clone authenticates.
@@ -966,6 +980,27 @@ unittest
 	// aliased to the standard name — without it the agent's `gh pr view/diff/comment`
 	// runs unauthenticated and 404s on private repos.
 	envSecretKey(container, "GH_TOKEN").should.equal("GH_TOKEN_abc12345");
+}
+
+unittest
+{
+	// A live mcp_servers entry's headers_secret is injected as a secretKeyRef env under the
+	// shell-safe headerEnvName the Claude adapter references as ${NAME} in --mcp-config —
+	// so the pod's `claude` presents the gateway Authorization header. Without it: 401.
+	import agentcore.crds.mcp_server : McpServer;
+	import agentcore.crds.enums : McpTransport;
+
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.resources.mcpServers = [
+		McpServer("lore", McpTransport.http, "", null, "https://lore-mcp/mcp", "lore-mcp-auth"),
+	];
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img"));
+
+	envSecretKey(container, "LORE_MCP_AUTH").should.equal("lore-mcp-auth");
 }
 
 unittest
