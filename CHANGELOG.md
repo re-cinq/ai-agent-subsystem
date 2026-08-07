@@ -6,6 +6,30 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.8.0
+
+### Added
+- A skills seam on the recipe: `resources.skills` (names) and `resources.skills_source`
+  (a registry base URL). Stations ran headless `claude --print` with no skills and no
+  hooks; now the init container's `SkillsTool` fetches `<source>/settings.json` (the
+  org's session hooks) and `<source>/<name>.tar.gz` per named skill into the run's
+  `$HOME/.claude`, plus the cloned repo's own `.claude/skills`. `HOME=/agent` is where
+  headless claude auto-loads user scope trust-free — project scope under cwd `/` never
+  fires. The Claude adapter emits `--settings /agent/.claude/settings.json` through a
+  shared `kube.bundle` path so the flag cannot drift from the stager. The recipe
+  declares intent and each adapter realizes it, so the seam stays agent-agnostic (#180).
+
+### Changed
+- Skills and settings are **fetched**, never baked. An earlier cut of #180 shipped a
+  bundle inside the agent image; the subsystem must stay consumer-agnostic, so nothing
+  org-specific lives in the image now. The registry URL is read from
+  `$AGENT_SKILLS_SOURCE` at run time so a recipe URL never enters the shell command,
+  and skill names are re-validated against injection before use (#180).
+
+### Notes
+- `@re-cinq/agent-contracts` is republished at **0.8.0**, carrying the generated
+  `skills` / `skills_source` fields.
+
 ## v0.7.0
 
 ### Added
