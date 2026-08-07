@@ -20,12 +20,13 @@ import std.algorithm.searching : any, canFind, count, startsWith;
 import std.conv : to;
 import std.file : exists, readText, remove, tempDir;
 import std.path : buildPath;
-import std.process : pipeProcess, Redirect, wait;
+import std.process : pipeProcess, ProcessPipes, Redirect, wait;
 import std.socket;
 import std.stdio : stderr, writeln;
 import std.string : indexOf, splitLines, strip, toLower;
 
 import core.sys.posix.signal : kill, SIGINT, SIGPIPE, SIGTERM;
+import core.thread : Thread;
 
 private int failures = 0;
 private string supervisor;
@@ -60,18 +61,36 @@ private string[string] withSource(string[string] extra)
 	return env;
 }
 
-/// Run the supervisor against the mock; collect its stdout, stderr and exit code.
-private Result run(string[string] extra)
+/// Collect a running supervisor's stdout, stderr and exit code, draining the two pipes
+/// CONCURRENTLY. Reading stdout to EOF first deadlocks the moment the supervisor's
+/// stderr fills its pipe buffer: it blocks on that write, so stdout never reaches EOF
+/// and neither stream ever completes. Harmless while the supervisor barely used stderr;
+/// a real hang now that it forwards the agent's (#127).
+private Result drain(ProcessPipes pipes)
 {
-	auto pipes = pipeProcess([supervisor, "--", mock], Redirect.stdout | Redirect.stderr,
-		withSource(extra));
+	// ProcessPipes has scoped destruction and cannot be captured in a closure; the
+	// stderr File itself is an ordinary refcounted handle and can.
+	auto errPipe = pipes.stderr;
+	string err;
+	auto errReader = new Thread({
+		foreach (line; errPipe.byLine)
+			err ~= line.idup ~ "\n";
+	});
+	errReader.start();
+
 	string[] lines;
 	foreach (line; pipes.stdout.byLine)
 		lines ~= line.idup;
-	string err;
-	foreach (line; pipes.stderr.byLine)
-		err ~= line.idup ~ "\n";
+	errReader.join();
+
 	return Result(wait(pipes.pid), lines, err);
+}
+
+/// Run the supervisor against the mock; collect its stdout, stderr and exit code.
+private Result run(string[string] extra)
+{
+	return drain(pipeProcess([supervisor, "--", mock], Redirect.stdout | Redirect.stderr,
+			withSource(extra)));
 }
 
 /// Drive a signal-mode agent: wait for it to start, send `signals` to the
@@ -332,22 +351,26 @@ private void stderrForwarding()
 		r.err.canFind("[agent] auth failed: invalid api key"));
 	check("agent stderr stays off the event stream",
 		!r.lines.any!(line => line.canFind("auth failed")));
+
+	// Far past a 64 KiB pipe buffer. The supervisor blocks on the write once stderr
+	// fills, so a consumer draining stdout to EOF before touching stderr never sees
+	// either stream finish — the run hangs until something kills the pod (#127).
+	writeln("a chatty agent's stderr does not deadlock the run");
+	auto loud = run(["MOCK_LINES": "1", "MOCK_STDERR": "warn: retrying upstream call",
+			"MOCK_STDERR_LINES": "4000"]);
+	check("run completes (exit 0)", loud.code == 0);
+	check("every stderr line forwarded",
+		loud.err.splitLines.count!(line => line.canFind("[agent] warn: retrying")) == 4000);
 }
 
 private void badArgv()
 {
 	writeln("missing agent binary");
-	auto pipes = pipeProcess([supervisor, "--", "/no-such-agent-binary-xyz"],
-		Redirect.stdout | Redirect.stderr, withSource(null));
-	string[] lines;
-	foreach (line; pipes.stdout.byLine)
-		lines ~= line.idup;
-	string err;
-	foreach (line; pipes.stderr.byLine)
-		err ~= line.idup ~ "\n";
-	check("exit 1", wait(pipes.pid) == 1);
-	check("not-found logged to stderr", err.canFind("agent not found"));
-	check("not-found raised as a lifecycle event", emitted(lines, `"reason":"not-found"`));
+	auto r = drain(pipeProcess([supervisor, "--", "/no-such-agent-binary-xyz"],
+			Redirect.stdout | Redirect.stderr, withSource(null)));
+	check("exit 1", r.code == 1);
+	check("not-found logged to stderr", r.err.canFind("agent not found"));
+	check("not-found raised as a lifecycle event", emitted(r.lines, `"reason":"not-found"`));
 }
 
 /// Read one HTTP request from `conn` and return its body (Content-Length bytes).

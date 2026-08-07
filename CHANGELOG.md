@@ -18,6 +18,11 @@ the npm package versions.
   traces, and inherited it interleaved with the JSONL event stream the controller caps
   into `status.output`, where a consumer could not tell a crash trace from a malformed
   event (#47).
+- The supervisor itest harness drains stdout and stderr concurrently. Reading stdout to
+  EOF first deadlocks once the supervisor's stderr fills its 64 KiB pipe buffer — it
+  blocks on that write, so stdout never reaches EOF and neither stream completes. Latent
+  while the supervisor barely used stderr, and a hang the moment it began forwarding the
+  agent's; part of (#127).
 - `check-contracts-version.sh` fails a `v*` tag whose
   `packages/agent-contracts/package.json` version does not match it. The npm version is
   committed, not derived, so a release PR that forgot the bump republished an existing
