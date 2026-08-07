@@ -6,6 +6,29 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+- The supervisor now has its own run deadline, injected as `AGENT_DEADLINE_MS` a fixed
+  margin inside the Job's `activeDeadlineSeconds`. An agent that neither exits nor emits
+  a terminal event left the supervisor waiting until the kubelet killed the pod at the
+  Job deadline — which took the terminal `agentExit` event with it, so a wedged run just
+  stopped, with no terminal event for a consumer to act on. The supervisor now forces the
+  agent down (SIGTERM, then SIGKILL) and still reports, exiting 124 (#48).
+- The agent's stderr is captured and forwarded to the pod log tagged `[agent]`, instead
+  of being inherited raw. It is where a CLI prints auth failures, rate limits and stack
+  traces, and inherited it interleaved with the JSONL event stream the controller caps
+  into `status.output`, where a consumer could not tell a crash trace from a malformed
+  event (#47).
+- The supervisor itest harness drains stdout and stderr concurrently. Reading stdout to
+  EOF first deadlocks once the supervisor's stderr fills its 64 KiB pipe buffer — it
+  blocks on that write, so stdout never reaches EOF and neither stream completes. Latent
+  while the supervisor barely used stderr, and a hang the moment it began forwarding the
+  agent's; part of (#127).
+- `check-contracts-version.sh` fails a `v*` tag whose
+  `packages/agent-contracts/package.json` version does not match it. The npm version is
+  committed, not derived, so a release PR that forgot the bump republished an existing
+  version — npm rejected it with an error that reads like an auth failure, and v0.5.0
+  through v0.7.0 all shipped images while npm stayed on 0.3.0 (#139).
+
 ## v0.8.0
 
 ### Added

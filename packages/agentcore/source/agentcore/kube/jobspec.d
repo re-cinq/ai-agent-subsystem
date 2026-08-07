@@ -1,5 +1,6 @@
 module agentcore.kube.jobspec;
 
+import std.conv : to;
 import std.exception : enforce;
 import vibe.data.json;
 
@@ -83,10 +84,7 @@ Json buildJob(Agent agent, Station station, AgentDefinition definition, string a
 	auto template_ = wirePodTemplate(deepCopy(station.spec.template_), commandFor(argv), env, agentImage);
 	template_ = withRunMetadata(template_, agent, station);
 
-	// A deadlineMinutes of 0 (explicitly set, or slipped past the schema-only @Minimum)
-	// would render activeDeadlineSeconds 0, which the Job controller treats as an
-	// already-exceeded deadline and fails the run instantly. Hold it to at least a minute.
-	const deadlineMinutes = station.spec.deadlineMinutes < 1 ? 1 : station.spec.deadlineMinutes;
+	const deadlineMinutes = effectiveDeadlineMinutes(station.spec.deadlineMinutes);
 
 	Json[string] spec;
 	spec["ttlSecondsAfterFinished"] = Json(jobTtlSeconds);
@@ -100,6 +98,22 @@ Json buildJob(Agent agent, Station station, AgentDefinition definition, string a
 	job["metadata"] = jobMeta(agent);
 	job["spec"] = Json(spec);
 	return Json(job);
+}
+
+/// A deadlineMinutes of 0 (explicitly set, or slipped past the schema-only @Minimum)
+/// would render activeDeadlineSeconds 0, which the Job controller treats as an
+/// already-exceeded deadline and fails the run instantly. Hold it to at least a minute.
+int effectiveDeadlineMinutes(int requested) @safe pure nothrow
+{
+	return requested < 1 ? 1 : requested;
+}
+
+/// The supervisor's deadline for a run whose Job gets `deadlineMinutes`: the Job's own
+/// window less `deadlineMarginMs`, so the supervisor forces the agent down and emits its
+/// terminal event before the kubelet kills the pod at the Job deadline (#48).
+long supervisorDeadlineMs(int deadlineMinutes) @safe pure nothrow
+{
+	return long(effectiveDeadlineMinutes(deadlineMinutes)) * 60_000 - deadlineMarginMs;
 }
 
 private Json deepCopy(Json value)
@@ -470,6 +484,10 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 	// what gates the fetch (empty ⇒ off).
 	strVar(envSkills, skillsJson(recipe.resources.skills));
 	strVar(envSkillsSource, recipe.resources.skillsSource);
+	// The supervisor's own deadline, set inside the Job's activeDeadlineSeconds so a
+	// wedged agent is terminated — and reported — by the supervisor rather than silently
+	// killed with the pod (#48).
+	strVar(envDeadlineMs, supervisorDeadlineMs(station.spec.deadlineMinutes).to!string);
 	// A repo's token_secret names an agent-secrets key holding its git credential; inject it
 	// as a secretKeyRef env of the same name so the init container's clone authenticates.
 	// Without it the clone runs with an empty token and fails "Invalid username or token".
@@ -537,7 +555,7 @@ bool isReservedEnvName(string name) @safe pure nothrow
 	static immutable string[] reserved = [
 		envSinks, envRepos, envSkills, envSkillsSource, envSelect, envWorkspace, envParameters, envTargetRepo,
 		envBranch, envModel, envAgentName, envStationName, envTaskId, envPodName,
-		envPodNamespace, homeEnv, pathEnv,
+		envPodNamespace, envDeadlineMs, homeEnv, pathEnv,
 	];
 	foreach (owned; reserved)
 		if (name == owned)
@@ -870,6 +888,34 @@ unittest
 
 	auto job = buildJob(agent, station, definition, "img");
 	job["spec"]["activeDeadlineSeconds"].get!long.should.equal(60);
+}
+
+@safe unittest
+{
+	// The supervisor's deadline sits a fixed margin inside the Job's own window, so it
+	// forces a wedged agent down — and reports it — before the kubelet kills the pod (#48).
+	supervisorDeadlineMs(30).should.equal(1_790_000);
+	supervisorDeadlineMs(1).should.equal(50_000);
+
+	// A sub-minute request is clamped exactly as activeDeadlineSeconds is, so the two
+	// deadlines can never invert.
+	effectiveDeadlineMinutes(0).should.equal(1);
+	effectiveDeadlineMinutes(-5).should.equal(1);
+	supervisorDeadlineMs(0).should.equal(50_000);
+}
+
+unittest
+{
+	// The run carries its supervisor deadline, and a recipe cannot override it.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	station.spec.deadlineMinutes = 30;
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img"));
+	envValue(container, "AGENT_DEADLINE_MS").should.equal("1790000");
+	isReservedEnvName("AGENT_DEADLINE_MS").should.equal(true);
 }
 
 unittest

@@ -11,6 +11,8 @@ module app;
 //   - an agent crash surfaces as a non-zero exit
 //   - a dead sink is logged and does not fail the run
 //   - robustness against an agent that leaves a child holding stdout open
+//   - a wedged agent is force-stopped at the run deadline, still reporting a terminal
+//     event, and the agent's stderr reaches the pod log tagged
 //
 //   usage: ai-agent-itest <supervisor-bin> <mock-bin>
 
@@ -18,12 +20,13 @@ import std.algorithm.searching : any, canFind, count, startsWith;
 import std.conv : to;
 import std.file : exists, readText, remove, tempDir;
 import std.path : buildPath;
-import std.process : pipeProcess, Redirect, wait;
+import std.process : pipeProcess, ProcessPipes, Redirect, wait;
 import std.socket;
 import std.stdio : stderr, writeln;
 import std.string : indexOf, splitLines, strip, toLower;
 
 import core.sys.posix.signal : kill, SIGINT, SIGPIPE, SIGTERM;
+import core.thread : Thread;
 
 private int failures = 0;
 private string supervisor;
@@ -58,18 +61,36 @@ private string[string] withSource(string[string] extra)
 	return env;
 }
 
-/// Run the supervisor against the mock; collect its stdout, stderr and exit code.
-private Result run(string[string] extra)
+/// Collect a running supervisor's stdout, stderr and exit code, draining the two pipes
+/// CONCURRENTLY. Reading stdout to EOF first deadlocks the moment the supervisor's
+/// stderr fills its pipe buffer: it blocks on that write, so stdout never reaches EOF
+/// and neither stream ever completes. Harmless while the supervisor barely used stderr;
+/// a real hang now that it forwards the agent's (#127).
+private Result drain(ProcessPipes pipes)
 {
-	auto pipes = pipeProcess([supervisor, "--", mock], Redirect.stdout | Redirect.stderr,
-		withSource(extra));
+	// ProcessPipes has scoped destruction and cannot be captured in a closure; the
+	// stderr File itself is an ordinary refcounted handle and can.
+	auto errPipe = pipes.stderr;
+	string err;
+	auto errReader = new Thread({
+		foreach (line; errPipe.byLine)
+			err ~= line.idup ~ "\n";
+	});
+	errReader.start();
+
 	string[] lines;
 	foreach (line; pipes.stdout.byLine)
 		lines ~= line.idup;
-	string err;
-	foreach (line; pipes.stderr.byLine)
-		err ~= line.idup ~ "\n";
+	errReader.join();
+
 	return Result(wait(pipes.pid), lines, err);
+}
+
+/// Run the supervisor against the mock; collect its stdout, stderr and exit code.
+private Result run(string[string] extra)
+{
+	return drain(pipeProcess([supervisor, "--", mock], Redirect.stdout | Redirect.stderr,
+			withSource(extra)));
 }
 
 /// Drive a signal-mode agent: wait for it to start, send `signals` to the
@@ -129,6 +150,8 @@ int main(string[] args)
 	deadSinkLogs();
 	orphanRobustness();
 	terminalShutdown();
+	runDeadline();
+	stderrForwarding();
 	badArgv();
 
 	writeln(failures == 0 ? "ALL PASSED" : failures.to!string ~ " CHECK(S) FAILED");
@@ -301,20 +324,53 @@ private void terminalShutdown()
 	check("agent succeeded lifecycle event raised", emitted(t.lines, `"status":"succeeded"`));
 }
 
+/// An agent that neither exits nor emits a terminal event left the supervisor waiting
+/// until the kubelet killed the pod at the Job deadline — which took the terminal event
+/// with it, so downstream saw a run that simply stopped (issue #48).
+private void runDeadline()
+{
+	writeln("run deadline forces a wedged agent down and still reports");
+	auto r = run(["MOCK_MODE": "wedge", "MOCK_LINES": "1", "AGENT_DEADLINE_MS": "700",
+			"AGENT_EXIT_GRACE_MS": "200"]);
+	check("output before the wedge still streamed", payloadCount(r.lines) == 1);
+	check("exit is the deadline code (124)", r.code == 124);
+	check("terminal lifecycle event still raised",
+		emitted(r.lines, `"status":"failed"`) && emitted(r.lines, `"exitCode":124`));
+	check("deadline logged to stderr", r.err.canFind("run deadline expired"));
+}
+
+/// The agent's stderr carries its auth failures, rate limits and stack traces. Inherited,
+/// it landed raw in the pod log the controller caps into status.output, where a consumer
+/// parsing events could not tell a crash trace from a malformed event (issue #47).
+private void stderrForwarding()
+{
+	writeln("agent stderr forwarded to the pod log, tagged");
+	auto r = run(["MOCK_LINES": "1", "MOCK_STDERR": "auth failed: invalid api key"]);
+	check("run unaffected (exit 0)", r.code == 0);
+	check("agent stderr tagged in the supervisor's stderr",
+		r.err.canFind("[agent] auth failed: invalid api key"));
+	check("agent stderr stays off the event stream",
+		!r.lines.any!(line => line.canFind("auth failed")));
+
+	// Far past a 64 KiB pipe buffer. The supervisor blocks on the write once stderr
+	// fills, so a consumer draining stdout to EOF before touching stderr never sees
+	// either stream finish — the run hangs until something kills the pod (#127).
+	writeln("a chatty agent's stderr does not deadlock the run");
+	auto loud = run(["MOCK_LINES": "1", "MOCK_STDERR": "warn: retrying upstream call",
+			"MOCK_STDERR_LINES": "4000"]);
+	check("run completes (exit 0)", loud.code == 0);
+	check("every stderr line forwarded",
+		loud.err.splitLines.count!(line => line.canFind("[agent] warn: retrying")) == 4000);
+}
+
 private void badArgv()
 {
 	writeln("missing agent binary");
-	auto pipes = pipeProcess([supervisor, "--", "/no-such-agent-binary-xyz"],
-		Redirect.stdout | Redirect.stderr, withSource(null));
-	string[] lines;
-	foreach (line; pipes.stdout.byLine)
-		lines ~= line.idup;
-	string err;
-	foreach (line; pipes.stderr.byLine)
-		err ~= line.idup ~ "\n";
-	check("exit 1", wait(pipes.pid) == 1);
-	check("not-found logged to stderr", err.canFind("agent not found"));
-	check("not-found raised as a lifecycle event", emitted(lines, `"reason":"not-found"`));
+	auto r = drain(pipeProcess([supervisor, "--", "/no-such-agent-binary-xyz"],
+			Redirect.stdout | Redirect.stderr, withSource(null)));
+	check("exit 1", r.code == 1);
+	check("not-found logged to stderr", r.err.canFind("agent not found"));
+	check("not-found raised as a lifecycle event", emitted(r.lines, `"reason":"not-found"`));
 }
 
 /// Read one HTTP request from `conn` and return its body (Content-Length bytes).

@@ -5,7 +5,12 @@ module app;
 //
 //   MOCK_LINES  number of `{"i":N}` lines to emit on stdout (default 0)
 //   MOCK_EXIT   process exit code (default 0)
-//   MOCK_MODE   "emit" (default) | "signal" | "crash" | "orphan" | "linger"
+//   MOCK_STDERR a line written to stderr before the mode runs (default none) — stands
+//               in for the auth errors and stack traces a real CLI prints there
+//   MOCK_STDERR_LINES how many times to write it (default 1). Enough of them overflow
+//               the stderr pipe buffer, which blocks the supervisor's write unless the
+//               reader drains stderr concurrently with stdout
+//   MOCK_MODE   "emit" (default) | "signal" | "crash" | "orphan" | "linger" | "wedge"
 //                 signal: emit `{"started":1}`, wait for SIGTERM/SIGINT, then
 //                         emit `{"signal":N}` and exit MOCK_EXIT
 //                 crash:  emit `{"started":1}`, then die from SIGKILL
@@ -13,6 +18,8 @@ module app;
 //                 linger: emit a Claude-style terminal `result`, then ignore
 //                         SIGTERM and hang forever — like a real agent CLI that
 //                         finishes its work but never exits
+//                 wedge:  emit no terminal event, ignore SIGTERM and hang forever —
+//                         like an agent stuck on a call that never returns
 
 import std.conv : to;
 import std.process : Config, environment, spawnProcess;
@@ -43,6 +50,14 @@ int main()
 	const lines = environment.get("MOCK_LINES", "0").to!int;
 	const code = environment.get("MOCK_EXIT", "0").to!int;
 
+	const errLine = environment.get("MOCK_STDERR", "");
+	if (errLine.length)
+	{
+		foreach (i; 0 .. environment.get("MOCK_STDERR_LINES", "1").to!int)
+			stderr.writeln(errLine);
+		stderr.flush();
+	}
+
 	foreach (i; 0 .. lines)
 		emit(`{"i":` ~ i.to!string ~ `}`);
 
@@ -69,6 +84,11 @@ int main()
 		if (environment.get("MOCK_IGNORE_TERM", "") == "1")
 			signal(SIGTERM, SIG_IGN);
 		emit(`{"type":"result","subtype":"success","is_error":false}`);
+		while (true)
+			Thread.sleep(60.msecs);
+	case "wedge":
+		// No terminal event and no exit: only a deadline can end this run.
+		signal(SIGTERM, SIG_IGN);
 		while (true)
 			Thread.sleep(60.msecs);
 	default:
