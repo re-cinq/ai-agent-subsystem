@@ -35,6 +35,14 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
       - name: Upgrade npm for OIDC trusted publishing
         run: npm install -g npm@^11.5.1
+      # A tag whose package.json was never bumped republishes an existing version,
+      # which npm rejects — and the rejection reads like an auth failure, so it went
+      # unnoticed from v0.5.0 to v0.7.0 (#139). Fail here instead, naming the bump.
+      - name: Package version matches the release tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          TAG: ${{ github.ref_name }}
+        run: ./scripts/check-contracts-version.sh "$TAG"
       - name: Install, test (100% coverage gate), build
         working-directory: packages/agent-contracts
         run: |

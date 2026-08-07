@@ -144,11 +144,16 @@ See the [roadmap](https://re-cinq.github.io/ai-agent-subsystem/contribute/roadma
 
 ## Releases
 
-Cut a release by pushing a version tag:
+Cut a release by bumping the npm package to the version you are about to tag, then pushing the tag:
 
 ```sh
+(cd packages/agent-contracts && npm version 0.1.0 --no-git-tag-version)  # in the release PR
 git tag v0.1.0 && git push origin v0.1.0
 ```
+
+The bump is part of the release PR, not the tag: `@re-cinq/agent-contracts` publishes the version
+committed in its `package.json`. `scripts/check-contracts-version.sh` runs on the tag and fails the
+publish if the two disagree, rather than letting npm reject a duplicate version quietly.
 
 The [`Publish images`](.github/workflows/images.yml) workflow builds, pushes, and cosign-signs the
 controller and agent images for the tag (each with an SPDX SBOM and SLSA provenance attestation). It
