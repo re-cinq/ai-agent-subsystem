@@ -6,7 +6,18 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.7.0
+
 ### Added
+- `AgentDefinition.resources.mcp_servers` is actually wired into the run — it was
+  modeled but never injected, so a pod never saw the MCP tools its recipe declared.
+  The Claude adapter now renders the entries into an inline `--mcp-config` JSON plus
+  `--strict-mcp-config` (the pod's cwd is `/`, so project-dir auto-load never fires),
+  and `runEnv` injects each `headers_secret` as a `secretKeyRef` env from
+  `agent-secrets`. An http/sse `Authorization` value is a `${ENV}` reference Claude
+  expands at runtime, so the token never rides in argv; both sides derive the same
+  shell-safe name through `headerEnvName` (`lore-mcp-auth` → `${LORE_MCP_AUTH}`)
+  because `${}` expansion rejects the hyphens a secret key allows (#177).
 - A contributor on-ramp: root `CONTRIBUTING.md` (toolchain table, everyday commands,
   integration-test tiers) and a root `Makefile` as the single dev entry point —
   `make help` lists targets, and CI's main job now runs the same
@@ -23,9 +34,37 @@ the npm package versions.
   LDC 1.24), and Node standardizes on 22 across CI with `.nvmrc` files (#175).
 
 ### Fixed
+- `disallowedTools` is emitted in every permission mode, not just the non-bypass ones.
+  Bypass only skips the interactive prompts — it must never silently re-enable a tool
+  the recipe explicitly denied, which matters now that a pod can hold live MCP tools
+  (the seeded recipe denies `lore_create_pipeline_task` so a run cannot spawn more
+  tasks) (#177).
 - The README's documentation links pointed at the retired
   `glowing-garbanzo-y7ek98q.pages.github.io` hostname and omitted the site base, so
   every link 404'd; they now target https://re-cinq.github.io/ai-agent-subsystem/ (#175).
+
+### Security
+- Run pods: `enforceNoHostEscapes` rejects a Station pod template that smuggles a node
+  escape through the preserve-unknown-fields passthrough — host namespaces, `hostPath`
+  volumes, or a privileged container — before the spec reaches the kubelet. The init
+  container drops ALL capabilities and adds back only
+  CHOWN/DAC_OVERRIDE/FOWNER/SETUID/SETGID, with `allowPrivilegeEscalation: false` and
+  runtime-default seccomp; it still runs as root to provision the workspace (#176).
+- CI: least-privilege `permissions: contents: read` across the workflows, and
+  `images.yml`'s publish job now requires the triggering CI run to belong to this
+  repo's own `main`. A fork PR's `workflow_run` carries the fork's branch name, so
+  without the `head_repository` guard a fork branch named `main` could have its commit
+  built, pushed to GHCR, and cosign-signed with our OIDC identity (#176).
+- Deploy: the namespace enforces Pod Security Admission `baseline` (warn/audit
+  `restricted`), the controller image is pinned inline by digest so a bare
+  `kubectl apply -f` is safe, and agent egress now excludes the CGNAT
+  `100.64.0.0/10` range used by GKE/EKS. External model APIs, git forges and
+  registries stay reachable — a legitimate run is unaffected (#176).
+
+### Notes
+- `@re-cinq/agent-contracts` is republished at **0.7.0**. The package version had been
+  stuck at 0.3.0 while the generated types moved on, so every tag since published
+  nothing; the version now tracks the release tag.
 
 ## v0.6.2
 
