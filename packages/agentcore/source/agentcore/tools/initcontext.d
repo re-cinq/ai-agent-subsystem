@@ -11,4 +11,10 @@ struct InitContext
 	string model;
 	RepoRef[] repos;
 	string workspaceDir;
+	/// Recipe `resources.skills` names — the SkillsTool fetches each from `skillsSource`
+	/// into the run's `$HOME/.claude/skills`.
+	string[] skills;
+	/// Recipe `resources.skillsSource` — the registry base URL skills + settings are
+	/// fetched from. Empty ⇒ no fetch (repo-own skills still stage).
+	string skillsSource;
 }

@@ -464,6 +464,12 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 		}
 	}
 	strVar(envRepos, reposJson(recipe.resources.repos));
+	// The recipe's skill names + registry URL — the init fetches each named skill and
+	// the settings from `<skillsSource>/...` into $HOME/.claude so headless claude
+	// (HOME=/agent) auto-loads them. Names emitted as "[]" when none; the source is
+	// what gates the fetch (empty ⇒ off).
+	strVar(envSkills, skillsJson(recipe.resources.skills));
+	strVar(envSkillsSource, recipe.resources.skillsSource);
 	// A repo's token_secret names an agent-secrets key holding its git credential; inject it
 	// as a secretKeyRef env of the same name so the init container's clone authenticates.
 	// Without it the clone runs with an empty token and fails "Invalid username or token".
@@ -529,7 +535,7 @@ enum pathEnv = "PATH";
 bool isReservedEnvName(string name) @safe pure nothrow
 {
 	static immutable string[] reserved = [
-		envSinks, envRepos, envSelect, envWorkspace, envParameters, envTargetRepo,
+		envSinks, envRepos, envSkills, envSkillsSource, envSelect, envWorkspace, envParameters, envTargetRepo,
 		envBranch, envModel, envAgentName, envStationName, envTaskId, envPodName,
 		envPodNamespace, homeEnv, pathEnv,
 	];
@@ -556,6 +562,14 @@ private string selectJson(const OutputSelector[] selectors)
 private string reposJson(const RepoRef[] repos)
 {
 	return toJson(repos).toString();
+}
+
+private string skillsJson(const string[] skills)
+{
+	Json[] array;
+	foreach (skill; skills)
+		array ~= Json(skill);
+	return Json(array).toString();
 }
 
 private string parametersJson(const string[string] parameters)

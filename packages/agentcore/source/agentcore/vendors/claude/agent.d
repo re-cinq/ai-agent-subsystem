@@ -6,6 +6,7 @@ import agentcore.vendors.base.agent : Agent;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 import agentcore.crds.enums : PermissionMode, McpTransport;
 import agentcore.crds.mcp_server : McpServer, headerEnvName;
+import agentcore.kube.bundle : claudeSettingsPath;
 import agentcore.core.env : defaultModel;
 
 /// Claude Code CLI adapter: maps the recipe to `claude --print --output-format
@@ -50,6 +51,13 @@ final class ClaudeAgent : Agent
 		const mcpConfig = mcpConfigJson(recipe.resources.mcpServers);
 		if (mcpConfig.length)
 			cmd ~= ["--mcp-config", mcpConfig, "--strict-mcp-config"];
+
+		// The init stages the org base settings (session hooks) + the recipe's skills
+		// into $HOME/.claude (HOME=/agent). Skills auto-load user-scope with no flag;
+		// point --settings at the staged file explicitly for robustness (a missing file
+		// is silently ignored in --print). The path is shared with the SkillsTool via
+		// kube.bundle so the two can never drift.
+		cmd ~= ["--settings", claudeSettingsPath];
 
 		if (recipe.maxTurns > 0)
 			cmd ~= ["--max-turns", recipe.maxTurns.to!string];
@@ -148,6 +156,18 @@ version (unittest) import fluent.asserts;
 	AgentDefinitionSpec recipe;
 	recipe.permissionMode = PermissionMode.bypass;
 	(new ClaudeAgent).command(recipe, "p").should.contain("--dangerously-skip-permissions");
+}
+
+@safe unittest
+{
+	// Every run points --settings at the staged base settings.json (the init stages
+	// the org session hooks + recipe skills into $HOME/.claude).
+	import std.algorithm.searching : countUntil;
+
+	AgentDefinitionSpec recipe;
+	const cmd = (new ClaudeAgent).command(recipe, "p");
+	cmd.should.contain("--settings");
+	cmd[cmd.countUntil("--settings") + 1].should.equal("/agent/.claude/settings.json");
 }
 
 @safe unittest

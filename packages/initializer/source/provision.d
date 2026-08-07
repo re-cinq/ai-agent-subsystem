@@ -17,7 +17,7 @@ import agentcore.kube.jobspec : agentUid, agentGid;
 private extern (C) int lchown(scope const char* path, uid_t owner, gid_t group) @system nothrow @nogc;
 
 import agentcore.crds.enums : SinkType;
-import agentcore.core.env : defaultWorkspace, envModel, envRepos, envWorkspace;
+import agentcore.core.env : defaultWorkspace, envModel, envRepos, envSkills, envSkillsSource, envWorkspace;
 import agentcore.output.event : EventSource, sourceFromEnv;
 import agentcore.core.exec : findExecutable;
 import agentcore.tools.initcontext : InitContext;
@@ -29,6 +29,7 @@ import agentcore.pkgmanager.packagemanager : packageFor;
 import agentcore.pkgmanager.packagemanagerselect : packageManagerByName;
 import agentcore.tools.agent_tool : AgentTool;
 import agentcore.tools.repos : parseRepos;
+import agentcore.tools.skills : parseSkills;
 import agentcore.tools.tool : Tool;
 import agentcore.tools.toolselect : allTools;
 
@@ -41,6 +42,8 @@ InitContext contextFromEnv()
 	ctx.model = environment.get(envModel, "");
 	ctx.repos = parseRepos(environment.get(envRepos, ""));
 	ctx.workspaceDir = environment.get(envWorkspace, defaultWorkspace);
+	ctx.skills = parseSkills(environment.get(envSkills, ""));
+	ctx.skillsSource = environment.get(envSkillsSource, "");
 	return ctx;
 }
 
