@@ -11,4 +11,7 @@ struct InitContext
 	string model;
 	RepoRef[] repos;
 	string workspaceDir;
+	/// Recipe `resources.skills` names — the SkillsTool stages each from the baked
+	/// bundle into the run's `$HOME/.claude/skills`.
+	string[] skills;
 }

@@ -133,6 +133,10 @@ spec:
                             type: string
                           token_secret:
                             type: string
+                    skills:
+                      type: array
+                      items:
+                        type: string
                 output:
                   type: object
                   properties:

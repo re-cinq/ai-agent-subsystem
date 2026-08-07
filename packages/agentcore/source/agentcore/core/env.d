@@ -19,6 +19,8 @@ enum envBranch = "BRANCH_NAME";
 enum envRepos = "AGENT_REPOS";
 enum envWorkspace = "WORKSPACE_DIR";
 enum envSelect = "AGENT_SELECT";
+// JSON array of skill names the init stages into $HOME/.claude/skills for this run.
+enum envSkills = "AGENT_SKILLS";
 
 // After the agent emits its terminal event, how long the supervisor waits for the
 // process to exit on its own before escalating SIGTERM -> SIGKILL. Some agent CLIs

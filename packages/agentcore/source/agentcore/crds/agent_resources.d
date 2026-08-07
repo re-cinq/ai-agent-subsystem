@@ -12,4 +12,15 @@ struct AgentResources
 	@optional SecretRef[] secrets;
 	@optional @wire("mcp_servers") McpServer[] mcpServers;
 	@optional RepoRef[] repos;
+	// Names of skills this agent gets. Agent-agnostic: the recipe declares intent
+	// ("these skills"); each vendor adapter realizes it. Resolved from the baked
+	// image bundle (v1) or the Lore registry (later) and staged into the run's
+	// $HOME/.claude/skills by the init — see the SkillsTool.
+	@optional string[] skills;
+}
+
+@safe unittest
+{
+	static assert(jsonNameOf!(AgentResources.skills) == "skills");
+	static assert(jsonNameOf!(AgentResources.mcpServers) == "mcp_servers");
 }

@@ -18,6 +18,19 @@ enum supervisorPath = "/agent/bin/ai-agent-supervisor";
 /// from here into the bundle at run start.
 enum supervisorStageSource = "/usr/local/lib/ai-agent/ai-agent-supervisor";
 
+/// The run's Claude config dir. HOME=/agent, so headless `claude --print` auto-loads
+/// user-scope skills + settings from here (cwd-independent, trust-free) — the init
+/// (SkillsTool) stages into it.
+enum claudeConfigDir = "/agent/.claude";
+enum claudeSkillsDir = "/agent/.claude/skills";
+enum claudeSettingsPath = "/agent/.claude/settings.json";
+
+/// Where the org skill bundle + base settings.json are baked into the agent image;
+/// the init copies the recipe-named skills and the settings from here into the run's
+/// HOME (the SupervisorTool staging pattern).
+enum skillsStageSource = "/usr/local/lib/ai-agent/skills";
+enum settingsStageSource = "/usr/local/lib/ai-agent/settings.json";
+
 version (unittest) import fluent.asserts;
 
 @safe unittest

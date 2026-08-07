@@ -464,6 +464,10 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 		}
 	}
 	strVar(envRepos, reposJson(recipe.resources.repos));
+	// The recipe's skill names — the init stages each from the baked bundle into
+	// $HOME/.claude/skills so headless claude (HOME=/agent) auto-loads them. Emitted
+	// unconditionally so the init always has a defined ("[]" when none) value.
+	strVar(envSkills, skillsJson(recipe.resources.skills));
 	// A repo's token_secret names an agent-secrets key holding its git credential; inject it
 	// as a secretKeyRef env of the same name so the init container's clone authenticates.
 	// Without it the clone runs with an empty token and fails "Invalid username or token".
@@ -529,7 +533,7 @@ enum pathEnv = "PATH";
 bool isReservedEnvName(string name) @safe pure nothrow
 {
 	static immutable string[] reserved = [
-		envSinks, envRepos, envSelect, envWorkspace, envParameters, envTargetRepo,
+		envSinks, envRepos, envSkills, envSelect, envWorkspace, envParameters, envTargetRepo,
 		envBranch, envModel, envAgentName, envStationName, envTaskId, envPodName,
 		envPodNamespace, homeEnv, pathEnv,
 	];
@@ -556,6 +560,14 @@ private string selectJson(const OutputSelector[] selectors)
 private string reposJson(const RepoRef[] repos)
 {
 	return toJson(repos).toString();
+}
+
+private string skillsJson(const string[] skills)
+{
+	Json[] array;
+	foreach (skill; skills)
+		array ~= Json(skill);
+	return Json(array).toString();
 }
 
 private string parametersJson(const string[string] parameters)
