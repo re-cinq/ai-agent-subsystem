@@ -31,6 +31,17 @@ enum envSkillsSource = "AGENT_SKILLS_SOURCE";
 enum envExitGraceMs = "AGENT_EXIT_GRACE_MS";
 enum defaultExitGraceMs = 5000;
 
+// The supervisor's own run deadline. An agent that neither exits nor emits a terminal
+// event leaves the supervisor waiting until the kubelet kills the pod at the Job's
+// activeDeadlineSeconds — which takes the terminal `agentExit` event with it, so
+// downstream sees a run that simply stops. The controller sets this below the Job's
+// window so the supervisor always terminates the agent first and still reports (#48).
+// Unset or non-positive disables it, leaving the Job deadline as the only bound.
+enum envDeadlineMs = "AGENT_DEADLINE_MS";
+// How far ahead of the Job's activeDeadlineSeconds the supervisor's deadline fires:
+// enough to SIGTERM the agent, wait a grace window, SIGKILL it, and flush the event.
+enum deadlineMarginMs = 10_000;
+
 // Identity the controller stamps onto the run so every emitted event can be
 // traced back to its agent + pod in a workflow. `POD_*` come from the downward
 // API; the rest from the resolved Station / AgentDefinition / Agent.

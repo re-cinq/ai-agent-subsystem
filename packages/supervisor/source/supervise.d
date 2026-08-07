@@ -14,7 +14,7 @@ import std.conv : to;
 import std.process : environment;
 
 import agentcore.vendors.select : agentForModel;
-import agentcore.core.env : defaultExitGraceMs, envExitGraceMs, envModel, envSelect;
+import agentcore.core.env : defaultExitGraceMs, envDeadlineMs, envExitGraceMs, envModel, envSelect;
 import agentcore.output.event : sourceFromEnv;
 import agentcore.core.exec : findExecutable;
 import agentcore.output.lifecycle : LifecycleEvent, Phase, Status, toJson;
@@ -37,6 +37,14 @@ private enum maxEventLineBytes = 16 * 1024 * 1024;
 /// hard exit — long enough to flush a large final burst, short enough that a grandchild
 /// holding the pipe open can't stall pod teardown.
 private enum drainDeadline = 2000.msecs;
+
+/// Prefix on every forwarded agent stderr line, so the pod log distinguishes the agent's
+/// diagnostics from the supervisor's own and from the JSONL events on stdout.
+private enum agentStderrTag = "[agent] ";
+
+/// Exit code reported when the run deadline expires — GNU `timeout`'s convention, and
+/// distinct from any code the agent itself could return.
+enum deadlineExitCode = 124;
 
 /// PID of the spawned agent, shared with the signal handler.
 private __gshared pid_t g_childPid = 0;
@@ -71,6 +79,7 @@ int supervise(string[] agentArgv)
 	const selectors = parseSelectors(environment.get(envSelect, ""));
 	const provider = agentForModel(environment.get(envModel, "")).name;
 	const grace = exitGraceFromEnv();
+	const deadline = deadlineFromEnv();
 
 	if (findExecutable(agentArgv[0]).length == 0)
 	{
@@ -81,7 +90,7 @@ int supervise(string[] agentArgv)
 
 	ProcessPipes pipes;
 	try
-		pipes = pipeProcess(agentArgv, Redirect.stdout);
+		pipes = pipeProcess(agentArgv, Redirect.stdout | Redirect.stderr);
 	catch (Exception e)
 	{
 		logError("[supervisor] failed to start agent: " ~ e.msg);
@@ -131,6 +140,27 @@ int supervise(string[] agentArgv)
 		readerDone = true;
 	});
 
+	// Stream stderr too, tagged. Left inherited it lands raw in the pod log, interleaved
+	// with the JSONL event stream the controller caps into status.output — where a
+	// consumer parsing events cannot tell a crash trace from a malformed event. It is
+	// also the only place an agent CLI prints auth failures, rate limits and stack
+	// traces, so a failed run had an exit code and nothing to read (#47).
+	runTask(() nothrow {
+		try
+		{
+			while (!pipes.stderr.empty)
+			{
+				auto raw = pipes.stderr.readLine(maxEventLineBytes, "\n");
+				if (raw.length)
+					logError(agentStderrTag ~ cast(string) raw.idup);
+			}
+		}
+		catch (Exception)
+		{
+			// stderr closed (normal EOF) or the reader was interrupted on exit.
+		}
+	});
+
 	// Reap the agent in its own task so the wait loop can react to the terminal
 	// event without blocking on a process that may never exit on its own.
 	int processCode = 1;
@@ -143,7 +173,7 @@ int supervise(string[] agentArgv)
 		processExited = true;
 	});
 
-	const code = awaitOutcome(grace, processExited, processCode, terminalSeen, runOk);
+	const code = awaitOutcome(grace, deadline, processExited, processCode, terminalSeen, runOk);
 
 	// Let the reader flush output buffered right up to the terminal event before we
 	// hard-exit. Wait for it to drain to EOF rather than a blind fixed sleep (which
@@ -168,12 +198,20 @@ int supervise(string[] agentArgv)
 /// used) or when the agent emits its terminal event but the process lingers. In the
 /// latter case the process is given `grace` to exit cleanly, then SIGTERM and finally
 /// SIGKILL force it down so the pod can terminate, and the code reflects the agent's
-/// own success/failure rather than the signal that killed it.
-private int awaitOutcome(Duration grace, ref bool processExited, ref int processCode,
-	ref bool terminalSeen, ref bool runOk)
+/// own success/failure rather than the signal that killed it. An agent that does
+/// neither is forced down at `deadline` so the caller can still report a terminal event.
+private int awaitOutcome(Duration grace, Duration deadline, ref bool processExited,
+	ref int processCode, ref bool terminalSeen, ref bool runOk)
 {
-	while (!processExited && !terminalSeen)
-		sleep(pollInterval);
+	// Bounded by the run deadline: with neither an exit nor a terminal event this would
+	// otherwise spin until the kubelet killed the pod at the Job's activeDeadlineSeconds,
+	// taking the agentExit event with it and leaving downstream with no terminal at all.
+	if (!waitOutcome(deadline, processExited, terminalSeen))
+	{
+		logError("[supervisor] run deadline expired with no terminal event; forcing the agent down");
+		forceDown(grace, processExited);
+		return deadlineExitCode;
+	}
 
 	// The process exited on its own (the normal path, and the mock/Codex path):
 	// its real exit code is authoritative.
@@ -185,15 +223,34 @@ private int awaitOutcome(Duration grace, ref bool processExited, ref int process
 	if (waitFlag(processExited, grace))
 		return reportedExitCode(true, processCode, runOk);
 
-	// It is lingering. Force it down (SIGTERM, then SIGKILL) so the pod can
-	// terminate. Any exit code now reflects the signal we sent, not the agent's
-	// work, so the terminal event's success/failure is authoritative.
+	// It is lingering. Force it down so the pod can terminate. Any exit code now
+	// reflects the signal we sent, not the agent's work, so the terminal event's
+	// success/failure is authoritative.
+	forceDown(grace, processExited);
+	return reportedExitCode(false, processCode, runOk);
+}
+
+/// Escalate SIGTERM -> SIGKILL until the agent is gone, allowing `grace` at each step.
+private void forceDown(Duration grace, ref bool processExited)
+{
 	if (g_childPid > 0)
 		kill(g_childPid, SIGTERM);
 	if (!waitFlag(processExited, grace) && g_childPid > 0)
 		kill(g_childPid, SIGKILL);
 	cast(void) waitFlag(processExited, grace);
-	return reportedExitCode(false, processCode, runOk);
+}
+
+/// Poll until the agent exits or emits its terminal event, bounded by `limit` when it is
+/// positive (a non-positive limit means unbounded). True if either happened in time.
+private bool waitOutcome(Duration limit, ref bool processExited, ref bool terminalSeen)
+{
+	Duration waited;
+	while (!processExited && !terminalSeen && (limit <= Duration.zero || waited < limit))
+	{
+		sleep(pollInterval);
+		waited += pollInterval;
+	}
+	return processExited || terminalSeen;
 }
 
 /// The exit code to report. A process that exited on its own (or within its grace
@@ -218,16 +275,16 @@ private bool waitFlag(ref bool flag, Duration limit)
 	return flag;
 }
 
-/// The terminal-event grace window from the environment, falling back to the
-/// default when unset or unparseable.
-private Duration exitGraceFromEnv()
+/// A positive-millisecond duration read from `name`, falling back to `whenUnset` when
+/// the variable is missing, non-numeric or non-positive.
+private Duration msFromEnv(string name, Duration whenUnset)
 {
 	try
 	{
-		const raw = environment.get(envExitGraceMs, "");
+		const raw = environment.get(name, "");
 		if (raw.length)
 		{
-			const ms = raw.to!int;
+			const ms = raw.to!long;
 			if (ms > 0)
 				return ms.msecs;
 		}
@@ -235,7 +292,22 @@ private Duration exitGraceFromEnv()
 	catch (Exception)
 	{
 	}
-	return defaultExitGraceMs.msecs;
+	return whenUnset;
+}
+
+/// The terminal-event grace window from the environment, falling back to the
+/// default when unset or unparseable.
+private Duration exitGraceFromEnv()
+{
+	return msFromEnv(envExitGraceMs, defaultExitGraceMs.msecs);
+}
+
+/// The run deadline from the environment. Absent or unparseable means no supervisor-side
+/// deadline — the Job's activeDeadlineSeconds stays the only bound, which is the
+/// pre-#48 behaviour and the right default for a supervisor run outside a Job.
+private Duration deadlineFromEnv()
+{
+	return msFromEnv(envDeadlineMs, Duration.zero);
 }
 
 /// An agent-phase `failed` event the supervisor itself raises (the agent never ran):
@@ -286,6 +358,28 @@ unittest
 
 unittest
 {
+	// An outcome already reached returns at once, without waiting the limit out.
+	bool exited = true;
+	bool terminal = false;
+	waitOutcome(1.msecs, exited, terminal).should.equal(true);
+
+	exited = false;
+	terminal = true;
+	waitOutcome(1.msecs, exited, terminal).should.equal(true);
+}
+
+unittest
+{
+	// A deadline kill still reports a terminal event, and it reports failure carrying
+	// the timeout code — the run produced no verdict of its own (#48).
+	auto ev = agentExit(deadlineExitCode);
+	ev.phase.should.equal(Phase.agent);
+	ev.status.should.equal(Status.failed);
+	ev.exitCode.get.should.equal(124);
+}
+
+unittest
+{
 	// agentFailed is an agent-phase failure the supervisor raises itself, carrying the slug.
 	auto ev = agentFailed("not-found");
 	ev.phase.should.equal(Phase.agent);
@@ -309,4 +403,23 @@ unittest
 	exitGraceFromEnv().should.equal(defaultExitGraceMs.msecs);
 	environment[envExitGraceMs] = "0";
 	exitGraceFromEnv().should.equal(defaultExitGraceMs.msecs);
+}
+
+unittest
+{
+	scope (exit)
+		environment.remove(envDeadlineMs);
+
+	// A positive value is the run deadline; a 30-minute Job window renders 1_790_000.
+	environment[envDeadlineMs] = "1790000";
+	deadlineFromEnv().should.equal(1_790_000.msecs);
+
+	// Unset, non-numeric and non-positive mean no supervisor-side deadline, leaving the
+	// Job's activeDeadlineSeconds as the only bound.
+	environment.remove(envDeadlineMs);
+	deadlineFromEnv().should.equal(Duration.zero);
+	environment[envDeadlineMs] = "abc";
+	deadlineFromEnv().should.equal(Duration.zero);
+	environment[envDeadlineMs] = "-1";
+	deadlineFromEnv().should.equal(Duration.zero);
 }

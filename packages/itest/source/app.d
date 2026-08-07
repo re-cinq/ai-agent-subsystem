@@ -11,6 +11,8 @@ module app;
 //   - an agent crash surfaces as a non-zero exit
 //   - a dead sink is logged and does not fail the run
 //   - robustness against an agent that leaves a child holding stdout open
+//   - a wedged agent is force-stopped at the run deadline, still reporting a terminal
+//     event, and the agent's stderr reaches the pod log tagged
 //
 //   usage: ai-agent-itest <supervisor-bin> <mock-bin>
 
@@ -129,6 +131,8 @@ int main(string[] args)
 	deadSinkLogs();
 	orphanRobustness();
 	terminalShutdown();
+	runDeadline();
+	stderrForwarding();
 	badArgv();
 
 	writeln(failures == 0 ? "ALL PASSED" : failures.to!string ~ " CHECK(S) FAILED");
@@ -299,6 +303,35 @@ private void terminalShutdown()
 	auto t = run(["MOCK_MODE": "linger", "MOCK_LINES": "1", "AGENT_EXIT_GRACE_MS": "200"]);
 	check("exit 0 from the agent's successful result, not the kill signal", t.code == 0);
 	check("agent succeeded lifecycle event raised", emitted(t.lines, `"status":"succeeded"`));
+}
+
+/// An agent that neither exits nor emits a terminal event left the supervisor waiting
+/// until the kubelet killed the pod at the Job deadline — which took the terminal event
+/// with it, so downstream saw a run that simply stopped (issue #48).
+private void runDeadline()
+{
+	writeln("run deadline forces a wedged agent down and still reports");
+	auto r = run(["MOCK_MODE": "wedge", "MOCK_LINES": "1", "AGENT_DEADLINE_MS": "700",
+			"AGENT_EXIT_GRACE_MS": "200"]);
+	check("output before the wedge still streamed", payloadCount(r.lines) == 1);
+	check("exit is the deadline code (124)", r.code == 124);
+	check("terminal lifecycle event still raised",
+		emitted(r.lines, `"status":"failed"`) && emitted(r.lines, `"exitCode":124`));
+	check("deadline logged to stderr", r.err.canFind("run deadline expired"));
+}
+
+/// The agent's stderr carries its auth failures, rate limits and stack traces. Inherited,
+/// it landed raw in the pod log the controller caps into status.output, where a consumer
+/// parsing events could not tell a crash trace from a malformed event (issue #47).
+private void stderrForwarding()
+{
+	writeln("agent stderr forwarded to the pod log, tagged");
+	auto r = run(["MOCK_LINES": "1", "MOCK_STDERR": "auth failed: invalid api key"]);
+	check("run unaffected (exit 0)", r.code == 0);
+	check("agent stderr tagged in the supervisor's stderr",
+		r.err.canFind("[agent] auth failed: invalid api key"));
+	check("agent stderr stays off the event stream",
+		!r.lines.any!(line => line.canFind("auth failed")));
 }
 
 private void badArgv()
