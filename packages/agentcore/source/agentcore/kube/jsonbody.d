@@ -337,8 +337,9 @@ unittest
 	// Every recipe field survives parsing into the typed AgentDefinition — env, secrets,
 	// select, sinks (incl. headers_secret), mcp_servers, tool_config. Guards the seam
 	// where a hand-maintained field list silently dropped the recipe's secrets and
-	// produced runs without credentials (#85). (mcp_servers/tool_config parse but are
-	// not yet injected into the run env — see the CRD reference.)
+	// produced runs without credentials (#85). (mcp_servers is now injected — the Claude
+	// adapter renders it into `--mcp-config` and runEnv injects its headers_secret as a
+	// run env var; see the CRD reference.)
 	auto definition = parseAgentDefinition(parseJsonString(`{
 		"metadata":{"name":"bug-fixer"},
 		"spec":{"model":"claude-sonnet-4-6","prompt":"Fix {t}",
