@@ -58,10 +58,4 @@ RUN set -eu; \
 COPY --from=builder /src/packages/initializer/ai-agent-init /usr/local/bin/ai-agent-init
 COPY --from=builder /src/packages/supervisor/ai-agent-supervisor /usr/local/lib/ai-agent/ai-agent-supervisor
 RUN chmod +x /usr/local/bin/ai-agent-init /usr/local/lib/ai-agent/ai-agent-supervisor
-# The org skill bundle + base settings.json (session hooks). The init's SkillsTool
-# stages recipe-named skills from here + the settings into each run's $HOME/.claude
-# (matching agentcore.bundle.skillsStageSource / settingsStageSource). Lore populates
-# the bundle with more skills over time (later: fetched from the Lore registry).
-COPY scripts/container/agent-skills/skills /usr/local/lib/ai-agent/skills
-COPY scripts/container/agent-skills/settings.json /usr/local/lib/ai-agent/settings.json
 ENTRYPOINT ["/usr/local/bin/ai-agent-init"]

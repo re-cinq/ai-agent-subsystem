@@ -55,6 +55,7 @@ export interface AgentResources {
   mcp_servers?: McpServer[];
   repos?: RepoRef[];
   skills?: string[];
+  skills_source?: string;
 }
 
 export interface OutputSelector {

@@ -137,6 +137,8 @@ spec:
                       type: array
                       items:
                         type: string
+                    skills_source:
+                      type: string
                 output:
                   type: object
                   properties:
