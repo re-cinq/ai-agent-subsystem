@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.8.1
+
 ### Fixed
 - The supervisor now has its own run deadline, injected as `AGENT_DEADLINE_MS` a fixed
   margin inside the Job's `activeDeadlineSeconds`. An agent that neither exits nor emits
@@ -28,6 +30,11 @@ the npm package versions.
   committed, not derived, so a release PR that forgot the bump republished an existing
   version — npm rejected it with an error that reads like an auth failure, and v0.5.0
   through v0.7.0 all shipped images while npm stayed on 0.3.0 (#139).
+
+### Notes
+- `@re-cinq/agent-contracts` is republished at **0.8.1**. The generated types are
+  unchanged from 0.8.0 — the version tracks the release tag, which is what the new
+  `check-contracts-version.sh` enforces.
 
 ## v0.8.0
 
