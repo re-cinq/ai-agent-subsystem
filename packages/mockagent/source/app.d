@@ -7,6 +7,9 @@ module app;
 //   MOCK_EXIT   process exit code (default 0)
 //   MOCK_STDERR a line written to stderr before the mode runs (default none) — stands
 //               in for the auth errors and stack traces a real CLI prints there
+//   MOCK_WRITE_FILE path of a file to create before exiting — stands in for an agent
+//               whose deliverable is an artifact rather than its stdout
+//   MOCK_WRITE_BODY contents to write there (default `{"ok":true}`)
 //   MOCK_STDERR_LINES how many times to write it (default 1). Enough of them overflow
 //               the stderr pipe buffer, which blocks the supervisor's write unless the
 //               reader drains stderr concurrently with stdout
@@ -49,6 +52,16 @@ int main()
 	const mode = environment.get("MOCK_MODE", "emit");
 	const lines = environment.get("MOCK_LINES", "0").to!int;
 	const code = environment.get("MOCK_EXIT", "0").to!int;
+
+	const writeFile = environment.get("MOCK_WRITE_FILE", "");
+	if (writeFile.length)
+	{
+		import std.file : mkdirRecurse, write;
+		import std.path : dirName;
+
+		mkdirRecurse(writeFile.dirName);
+		write(writeFile, environment.get("MOCK_WRITE_BODY", `{"ok":true}`));
+	}
 
 	const errLine = environment.get("MOCK_STDERR", "");
 	if (errLine.length)

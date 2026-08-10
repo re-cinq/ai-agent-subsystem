@@ -8,6 +8,7 @@ import agentcore.crds.agent : Agent;
 import agentcore.crds.agent_definition : AgentDefinition;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 import agentcore.crds.output_selector : OutputSelector;
+import agentcore.crds.output_watch : OutputWatch;
 import agentcore.crds.output_sink : OutputSink;
 import agentcore.crds.enums : SinkType;
 import agentcore.crds.repo_ref : RepoRef;
@@ -514,6 +515,8 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 		}
 	if (recipe.output.select.length)
 		strVar(envSelect, selectJson(recipe.output.select));
+	if (recipe.output.watch.length)
+		strVar(envWatch, watchJson(recipe.output.watch));
 	strVar(envWorkspace, defaultWorkspace);
 	if (agent.spec.parameters.length)
 		strVar(envParameters, parametersJson(agent.spec.parameters));
@@ -553,7 +556,7 @@ enum pathEnv = "PATH";
 bool isReservedEnvName(string name) @safe pure nothrow
 {
 	static immutable string[] reserved = [
-		envSinks, envRepos, envSkills, envSkillsSource, envSelect, envWorkspace, envParameters, envTargetRepo,
+		envSinks, envRepos, envSkills, envSkillsSource, envSelect, envWatch, envWorkspace, envParameters, envTargetRepo,
 		envBranch, envModel, envAgentName, envStationName, envTaskId, envPodName,
 		envPodNamespace, envDeadlineMs, homeEnv, pathEnv,
 	];
@@ -575,6 +578,11 @@ private string sinksJson(const OutputSink[] sinks)
 private string selectJson(const OutputSelector[] selectors)
 {
 	return toJson(selectors).toString();
+}
+
+private string watchJson(const OutputWatch[] watches)
+{
+	return toJson(watches).toString();
 }
 
 private string reposJson(const RepoRef[] repos)
@@ -604,6 +612,7 @@ version (unittest)
 	import agentcore.crds.enums : SelectEvent;
 	import agentcore.crds.env_var : EnvVar;
 	import agentcore.crds.output_selector : OutputSelector;
+	import agentcore.crds.output_watch : OutputWatch;
 	import agentcore.crds.secret_ref : SecretRef;
 	import agentcore.output.output : parseSinks;
 	import agentcore.output.selectmatcher : parseSelectors;
@@ -1015,6 +1024,46 @@ unittest
 	auto selectors = parseSelectors(envValue(container, "AGENT_SELECT"));
 	selectors.length.should.equal(1);
 	selectors[0].event.should.equal(SelectEvent.result);
+}
+
+unittest
+{
+	import agentcore.output.fileevent : parseWatches;
+
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.output.watch = [OutputWatch("planning.result", "target/result.json")];
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img"));
+
+	// output.watch is injected as AGENT_WATCH and round-trips through the same
+	// policy serializer the supervisor parses it back with.
+	auto watches = parseWatches(envValue(container, "AGENT_WATCH"));
+	watches.length.should.equal(1);
+	watches[0].event.should.equal("planning.result");
+	watches[0].path.should.equal("target/result.json");
+}
+
+unittest
+{
+	// A recipe declaring no artifacts injects nothing, so an unused run carries no
+	// empty env var into the pod.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img"));
+
+	envValue(container, "AGENT_WATCH").should.equal("");
+}
+
+unittest
+{
+	// AGENT_WATCH is controller-owned: a recipe env var of that name cannot shadow it.
+	isReservedEnvName("AGENT_WATCH").should.equal(true);
 }
 
 unittest

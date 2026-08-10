@@ -14,9 +14,12 @@ import std.conv : to;
 import std.process : environment;
 
 import agentcore.vendors.select : agentForModel;
-import agentcore.core.env : defaultExitGraceMs, envDeadlineMs, envExitGraceMs, envModel, envSelect;
-import agentcore.output.event : sourceFromEnv;
+import agentcore.core.env : defaultExitGraceMs, defaultWorkspace, envDeadlineMs, envExitGraceMs,
+	envModel, envSelect, envWatch, envWorkspace;
+import agentcore.crds.output_sink : OutputSink;
+import agentcore.output.event : EventSource, sourceFromEnv;
 import agentcore.core.exec : findExecutable;
+import agentcore.output.fileevent : parseWatches, readWatched, toJson;
 import agentcore.output.lifecycle : LifecycleEvent, Phase, Status, toJson;
 import agentcore.core.log : logError;
 import agentcore.output.output : sinksFromEnv;
@@ -180,6 +183,12 @@ int supervise(string[] agentArgv)
 	// could cut off a large final burst), but cap the wait: a stray grandchild can hold
 	// stdout open forever, and pod teardown must not block on that (#58).
 	cast(void) waitFlag(readerDone, drainDeadline);
+
+	// Raise the recipe's declared artifacts BEFORE the terminal event: a consumer that
+	// treats agent/succeeded|failed as end-of-stream must still receive them. The agent
+	// has exited and the workspace volume is still mounted, so this is the only point
+	// where a file it produced can be read at all (#188).
+	emitWatchedFiles(sinks, source);
 	emit(sinks, source, agentExit(code).toJson);
 
 	// Hard-exit instead of joining the reader/waiter and unwinding the event loop.
@@ -191,6 +200,27 @@ int supervise(string[] agentArgv)
 	// die with the container once PID 1 is gone.
 	_exit(code);
 	assert(0, "unreachable");
+}
+
+/// Read every declared artifact and raise it as a named `kind:"file"` event on the
+/// run's normal sinks. Best-effort by construction: a refused path is skipped, and a
+/// missing or oversized file still raises an event carrying the reason, so a consumer
+/// hears "the agent produced nothing" instead of waiting forever. Never throws — it
+/// runs on the terminal path, where an exception would cost the exit event too.
+private void emitWatchedFiles(const OutputSink[] sinks, in EventSource source) nothrow
+{
+	try
+	{
+		const workspace = environment.get(envWorkspace, defaultWorkspace);
+		foreach (watch; parseWatches(environment.get(envWatch, "")))
+		{
+			const ev = readWatched(watch, workspace);
+			if (!ev.isNull)
+				emit(sinks, source, ev.get.toJson);
+		}
+	}
+	catch (Exception e)
+		logError("[watch] " ~ e.msg);
 }
 
 /// Block until the agent's run is over, returning the exit code to report. The run

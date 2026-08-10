@@ -81,6 +81,32 @@ Empty optional fields are omitted. Examples:
 
 A run that reaches the agent phase emits, at minimum, an `agent`/`started` at launch and an `agent`/`succeeded` or `agent`/`failed` (carrying `exitCode`) when it ends — so a hook can branch on the outcome without parsing logs.
 
+## File events
+
+Artifacts the recipe declared under [`spec.output.watch`](./crd-agentdefinition.md). The supervisor reads each declared path once the agent has exited and raises one event per entry, tagged `"kind": "file"`.
+
+This exists because the subsystem streams what an agent *says*: an agent whose deliverable is a file had no way to hand it back, so callers asked the model to repeat the artifact as its closing message — putting an LLM in the delivery path of a deterministic step, and silently producing nothing whenever the model summarised instead.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `kind` | string | Always `"file"`. |
+| `event` | string | The recipe-declared event name, so one run can emit several artifacts. |
+| `path` | string | The resolved path read from. Relative paths resolve against `WORKSPACE_DIR`. |
+| `content` | string | The file's contents. Absent when `reason` is set. |
+| `reason` | string | Optional. Why there is no content: `missing`, `too-large` (>128 KiB), or `unreadable`. |
+
+```json
+{ "kind": "file", "event": "planning.result", "path": "/workspace/target/result.json", "content": "{\"gap\":\"found\"}" }
+{ "kind": "file", "event": "planning.result", "path": "/workspace/target/result.json", "reason": "missing" }
+```
+
+Two guarantees a consumer can rely on:
+
+- **File events precede the terminal event.** They are raised before `agent`/`succeeded`\|`failed`, so a consumer that treats the terminal event as end-of-stream still receives them.
+- **A declared artifact always reports.** A file the agent never produced still raises its event carrying `reason`, so a consumer learns the run delivered nothing instead of waiting on an event that never arrives.
+
+A path that escapes `WORKSPACE_DIR` is refused and raises nothing — that is a recipe bug, not a run outcome.
+
 ## Agent (tool-native) events
 
 Between the lifecycle events, the supervisor forwards each line the agent tool writes, verbatim — to pod-log stdout as-is, and to the sinks as the envelope's `event`. **These are produced by the tool adapter, not the subsystem** — the schema below describes Claude Code's `stream-json` output and may vary by model or tool. Treat the subsystem-owned contract (the envelope and lifecycle events above) as stable; treat these as the tool's format.
