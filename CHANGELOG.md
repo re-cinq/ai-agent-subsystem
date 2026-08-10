@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.9.0
+
 ### Added
 - `spec.output.watch` lets a recipe declare the files a run is expected to produce:
   `{event, path}` pairs that the supervisor reads once the agent exits, raising each as
@@ -20,6 +22,12 @@ the npm package versions.
   run delivered nothing rather than waiting on an event that never comes; oversized
   (>128 KiB) and unreadable files report the same way, and a path escaping
   `WORKSPACE_DIR` is refused. (#188)
+
+### Notes
+- `@re-cinq/agent-contracts` goes to 0.9.0 carrying the generated `OutputWatch` type
+  and `OutputSpec.watch`. This is the reason to cut now: a consumer cannot declare an
+  artifact against types that do not have the field, so the capability is unreachable
+  from TypeScript until this publishes.
 
 ## v0.8.1
 
