@@ -40,6 +40,7 @@ The recipe. It has a `spec` and no `status`.
 | `schema` | JSON Schema | Optional validation of the result. |
 | `select` | [] object | Event filters: `{event(tool_call\|message\|tool_result\|result\|usage), tool?, role?, contains?}`. |
 | `sinks` | [] object | `{type(stdout\|http\|file), url?, headers_secret?, path?}`. |
+| `watch` | [] object | `{event, path}` — files the run is expected to produce; each is raised as a named `kind:"file"` event once the agent exits. Relative paths resolve against `WORKSPACE_DIR`. |
 
 The events delivered to these `sinks` — their envelope, lifecycle and `stream-json` payloads,
 and the HTTP delivery contract — are documented in the

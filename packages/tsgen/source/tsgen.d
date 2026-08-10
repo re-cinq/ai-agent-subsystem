@@ -26,6 +26,7 @@ import agentcore.crds.repo_ref : RepoRef;
 import agentcore.crds.agent_resources : AgentResources;
 import agentcore.crds.output_selector : OutputSelector;
 import agentcore.crds.output_sink : OutputSink;
+import agentcore.crds.output_watch : OutputWatch;
 import agentcore.crds.output_spec : OutputSpec;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 import agentcore.crds.agent_definition : AgentDefinition;
@@ -42,7 +43,7 @@ private alias AllEnums = AliasSeq!(PermissionMode, McpTransport, OutputFormat,
 /// The structs emitted as TypeScript interfaces (dependency-first for readability;
 /// TS does not require forward declaration).
 private alias AllStructs = AliasSeq!(ObjectMeta, EnvVar, SecretRef, McpServer, RepoRef,
-	AgentResources, OutputSelector, OutputSink, OutputSpec,
+	AgentResources, OutputSelector, OutputSink, OutputWatch, OutputSpec,
 	AgentDefinitionSpec, AgentDefinition, StationSpec, Station, AgentSpec, AgentStatus, Agent);
 
 /// The TypeScript type expression for D type `FT`. Mirrors `crdgen.emitType`'s

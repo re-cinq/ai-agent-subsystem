@@ -72,12 +72,20 @@ export interface OutputSink {
   path?: string;
 }
 
+export interface OutputWatch {
+  /** Event name raised when the file is produced. */
+  event: string;
+  /** File to read; relative paths resolve against WORKSPACE_DIR. */
+  path: string;
+}
+
 export interface OutputSpec {
   format?: OutputFormat;
   /** JSON Schema validating the result. */
   schema?: unknown;
   select?: OutputSelector[];
   sinks?: OutputSink[];
+  watch?: OutputWatch[];
 }
 
 /** The reusable recipe for a coding agent task. */

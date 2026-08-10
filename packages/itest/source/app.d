@@ -153,6 +153,8 @@ int main(string[] args)
 	runDeadline();
 	stderrForwarding();
 	badArgv();
+	watchedFiles();
+	watchedFileMissing();
 
 	writeln(failures == 0 ? "ALL PASSED" : failures.to!string ~ " CHECK(S) FAILED");
 	return failures == 0 ? 0 : 1;
@@ -371,6 +373,64 @@ private void badArgv()
 	check("exit 1", r.code == 1);
 	check("not-found logged to stderr", r.err.canFind("agent not found"));
 	check("not-found raised as a lifecycle event", emitted(r.lines, `"reason":"not-found"`));
+}
+
+/// output.watch: an agent whose deliverable is a FILE gets it raised as a named
+/// event on the normal stream, before the terminal exit event a consumer stops on.
+private void watchedFiles()
+{
+	writeln("watched files raised as events");
+	const root = buildPath(tempDir, "itest-watch");
+	const artifact = buildPath(root, "target", "result.json");
+	if (artifact.exists)
+		remove(artifact);
+
+	auto r = run([
+		"MOCK_LINES": "1",
+		"MOCK_WRITE_FILE": artifact,
+		"MOCK_WRITE_BODY": `{"gap":"found"}`,
+		"WORKSPACE_DIR": root,
+		"AGENT_WATCH": `[{"event":"planning.result","path":"target/result.json"}]`,
+	]);
+
+	check("run completes (exit 0)", r.code == 0);
+	check("file event raised with its name", emitted(r.lines, `"event":"planning.result"`));
+	check("file event carries the contents", emitted(r.lines, `{\"gap\":\"found\"}`));
+	check("file event tagged with its kind", emitted(r.lines, `"kind":"file"`));
+
+	// Ordering is the contract: a consumer that stops at the terminal event must not
+	// have to look past it for the artifact.
+	size_t fileAt = size_t.max, exitAt = size_t.max;
+	foreach (i, line; r.lines)
+	{
+		if (fileAt == size_t.max && line.canFind(`"kind":"file"`))
+			fileAt = i;
+		if (exitAt == size_t.max && line.canFind(`"status":"succeeded"`))
+			exitAt = i;
+	}
+	check("file event precedes the terminal event", fileAt < exitAt);
+
+	if (artifact.exists)
+		remove(artifact);
+}
+
+/// A declared artifact the agent never produced still reports, so a consumer learns
+/// the run delivered nothing instead of waiting on an event that never comes.
+private void watchedFileMissing()
+{
+	writeln("missing watched file reports a reason");
+	const root = buildPath(tempDir, "itest-watch-missing");
+	auto r = run([
+		"MOCK_LINES": "1",
+		"WORKSPACE_DIR": root,
+		"AGENT_WATCH": `[{"event":"planning.result","path":"target/never.json"}]`,
+	]);
+
+	check("run completes (exit 0)", r.code == 0);
+	check("missing artifact still raises its event",
+		emitted(r.lines, `"event":"planning.result"`));
+	check("missing artifact says why", emitted(r.lines, `"reason":"missing"`));
+	check("missing artifact carries no content", !emitted(r.lines, `"content"`));
 }
 
 /// Read one HTTP request from `conn` and return its body (Content-Length bytes).

@@ -6,6 +6,21 @@ the npm package versions.
 
 ## Unreleased
 
+### Added
+- `spec.output.watch` lets a recipe declare the files a run is expected to produce:
+  `{event, path}` pairs that the supervisor reads once the agent exits, raising each as
+  a named `{"kind":"file"}` event carrying the file's contents on the run's normal
+  sinks. The subsystem streams what an agent *says*, so an agent whose deliverable is an
+  artifact had no way to hand it back — callers were reduced to asking the model to
+  repeat the file as its closing message, which puts an LLM in the delivery path of a
+  deterministic step and silently yields nothing when the model summarises instead. The
+  event is raised *before* the terminal `agent/succeeded|failed` event, so a consumer
+  that treats that as end-of-stream still receives it. A declared file the agent never
+  produced still raises its event carrying `reason: "missing"`, so a consumer learns the
+  run delivered nothing rather than waiting on an event that never comes; oversized
+  (>128 KiB) and unreadable files report the same way, and a path escaping
+  `WORKSPACE_DIR` is refused. (#188)
+
 ## v0.8.1
 
 ### Fixed

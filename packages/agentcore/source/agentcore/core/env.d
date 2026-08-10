@@ -19,6 +19,9 @@ enum envBranch = "BRANCH_NAME";
 enum envRepos = "AGENT_REPOS";
 enum envWorkspace = "WORKSPACE_DIR";
 enum envSelect = "AGENT_SELECT";
+// JSON array of {event, path} the supervisor reads back once the agent exits, each
+// raised as a named `kind:"file"` event carrying the file's contents (#188).
+enum envWatch = "AGENT_WATCH";
 // JSON array of skill names the init fetches into $HOME/.claude/skills for this run.
 enum envSkills = "AGENT_SKILLS";
 // Base URL of the skill/settings registry the init fetches skills + settings from.
