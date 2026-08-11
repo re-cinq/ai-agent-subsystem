@@ -14,12 +14,22 @@ import agentcore.core.env : defaultModel;
 /// passes the recipe's allow/deny tool lists through.
 final class ClaudeAgent : Agent
 {
+	/// Un-hide the interface's no-conversation convenience overload, which this
+	/// class's own `command` would otherwise shadow.
+	alias command = Agent.command;
+
 	override string name() const @safe
 	{
 		return "claude";
 	}
 
-	override string[] command(in AgentDefinitionSpec recipe, string renderedPrompt) const @safe
+	override string stateDir() const @safe
+	{
+		return ".claude/projects";
+	}
+
+	override string[] command(in AgentDefinitionSpec recipe, string renderedPrompt,
+		string conversationId) const @safe
 	{
 		string[] cmd = [
 			"claude",
@@ -61,6 +71,11 @@ final class ClaudeAgent : Agent
 
 		if (recipe.maxTurns > 0)
 			cmd ~= ["--max-turns", recipe.maxTurns.to!string];
+
+		// Continue a previous run. Claude takes this as a flag before the `--`
+		// terminator; the restored transcript is staged under stateDir by the init.
+		if (conversationId.length)
+			cmd ~= ["--resume", conversationId];
 
 		cmd ~= ["--", renderedPrompt];
 		return cmd;
@@ -210,4 +225,27 @@ version (unittest) import fluent.asserts;
 	// No mcp_servers -> no --mcp-config.
 	AgentDefinitionSpec recipe;
 	(new ClaudeAgent).command(recipe, "p").should.not.contain("--mcp-config");
+}
+
+@safe unittest
+{
+	// Continuing a run adds --resume BEFORE the prompt terminator, so the prompt is
+	// still the trailing positional the CLI expects.
+	AgentDefinitionSpec recipe;
+	const cmd = (new ClaudeAgent).command(recipe, "next turn", "sess-1");
+	cmd[$ - 4 .. $].should.equal(["--resume", "sess-1", "--", "next turn"]);
+}
+
+@safe unittest
+{
+	// A fresh run mentions no conversation at all.
+	AgentDefinitionSpec recipe;
+	(new ClaudeAgent).command(recipe, "p", "").should.not.contain("--resume");
+	(new ClaudeAgent).command(recipe, "p").should.not.contain("--resume");
+}
+
+@safe unittest
+{
+	// State is a directory under $HOME, snapshotted whole.
+	(new ClaudeAgent).stateDir.should.equal(".claude/projects");
 }

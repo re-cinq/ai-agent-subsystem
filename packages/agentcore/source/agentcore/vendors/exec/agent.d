@@ -15,12 +15,23 @@ import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 /// already recognizes, so no supervisor changes are needed for exec runs.
 final class ExecAgent : Agent
 {
+	/// Un-hide the interface's no-conversation convenience overload, which this
+	/// class's own `command` would otherwise shadow.
+	alias command = Agent.command;
+
 	override string name() const @safe
 	{
 		return "exec";
 	}
 
-	override string[] command(in AgentDefinitionSpec recipe, string renderedPrompt) const @safe
+	/// A deterministic command has no conversation to continue.
+	override string stateDir() const @safe
+	{
+		return "";
+	}
+
+	override string[] command(in AgentDefinitionSpec recipe, string renderedPrompt,
+		string conversationId) const @safe
 	{
 		const toolConfig = recipe.toolConfig;
 		enforce(toolConfig.type == Json.Type.object && "command" in toolConfig,
@@ -68,4 +79,11 @@ version (unittest) import vibe.data.json : parseJsonString;
 	AgentDefinitionSpec nonStringEntry;
 	nonStringEntry.toolConfig = parseJsonString(`{"command": ["lore-station", 7]}`);
 	assertThrown((new ExecAgent).command(nonStringEntry, "p"));
+}
+
+@safe unittest
+{
+	// No verified continuity support: an empty stateDir is how an adapter says so,
+	// rather than silently starting fresh while appearing to resume.
+	(new ExecAgent).stateDir.should.equal("");
 }
