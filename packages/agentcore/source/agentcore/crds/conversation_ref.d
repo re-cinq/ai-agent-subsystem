@@ -21,6 +21,14 @@ struct ConversationRef
 	@optional @Description("Conversation to continue; empty starts a fresh one.")
 	string id;
 
+	/// The id this run's own state is saved as, so a FORK has a known destination:
+	/// the run continues `id` but writes as `pin`, leaving the original untouched and
+	/// independently resumable. Empty ⇒ the CLI assigns its own id, and this run's
+	/// state cannot be saved (see Agent.pinConversationArgs — Claude accepts a pin,
+	/// Codex does not).
+	@optional @Description("Id this run's state is saved as; empty means it is not saved.")
+	string pin;
+
 	/// Secret whose value is sent as the Authorization header when fetching. Empty ⇒
 	/// unauthenticated, like the skills registry.
 	@optional @wire("headers_secret") @Description(

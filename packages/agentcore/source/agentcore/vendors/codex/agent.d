@@ -1,6 +1,6 @@
 module agentcore.vendors.codex.agent;
 
-import agentcore.vendors.base.agent : Agent;
+import agentcore.vendors.base.agent : Agent, ConversationArgs;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 import agentcore.crds.enums : PermissionMode;
 
@@ -31,20 +31,20 @@ final class CodexAgent : Agent
 	}
 
 	override string[] command(in AgentDefinitionSpec recipe, string renderedPrompt,
-		string conversationId) const @safe
+		in ConversationArgs conv) const @safe
 	{
 		// `resume` is a SUBCOMMAND here, not a flag, and it takes the prompt as a
 		// positional rather than after `--` (`codex exec resume <id> <prompt>`) —
 		// the reason the conversation id is a parameter of command() instead of an
 		// argv fragment a caller could append.
-		string[] cmd = conversationId.length
-			? ["codex", "exec", "resume", conversationId, "--json"]
+		string[] cmd = conv.resume.length
+			? ["codex", "exec", "resume", conv.resume, "--json"]
 			: ["codex", "exec", "--json"];
 		if (recipe.model.length)
 			cmd ~= ["--model", recipe.model];
 		if (recipe.permissionMode == PermissionMode.bypass)
 			cmd ~= "--dangerously-bypass-approvals-and-sandbox";
-		cmd ~= conversationId.length ? [renderedPrompt] : ["--", renderedPrompt];
+		cmd ~= conv.resume.length ? [renderedPrompt] : ["--", renderedPrompt];
 		return cmd;
 	}
 }
@@ -86,7 +86,7 @@ version (unittest) import fluent.asserts;
 {
 	// `resume` is a subcommand and the prompt is a positional — NOT after `--`.
 	AgentDefinitionSpec recipe;
-	const cmd = (new CodexAgent).command(recipe, "next turn", "sess-1");
+	const cmd = (new CodexAgent).command(recipe, "next turn", ConversationArgs("sess-1", ""));
 	cmd[0 .. 4].should.equal(["codex", "exec", "resume", "sess-1"]);
 	cmd[$ - 1].should.equal("next turn");
 	cmd.should.not.contain("--");
@@ -96,7 +96,7 @@ version (unittest) import fluent.asserts;
 {
 	// A fresh run keeps the original shape, prompt after the terminator.
 	AgentDefinitionSpec recipe;
-	const cmd = (new CodexAgent).command(recipe, "p", "");
+	const cmd = (new CodexAgent).command(recipe, "p", ConversationArgs.init);
 	cmd[0 .. 3].should.equal(["codex", "exec", "--json"]);
 	cmd[$ - 2 .. $].should.equal(["--", "p"]);
 }

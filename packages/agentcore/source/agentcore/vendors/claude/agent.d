@@ -2,7 +2,7 @@ module agentcore.vendors.claude.agent;
 
 import std.conv : to;
 
-import agentcore.vendors.base.agent : Agent;
+import agentcore.vendors.base.agent : Agent, ConversationArgs;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 import agentcore.crds.enums : PermissionMode, McpTransport;
 import agentcore.crds.mcp_server : McpServer, headerEnvName;
@@ -34,7 +34,7 @@ final class ClaudeAgent : Agent
 	}
 
 	override string[] command(in AgentDefinitionSpec recipe, string renderedPrompt,
-		string conversationId) const @safe
+		in ConversationArgs conv) const @safe
 	{
 		string[] cmd = [
 			"claude",
@@ -79,8 +79,10 @@ final class ClaudeAgent : Agent
 
 		// Continue a previous run. Claude takes this as a flag before the `--`
 		// terminator; the restored transcript is staged under stateDir by the init.
-		if (conversationId.length)
-			cmd ~= ["--resume", conversationId];
+		// Both go BEFORE the `--` terminator: anything after it is the prompt.
+		if (conv.resume.length)
+			cmd ~= ["--resume", conv.resume];
+		cmd ~= pinConversationArgs(conv.pin);
 
 		cmd ~= ["--", renderedPrompt];
 		return cmd;
@@ -237,7 +239,7 @@ version (unittest) import fluent.asserts;
 	// Continuing a run adds --resume BEFORE the prompt terminator, so the prompt is
 	// still the trailing positional the CLI expects.
 	AgentDefinitionSpec recipe;
-	const cmd = (new ClaudeAgent).command(recipe, "next turn", "sess-1");
+	const cmd = (new ClaudeAgent).command(recipe, "next turn", ConversationArgs("sess-1", ""));
 	cmd[$ - 4 .. $].should.equal(["--resume", "sess-1", "--", "next turn"]);
 }
 
@@ -245,7 +247,7 @@ version (unittest) import fluent.asserts;
 {
 	// A fresh run mentions no conversation at all.
 	AgentDefinitionSpec recipe;
-	(new ClaudeAgent).command(recipe, "p", "").should.not.contain("--resume");
+	(new ClaudeAgent).command(recipe, "p", ConversationArgs.init).should.not.contain("--resume");
 	(new ClaudeAgent).command(recipe, "p").should.not.contain("--resume");
 }
 
@@ -262,4 +264,30 @@ version (unittest) import fluent.asserts;
 	(new ClaudeAgent).pinConversationArgs("11111111-2222-3333-4444-555555555555")
 		.should.equal(["--session-id", "11111111-2222-3333-4444-555555555555"]);
 	(new ClaudeAgent).pinConversationArgs("").should.equal(cast(string[])[]);
+}
+
+@safe unittest
+{
+	// A fork resumes one id and saves as another, and BOTH must sit before the `--`
+	// terminator: anything after it is the prompt, so an appended flag would silently
+	// become part of the text the agent is asked to work on.
+	AgentDefinitionSpec recipe;
+	const cmd = (new ClaudeAgent).command(recipe, "next turn",
+		ConversationArgs("prev-1", "new-2"));
+
+	cmd[$ - 2 .. $].should.equal(["--", "next turn"]);
+	const flags = cmd[0 .. $ - 2];
+	flags.should.contain("--resume");
+	flags.should.contain("prev-1");
+	flags.should.contain("--session-id");
+	flags.should.contain("new-2");
+}
+
+@safe unittest
+{
+	// A fresh run that still saves: pin without resume.
+	AgentDefinitionSpec recipe;
+	const cmd = (new ClaudeAgent).command(recipe, "p", ConversationArgs("", "new-2"));
+	cmd.should.not.contain("--resume");
+	cmd.should.contain("--session-id");
 }

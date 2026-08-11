@@ -54,6 +54,8 @@ export interface ConversationRef {
   source?: string;
   /** Conversation to continue; empty starts a fresh one. */
   id?: string;
+  /** Id this run's state is saved as; empty means it is not saved. */
+  pin?: string;
   /** Secret holding the Authorization header for the fetch. */
   headers_secret?: string;
 }

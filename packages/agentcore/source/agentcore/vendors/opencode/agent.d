@@ -2,7 +2,7 @@ module agentcore.vendors.opencode.agent;
 
 import std.algorithm.searching : startsWith;
 
-import agentcore.vendors.base.agent : Agent;
+import agentcore.vendors.base.agent : Agent, ConversationArgs;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 
 /// OpenCode CLI adapter: `opencode run --format json …`. `--format json` emits the
@@ -34,7 +34,7 @@ final class OpenCodeAgent : Agent
 	}
 
 	override string[] command(in AgentDefinitionSpec recipe, string renderedPrompt,
-		string conversationId) const @safe
+		in ConversationArgs conv) const @safe
 	{
 		string[] cmd = ["opencode", "run", "--format", "json"];
 		const model = opencodeModel(recipe.model);

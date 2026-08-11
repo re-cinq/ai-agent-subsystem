@@ -2,6 +2,15 @@ module agentcore.vendors.base.agent;
 
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 
+/// The conversation wiring for one run: continue `resume`, and save this run's own
+/// state as `pin`. Both optional and independent — a fresh run that still saves has a
+/// pin and no resume; a vendor whose CLI cannot pin ignores the latter.
+struct ConversationArgs
+{
+	string resume;
+	string pin;
+}
+
 /// A pluggable coding-agent CLI — Claude Code, OpenAI Codex, or any other.
 /// An adapter maps the recipe (and the already-rendered prompt) to the argv to
 /// spawn; the spawned process must emit newline-delimited JSON events on stdout,
@@ -16,13 +25,13 @@ interface Agent
 	/// `recipe.prompt` is a template, so the caller fills it first and passes the
 	/// result here.
 	///
-	/// `conversationId` continues a previous run; empty starts fresh. The ADAPTER
+	/// `conv.resume` continues a previous run; empty starts fresh. The ADAPTER
 	/// decides where it belongs, because CLIs disagree structurally: Claude appends
 	/// a `--resume <id>` flag before the prompt, while Codex makes it a subcommand
 	/// (`codex exec resume <id> <prompt>`). An appendable "resume args" fragment
 	/// could not express both, which is why the id is a parameter here.
 	string[] command(in AgentDefinitionSpec recipe, string renderedPrompt,
-		string conversationId) const @safe;
+		in ConversationArgs conv) const @safe;
 
 	/// Directory under `$HOME` holding this CLI's conversation state, restored and
 	/// snapshotted as a WHOLE. Empty means the adapter cannot continue a run.
@@ -46,6 +55,6 @@ interface Agent
 	/// Convenience for callers with no conversation to continue.
 	final string[] command(in AgentDefinitionSpec recipe, string renderedPrompt) const @safe
 	{
-		return command(recipe, renderedPrompt, "");
+		return command(recipe, renderedPrompt, ConversationArgs.init);
 	}
 }

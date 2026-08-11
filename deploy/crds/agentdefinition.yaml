@@ -148,6 +148,9 @@ spec:
                         id:
                           type: string
                           description: "Conversation to continue; empty starts a fresh one."
+                        pin:
+                          type: string
+                          description: "Id this run's state is saved as; empty means it is not saved."
                         headers_secret:
                           type: string
                           description: "Secret holding the Authorization header for the fetch."

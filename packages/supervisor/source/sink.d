@@ -8,6 +8,8 @@ import agentcore.crds.output_sink : OutputSink;
 import agentcore.output.output : emitEvent, headerLines;
 import agentcore.output.retry : retryPolicyFromEnv, withRetry;
 
+import std.conv : to;
+import std.process : environment;
 import std.string : indexOf, strip;
 import vibe.core.core : sleep;
 import vibe.http.client : requestHTTP, HTTPClientRequest, HTTPClientResponse;
@@ -75,4 +77,35 @@ private void napMs(int ms) nothrow
 	catch (Exception)
 	{
 	}
+}
+
+/// PUT a conversation archive to the run's registry. Separate from the event sinks:
+/// this is a multi-megabyte body, not a line, so it never rides the NDJSON stream that
+/// feeds pod logs and `status.output` (both of which cap far below a transcript).
+///
+/// Auth reuses the sinks' resolved header block, so no new secret is introduced.
+/// Failure is logged and swallowed — a lost save costs the NEXT run its continuity,
+/// never this one its result.
+void postConversation(string url, const(ubyte)[] archive) nothrow
+{
+	try
+	{
+		requestHTTP(url, (scope HTTPClientRequest req) {
+			req.method = HTTPMethod.POST;
+			req.headers["Content-Type"] = "application/gzip";
+			foreach (line; headerLines(environment.get("AGENT_CONVERSATION_AUTH", "")))
+			{
+				const i = line.indexOf(":");
+				if (i > 0)
+					req.headers[line[0 .. i].strip] = line[i + 1 .. $].strip;
+			}
+			req.writeBody(archive);
+		}, (scope HTTPClientResponse res) {
+			if (res.statusCode >= 300)
+				logError("[conversation] save rejected: " ~ res.statusCode.to!string);
+			res.dropBody();
+		});
+	}
+	catch (Exception e)
+		logError("[conversation] save failed: " ~ e.msg);
 }

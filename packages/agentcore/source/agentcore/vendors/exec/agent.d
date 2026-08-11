@@ -4,7 +4,7 @@ import std.exception : enforce;
 
 import vibe.data.json : Json;
 
-import agentcore.vendors.base.agent : Agent;
+import agentcore.vendors.base.agent : Agent, ConversationArgs;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 
 /// Non-LLM command runner ("station" recipes): spawns the argv listed in the
@@ -36,7 +36,7 @@ final class ExecAgent : Agent
 	}
 
 	override string[] command(in AgentDefinitionSpec recipe, string renderedPrompt,
-		string conversationId) const @safe
+		in ConversationArgs conv) const @safe
 	{
 		const toolConfig = recipe.toolConfig;
 		enforce(toolConfig.type == Json.Type.object && "command" in toolConfig,

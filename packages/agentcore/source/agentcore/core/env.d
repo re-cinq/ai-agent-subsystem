@@ -30,6 +30,8 @@ enum envSkillsSource = "AGENT_SKILLS_SOURCE";
 // and the opaque id identifying it. Empty id ⇒ fresh conversation.
 enum envConversationSource = "AGENT_CONVERSATION_SOURCE";
 enum envConversationId = "AGENT_CONVERSATION_ID";
+// The id this run saves its own state as (a fork's destination).
+enum envConversationPin = "AGENT_CONVERSATION_PIN";
 
 // After the agent emits its terminal event, how long the supervisor waits for the
 // process to exit on its own before escalating SIGTERM -> SIGKILL. Some agent CLIs

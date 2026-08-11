@@ -16,6 +16,7 @@ import agentcore.crds.mcp_server : headerEnvName;
 import agentcore.crds.station : Station;
 import agentcore.crds.serialization : toJson;
 import agentcore.vendors.select : agentForModel;
+import agentcore.vendors.base.agent : ConversationArgs;
 import agentcore.kube.bundle : bundleRoot, supervisorPath;
 import agentcore.core.env;
 import agentcore.kube.jobs : jobNameFor, safeName;
@@ -82,7 +83,10 @@ Json buildJob(Agent agent, Station station, AgentDefinition definition, string a
 	// The conversation to continue rides into the argv: the adapter decides whether it
 	// is a flag or a subcommand, and adds a pin when its CLI supports one.
 	auto vendor = agentForModel(recipe.model);
-	auto argv = vendor.command(recipe, prompt, recipe.resources.conversation.id);
+	// Continue `id` but SAVE AS `pin`: a fork leaves the original intact and
+	// independently resumable, which is what makes rewinding to an earlier run possible.
+	auto argv = vendor.command(recipe, prompt,
+		ConversationArgs(recipe.resources.conversation.id, recipe.resources.conversation.pin));
 	auto env = runEnv(agent, station, recipe);
 
 	auto template_ = wirePodTemplate(deepCopy(station.spec.template_), commandFor(argv), env, agentImage);
@@ -491,6 +495,7 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 	// A previous run to continue: the init restores its state, the adapter resumes it.
 	strVar(envConversationSource, recipe.resources.conversation.source);
 	strVar(envConversationId, recipe.resources.conversation.id);
+	strVar(envConversationPin, recipe.resources.conversation.pin);
 	// The supervisor's own deadline, set inside the Job's activeDeadlineSeconds so a
 	// wedged agent is terminated — and reported — by the supervisor rather than silently
 	// killed with the pod (#48).
@@ -563,6 +568,7 @@ bool isReservedEnvName(string name) @safe pure nothrow
 {
 	static immutable string[] reserved = [
 		envSinks, envRepos, envSkills, envSkillsSource, envConversationSource, envConversationId,
+		envConversationPin,
 		envSelect, envWatch, envWorkspace, envParameters, envTargetRepo,
 		envBranch, envModel, envAgentName, envStationName, envTaskId, envPodName,
 		envPodNamespace, envDeadlineMs, homeEnv, pathEnv,
