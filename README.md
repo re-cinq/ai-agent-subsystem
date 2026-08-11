@@ -20,7 +20,7 @@ root — build them, tag for **your** registry, and push:
 
 ```sh
 REGISTRY=your-registry.example.com/your-project   # a registry your cluster can pull from
-TAG=v0.1.0
+TAG=v0.10.0
 
 docker build -f deploy/Dockerfile.controller       -t "$REGISTRY/ai-agent-controller:$TAG" .
 docker build -f scripts/container/Dockerfile.agent -t "$REGISTRY/ai-agent:$TAG"            .
@@ -147,8 +147,8 @@ See the [roadmap](https://re-cinq.github.io/ai-agent-subsystem/contribute/roadma
 Cut a release by bumping the npm package to the version you are about to tag, then pushing the tag:
 
 ```sh
-(cd packages/agent-contracts && npm version 0.1.0 --no-git-tag-version)  # in the release PR
-git tag v0.1.0 && git push origin v0.1.0
+(cd packages/agent-contracts && npm version 0.11.0 --no-git-tag-version)  # in the release PR
+git tag v0.11.0 && git push origin v0.11.0
 ```
 
 The bump is part of the release PR, not the tag: `@re-cinq/agent-contracts` publishes the version

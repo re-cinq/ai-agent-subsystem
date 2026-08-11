@@ -4,44 +4,77 @@ description: Build the three binaries and the shared library with dub, and stati
 ---
 
 The monorepo is a single dub project; every sub-package lives under `packages/`: the `agentcore`
-library and the `controller`, `initializer`, `supervisor`, and `crdgen` executables.
+library, the `controller`, `initializer`, and `supervisor` executables, and the `crdgen` / `tsgen`
+code generators.
+
+## The `make` targets
+
+A `Makefile` at the repository root is the task surface, and **CI runs these same targets** — a green
+`make test build drift itest` locally reproduces the main CI job. `make help` lists them:
+
+| Target | Does |
+| --- | --- |
+| `make test` | Unit tests for every package that has them. |
+| `make build` | Builds all runtime and codegen binaries. |
+| `make itest` | Host-level integration tests (no cluster, no docker). |
+| `make itest-controller` | Controller integration tests (needs kind/minikube + docker). |
+| `make ctest` | Cross-distro container tests (needs docker). |
+| `make regen` | Regenerates `deploy/crds` and the TypeScript contracts from the D model. |
+| `make drift` | Fails if either generated artifact drifted from the model. |
+| `make contracts` | Tests and builds the `@re-cinq/agent-contracts` npm package. |
+| `make docs` | Builds this documentation site. |
+| `make hooks` | Installs the git pre-push hook that runs the drift checks. |
+
+[`CONTRIBUTING.md`](https://github.com/re-cinq/ai-agent-subsystem/blob/main/CONTRIBUTING.md) covers
+the pinned toolchain and the contribution workflow. The rest of this page is what the targets do
+underneath, and why.
 
 ## Prerequisites
 
 - **dub**: the D package manager and build tool.
 - **A D compiler**: `dmd` works out of the box; **LDC** (`ldc2`) is used for optimized release
   builds and for fully-static (musl) builds.
+- **Node**: only for `make contracts` and `make docs` (the npm package and this site).
 
 ## Build
 
-From the repository root:
+From the repository root, `make build` builds everything. Individually:
 
 ```sh
 dub build :controller           # -> packages/controller/ai-agent-controller
 dub build :initializer          # -> packages/initializer/ai-agent-init
 dub build :supervisor           # -> packages/supervisor/ai-agent-supervisor
 dub build :crdgen               # -> packages/crdgen/ai-agent-crdgen
+dub build :tsgen                # -> packages/tsgen/ai-agent-tsgen
 dub build :controller --build=static --compiler=ldc2   # optimized release
 ```
 
 The executables depend on `ai-agent-subsystem:agentcore`, which dub resolves locally as a
 sub-package, no separate install step.
 
-## Generating the CRDs
+## Generated artifacts
 
-The CRD manifests in `deploy/crds` are **generated from the annotated structs** in
-`packages/agentcore/source/agentcore/crds`, not hand-written. The `crdgen` tool introspects the
-model (with `describe-d`) and emits the OpenAPI schemas (using `open-api`'s vocabulary):
+Two artifacts are **generated from the annotated structs** in
+`packages/agentcore/source/agentcore/crds`, not hand-written — the CRD manifests in `deploy/crds`
+(via `crdgen`, which introspects the model with `describe-d` and emits OpenAPI schemas using
+`open-api`'s vocabulary) and the TypeScript types the `@re-cinq/agent-contracts` npm package
+publishes (via `tsgen`). One model, two consumers, so a Kubernetes schema and a TypeScript caller can
+never disagree about a field.
 
 ```sh
-dub build :crdgen
-./packages/crdgen/ai-agent-crdgen write-structures deploy/crds
+make regen        # both, from the D model
 ```
 
-To change a CRD, edit the struct and its attributes (`@Description`, `@Json`, `@Required`,
-`@Minimum`, `@PrinterColumn`, …) and regenerate. `scripts/check-crd-drift.sh` (run in CI)
-regenerates into a temp dir and diffs against `deploy/crds`, failing if the committed manifests have
-drifted from the D model.
+To change either, edit the struct and its attributes (`@Description`, `@wire`, `@Required`,
+`@Minimum`, `@PrinterColumn`, …) and regenerate. `make drift` runs both checks
+(`scripts/check-crd-drift.sh` and `scripts/check-contracts-drift.sh`); each regenerates into a temp
+dir and diffs against what is committed, failing if it drifted. CI runs them, and `make hooks`
+installs a pre-push hook that runs them before you can push.
+
+A third check, `scripts/check-contracts-version.sh`, runs on a `v*` tag and fails it when
+`packages/agent-contracts/package.json` does not match the tag — the npm version is committed rather
+than derived, so without it a release PR that forgot the bump republishes an existing version and npm
+rejects it with an error that reads like an auth failure.
 
 :::note
 vibe-d brings `libssl`/`libcrypto`/`libz`. The `ai-agent-crdgen` tool (via `open-api`) and the
@@ -84,7 +117,8 @@ attribute metadata) is unit-tested with D's built-in `unittest` blocks, assertin
 scoped to a `unittest` dub configuration, so the shipped binaries link none of it:
 
 ```sh
-dub test :agentcore
+make test          # every package that has tests
+dub test :agentcore  # just the library
 ```
 
 The supervisor's end-to-end behaviour (streaming, file/http sinks, signal forwarding, exit-code

@@ -22,12 +22,15 @@ flowchart LR
   used.
 - **`allowed_tools` / `disallowed_tools`**: permission rules, e.g. `Bash(npm run test:*)` or
   `Bash(rm *)`.
-- **`permission_mode`**: `auto` enforces the allow/deny lists; `bypass` grants all tools.
+- **`permission_mode`**: `auto` (the default) enforces the allow/deny lists; `bypass` grants all
+  tools.
 - **`max_turns`**: optional cap on agentic turns; omit for uncapped.
-- **`resources`**: `env`, `secrets` (env-var name plus an allowlisted secret-store key),
-  `mcp_servers`, and `repos` to make available to the run.
+- **`resources`**: what the run needs available to it — `env`, `secrets` (env-var name plus an
+  allowlisted secret-store key), `mcp_servers`, `repos`, `skills` / `skills_source` (skills fetched
+  into the run's `$HOME/.claude`), and `conversation` (a previous run this one continues).
 - **`output`**: the result contract: `format` (`text` / `json` / `stream-json`), an optional
-  `schema`, event `select` filters, and `sinks` (`stdout`, `http`, `file`).
+  `schema`, event `select` filters, `sinks` (`stdout`, `http`, `file`), and `watch` (files the run
+  is expected to produce, each raised as a named event).
 - **`tool_config`**: a raw passthrough object for tool-specific knobs; unknown fields are preserved.
 
 ## Why it is separate

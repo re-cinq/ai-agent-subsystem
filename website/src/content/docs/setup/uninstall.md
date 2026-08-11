@@ -22,7 +22,7 @@ kubectl delete -f https://github.com/re-cinq/ai-agent-subsystem/releases/latest/
 To remove a specific version you installed by digest, delete with that release's manifest:
 
 ```sh
-kubectl delete -f https://github.com/re-cinq/ai-agent-subsystem/releases/download/v0.1.0/install.yaml
+kubectl delete -f https://github.com/re-cinq/ai-agent-subsystem/releases/download/v0.10.0/install.yaml
 ```
 
 ### From a source checkout
@@ -43,8 +43,9 @@ kubectl delete -k deploy
   owner references, so deleting an Agent garbage-collects its Job and pod; there are no finalizers to
   unstick.
 
-Host-side credentials are untouched: a development `~/.claude` mount lives on the node, not in the
-cluster, so uninstalling leaves it in place.
+Credentials you created out of band are namespaced, so they go with the namespace. Nothing on the
+node is touched — the subsystem mounts nothing from the host (see
+[Prerequisites](./prerequisites.md#credentials)).
 
 ## Keep the CRDs, remove only the controller
 

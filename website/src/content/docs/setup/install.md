@@ -13,6 +13,16 @@ to the exact cosign-signed digests that release built — no floating `:latest`.
 checkout before a release exists? Use `kubectl apply -k deploy` instead (see below).
 :::
 
+:::caution[The agent runtime image is private]
+`ghcr.io/re-cinq/ai-agent-controller` is public, but the agent runtime image
+`ghcr.io/re-cinq/ai-agent` — the one the controller injects into every run pod — is **not**. The
+published `install.yaml` references it by digest, so applying it on an arbitrary cluster stands the
+controller up and then fails every run with `ImagePullBackOff`.
+
+If you are outside the re-cinq org, [build both images from source](#build-your-own-images) and
+install pointing at your own registry.
+:::
+
 ## Install
 
 ```sh
@@ -22,8 +32,36 @@ kubectl apply -f https://github.com/re-cinq/ai-agent-subsystem/releases/latest/d
 To pin a specific version instead of tracking the latest release:
 
 ```sh
-kubectl apply -f https://github.com/re-cinq/ai-agent-subsystem/releases/download/v0.1.0/install.yaml
+kubectl apply -f https://github.com/re-cinq/ai-agent-subsystem/releases/download/v0.10.0/install.yaml
 ```
+
+### Build your own images
+
+You need Docker (with Buildx) and a registry your cluster can pull from. Both images build from the
+repository root:
+
+```sh
+REGISTRY=your-registry.example.com/your-project
+TAG=v0.10.0
+
+docker build -f deploy/Dockerfile.controller       -t "$REGISTRY/ai-agent-controller:$TAG" .
+docker build -f scripts/container/Dockerfile.agent -t "$REGISTRY/ai-agent:$TAG"            .
+
+docker push "$REGISTRY/ai-agent-controller:$TAG"
+docker push "$REGISTRY/ai-agent:$TAG"
+```
+
+Then point the manifests at them. The controller image is set through the kustomize `images:`
+override in `deploy/kustomization.yaml`; the agent runtime is the `AGENT_IMAGE` env in
+`deploy/controller.yaml`:
+
+```sh
+( cd deploy && kustomize edit set image ghcr.io/re-cinq/ai-agent-controller="$REGISTRY/ai-agent-controller:$TAG" )
+# then set AGENT_IMAGE in deploy/controller.yaml to "$REGISTRY/ai-agent:$TAG"
+```
+
+If your registry needs credentials, create an image pull secret in the `ai-agents` namespace and
+reference it from the controller Deployment and the injected run pods.
 
 ### From a source checkout
 

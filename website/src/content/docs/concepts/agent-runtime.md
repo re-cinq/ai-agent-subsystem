@@ -62,7 +62,9 @@ itself whether the run needs it:
 | --- | --- | --- |
 | `supervisor` | always | copies the supervisor binary baked into the agent image into `/agent/bin`, so the main container can exec it as PID 1. Idempotent across init retries. |
 | `git` | `resources.repos` is non-empty | clones each repo (full history) into `WORKSPACE_DIR`, checking out its `ref` (branch, tag, or SHA). Re-entrant across init retries. Private repos authenticate with `token_secret` (below). |
-| `claude` | the recipe's `model` resolves to Claude (same routing as [pluggable agents](#pluggable-agents)) | installs the Claude CLI via the official installer (`curl -fsSL https://claude.ai/install.sh \| bash`). |
+| the agent CLI (`claude`, `codex`, `opencode`, `exec`) | always; *which* CLI comes from the recipe's `model` (same routing as [pluggable agents](#pluggable-agents)) | installs the one CLI the run's model routes to, via that vendor's official installer — e.g. Claude's `curl -fsSL https://claude.ai/install.sh \| bash`. Picking the installer from the same routing that picks the adapter means "install X" can never drift from "run X". |
+| `skills` | always (the repo's own `.claude/skills`); the registry half when `resources.skills_source` is set | stages skills into the run's `$HOME/.claude` so headless `claude --print` auto-loads them user-scope: the cloned repo's own `.claude/skills`, then the registry's `settings.json` (session hooks), then each name in `resources.skills` fetched as `<source>/<name>.tar.gz`. Best-effort — an unreachable registry never fails the run. |
+| `conversation` | `resources.conversation` names both a `source` and an `id`, and the vendor has a state directory | restores the prior run's state archive into the vendor's own state dir under `$HOME`, so the agent resumes that conversation instead of starting fresh. Best-effort: a missing archive leaves the run with a fresh conversation. See [continuing a conversation](#continuing-a-conversation). |
 
 A repo's `token_secret` names the **environment variable** holding its access token (the controller
 populates it from the secret store, the same way [secrets](./agentdefinition.md) become env
@@ -73,7 +75,8 @@ never passed through a shell.
 
 Before running the tools it **self-bootstraps prerequisites**: any executable a tool needs (`git`,
 `bash`, `curl`, `sha256sum`) that isn't on `PATH` is installed using the package manager detected
-from the distro (`apt`/`dnf`/`apk`). On a base image that already ships these, nothing is installed.
+from the distro (`apt`/`dnf`/`apk`). The staging tools add `sh`, `curl`, and `tar` when they are
+active. On a base image that already ships these, nothing is installed.
 
 Throughout, the init reports its own lifecycle (`started`, per-tool `running`, `succeeded`,
 `failed`) to the **same `output.sinks`** as the agent (`AGENT_SINKS` + `AGENT_NOTIFY_URL`), using the
@@ -93,9 +96,25 @@ The supervisor is the Pod's entrypoint (PID 1). It:
   traceable through a workflow, echoes the enriched event to its own stdout (captured in the pod
   logs, and therefore in `status.output`), and **fans it out to every configured sink**: `http`
   (POST) and `file` (append).
+- Captures the agent's **stderr** and forwards it to the pod log tagged `[agent]`, rather than
+  letting it inherit the supervisor's. It is where a CLI prints auth failures, rate limits and stack
+  traces; inherited raw it interleaved with the JSONL event stream the controller caps into
+  `status.output`, where a consumer could not tell a crash trace from a malformed event.
+- Reads back any file the recipe declared under [`output.watch`](../reference/crd-agentdefinition.md)
+  once the agent exits, raising each as a named `{"kind": "file"}` event on the same sinks — *before*
+  the terminal lifecycle event, so a consumer treating that as end-of-stream still receives it. See
+  the [Notification API](../reference/notification-api.md).
+- Enforces its **own run deadline** (`AGENT_DEADLINE_MS`, injected by the controller a fixed margin
+  inside the Job's `activeDeadlineSeconds`). An agent that neither exits nor emits a terminal event
+  would otherwise leave the supervisor waiting until the kubelet killed the pod — taking the terminal
+  event with it, so a wedged run simply stopped. Instead the supervisor forces the agent down
+  (`SIGTERM`, then `SIGKILL`), still reports, and exits `124`.
 - Forwards `SIGTERM`/`SIGINT` to the agent for graceful shutdown, and ignores `SIGPIPE` so a broken
   sink can't kill it.
 - Exits with the agent's exit code.
+- Archives this run's conversation state and POSTs it back when the recipe set
+  `resources.conversation.pin`, so a later run can continue it. Best-effort: a failed save costs the
+  *next* run its continuity, never this one its result.
 
 It runs on vibe's event loop and uses vibe's HTTP client for http sinks.
 
@@ -109,11 +128,64 @@ bakes the resulting command into the Job; the supervisor just runs it.
 
 | Provider | Models | Adapter | Command |
 | --- | --- | --- | --- |
-| Claude Code | `claude-*` (default) | `ClaudeAgent` | `claude --print --output-format stream-json …` |
-| OpenAI Codex | `gpt-*`, `o*`, `*codex*` | `CodexAgent` | `codex exec --json …` |
+| Claude Code | `claude-*`, and anything unrecognized (the default) | `ClaudeAgent` | `claude --print --output-format stream-json …` |
+| OpenAI Codex | `gpt-*`, `o1*`/`o3*`/`o4*`, `*codex*` | `CodexAgent` | `codex exec --json …` |
+| OpenCode | any id containing `opencode`, e.g. `opencode/anthropic/claude-sonnet-4-6` | `OpenCodeAgent` | `opencode run --format json …` |
+| Command runner | the literal id `exec` | `ExecAgent` | the argv from the recipe's `tool_config.command`, with the rendered prompt appended |
 
-Both emit newline-delimited JSON, so the supervisor streams them identically. Adding a provider is
-one new `Agent` implementation plus a `model` match; nothing else changes.
+Routing is checked in that order, so `opencode/openai/gpt-4.1` reaches OpenCode rather than matching
+the Codex `gpt` rule. The `exec` adapter is the non-LLM escape hatch: it spawns a deterministic
+command that must honour the same NDJSON stdout protocol (ending with a `{"type":"result", …}` line),
+so a scripted step runs on the same rails as a model.
+
+They all emit newline-delimited JSON, so the supervisor streams them identically. Adding a provider
+is one new `Agent` implementation plus a `model` match; nothing else changes.
+
+Because the adapter owns the argv, tool permissions map differently per vendor: OpenCode governs tool
+access through its own permission model, so a recipe's `allowed_tools` / `disallowed_tools` do not
+become flags there.
+
+## Continuing a conversation
+
+By default every run is a fresh conversation. `resources.conversation` makes a run continue a
+previous one: `{source, id}` points at the archive of the earlier run's state, the init restores it
+into the vendor's own state directory under `$HOME`, and the adapter resumes it.
+
+The seam is vendor-neutral because the CLIs disagree on both halves. Claude appends `--resume <id>`
+before the `--` prompt terminator; Codex makes `resume` a *subcommand* taking the prompt as a
+positional (`codex exec resume <id> <prompt>`). Claude stores state at
+`.claude/projects/<cwd-slug>/<id>.jsonl` while Codex uses
+`.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<timestamp>-<id>.jsonl` — a path that cannot be derived
+from the id. So state is addressed as a **directory** (`Agent.stateDir()`) and moved as an archive,
+which handles multi-file formats for free.
+
+| Provider | State directory | Can pin a chosen id |
+| --- | --- | --- |
+| Claude Code | `.claude/projects` | yes (`--session-id`) |
+| OpenAI Codex | `.codex/sessions` | no — the CLI assigns its own id |
+| OpenCode, `exec` | — | no |
+
+`pin` is the id this run saves its *own* state as, which makes each run a **fork**: the run it
+continued is left intact and independently resumable, so a caller can go back to an earlier run
+rather than only ever the latest. A vendor whose CLI cannot accept a chosen id reports that by
+returning no arguments rather than appearing to support it.
+
+Everything on this path is best-effort. A missing or unreachable archive leaves the run with a fresh
+conversation, and a failed save costs the *next* run its continuity — never this one its result.
+
+## Skills
+
+`resources.skills` names the skills a run gets and `resources.skills_source` is the registry base URL
+they come from. The init's skills tool stages three things into `$HOME/.claude` (`HOME` is `/agent`,
+which is where headless `claude --print` auto-loads user scope — project scope under cwd `/` never
+fires): the cloned repo's own `.claude/skills`, the registry's `settings.json`, and each named skill
+fetched as `<source>/<name>.tar.gz`.
+
+Skills are **fetched, never baked**. Nothing org-specific lives in the agent image, so the subsystem
+stays consumer-agnostic: the recipe declares intent and hands over a URL, and the subsystem knows
+nothing of the registry beyond it. The URL is read from `$AGENT_SKILLS_SOURCE` at run time so a
+recipe-supplied string never enters a shell command, and skill names are validated against injection
+before use.
 
 ## Output and credentials
 
