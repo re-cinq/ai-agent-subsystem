@@ -32,6 +32,10 @@ enum envConversationSource = "AGENT_CONVERSATION_SOURCE";
 enum envConversationId = "AGENT_CONVERSATION_ID";
 // The id this run saves its own state as (a fork's destination).
 enum envConversationPin = "AGENT_CONVERSATION_PIN";
+// Name of the agent-secrets key holding the conversation registry's Authorization
+// header. The controller injects that key as an env var of the same name; the pod
+// resolves it back, so the credential never rides in argv or a command string.
+enum envConversationAuth = "AGENT_CONVERSATION_AUTH";
 
 // After the agent emits its terminal event, how long the supervisor waits for the
 // process to exit on its own before escalating SIGTERM -> SIGKILL. Some agent CLIs

@@ -493,6 +493,22 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 	strVar(envSkills, skillsJson(recipe.resources.skills));
 	strVar(envSkillsSource, recipe.resources.skillsSource);
 	// A previous run to continue: the init restores its state, the adapter resumes it.
+	// The conversation registry's auth, injected exactly as a sink's is: the referenced
+	// key becomes an env var of the SAME NAME, which the pod resolves back through
+	// headerLines. Without this the restore fetch and the save POST go out with no
+	// Authorization header — and a declared-but-inert field is precisely the failure
+	// this codebase keeps paying for (a recipe that looks configured and does nothing).
+	// A reserved name is blanked for the same reason sinks blank theirs: it would
+	// otherwise resolve to the controller's own value and be posted as an auth header.
+	auto conversation = recipe.resources.conversation;
+	if (isReservedEnvName(conversation.headersSecret))
+		conversation.headersSecret = "";
+	if (conversation.headersSecret.length && conversation.headersSecret !in secretsInjected)
+	{
+		secretVar(conversation.headersSecret, conversation.headersSecret);
+		secretsInjected[conversation.headersSecret] = true;
+	}
+	strVar(envConversationAuth, conversation.headersSecret);
 	strVar(envConversationSource, recipe.resources.conversation.source);
 	strVar(envConversationId, recipe.resources.conversation.id);
 	strVar(envConversationPin, recipe.resources.conversation.pin);
@@ -568,7 +584,7 @@ bool isReservedEnvName(string name) @safe pure nothrow
 {
 	static immutable string[] reserved = [
 		envSinks, envRepos, envSkills, envSkillsSource, envConversationSource, envConversationId,
-		envConversationPin,
+		envConversationPin, envConversationAuth,
 		envSelect, envWatch, envWorkspace, envParameters, envTargetRepo,
 		envBranch, envModel, envAgentName, envStationName, envTaskId, envPodName,
 		envPodNamespace, envDeadlineMs, homeEnv, pathEnv,

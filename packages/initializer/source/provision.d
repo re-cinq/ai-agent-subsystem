@@ -17,7 +17,8 @@ import agentcore.kube.jobspec : agentUid, agentGid;
 private extern (C) int lchown(scope const char* path, uid_t owner, gid_t group) @system nothrow @nogc;
 
 import agentcore.crds.enums : SinkType;
-import agentcore.core.env : defaultWorkspace, envConversationId, envConversationSource, envModel,
+import agentcore.core.env : defaultWorkspace, envConversationAuth, envConversationId,
+	envConversationSource, envModel,
 	envRepos, envSkills, envSkillsSource, envWorkspace;
 import agentcore.vendors.select : agentForModel;
 import agentcore.output.event : EventSource, sourceFromEnv;
@@ -51,6 +52,7 @@ InitContext contextFromEnv()
 	// Where to restore INTO is the vendor's business, not the init's — Claude and
 	// Codex disagree on layout, and only the adapter knows its own.
 	ctx.conversationStateDir = agentForModel(ctx.model).stateDir;
+	ctx.conversationAuthEnv = environment.get(envConversationAuth, "");
 	return ctx;
 }
 

@@ -45,11 +45,16 @@ final class ConversationTool : Tool
 		const src = "\"$" ~ envConversationSource ~ "\"";
 		const id = "\"$" ~ envConversationId ~ "\"";
 
+		// The credential is read from its env var inside the shell, never interpolated
+		// into the command string — same rule as the URL and id above.
+		const auth = ctx.conversationAuthEnv.length
+			? "-H \"Authorization: $" ~ ctx.conversationAuthEnv ~ "\" " : "";
+
 		return [
 			[
 				"sh", "-c",
 				"mkdir -p \"$HOME/" ~ ctx.conversationStateDir ~ "\" && curl -fsSL "
-					~ src ~ "/" ~ id ~ " | tar -xz -C \"$HOME\" 2>/dev/null || true",
+					~ auth ~ src ~ "/" ~ id ~ " | tar -xz -C \"$HOME\" 2>/dev/null || true",
 			],
 		];
 	}
@@ -92,6 +97,21 @@ version (unittest) import fluent.asserts;
 	steps[0][2].should.contain("tar -xz -C \"$HOME\"");
 	// The literal URL never enters the command string.
 	steps[0][2].should.not.contain("https://floor");
+	// No credential configured -> no Authorization header at all.
+	steps[0][2].should.not.contain("Authorization");
+}
+
+@safe unittest
+{
+	// A configured credential is sent, resolved from its env var rather than baked in.
+	InitContext ctx;
+	ctx.conversationSource = "https://floor/api/agent-conversations";
+	ctx.conversationId = "conv-1";
+	ctx.conversationStateDir = ".claude/projects";
+	ctx.conversationAuthEnv = "agent-events-auth";
+
+	const step = (new ConversationTool).steps(ctx)[0][2];
+	step.should.contain("Authorization: $agent-events-auth");
 }
 
 @safe unittest

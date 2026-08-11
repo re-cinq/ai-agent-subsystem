@@ -5,7 +5,8 @@ import core.time : msecs;
 import agentcore.output.event : EventSource;
 import agentcore.core.log : logError;
 import agentcore.crds.output_sink : OutputSink;
-import agentcore.output.output : emitEvent, headerLines;
+import agentcore.core.env : envConversationAuth;
+import agentcore.output.output : emitEvent, headerLines, sinkHeaders;
 import agentcore.output.retry : retryPolicyFromEnv, withRetry;
 
 import std.conv : to;
@@ -93,7 +94,10 @@ void postConversation(string url, const(ubyte)[] archive) nothrow
 		requestHTTP(url, (scope HTTPClientRequest req) {
 			req.method = HTTPMethod.POST;
 			req.headers["Content-Type"] = "application/gzip";
-			foreach (line; headerLines(environment.get("AGENT_CONVERSATION_AUTH", "")))
+			// AGENT_CONVERSATION_AUTH holds the NAME of the injected secret key, so
+			// resolve it the same way sinkHeaders does rather than treating it as the
+			// credential itself.
+			foreach (line; headerLines(sinkHeaders(environment.get(envConversationAuth, ""))))
 			{
 				const i = line.indexOf(":");
 				if (i > 0)

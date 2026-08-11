@@ -25,4 +25,7 @@ struct InitContext
 	/// The vendor's state directory, relative to $HOME (e.g. `.claude/projects`).
 	/// Empty ⇒ this vendor cannot continue a run, so no restore is attempted.
 	string conversationStateDir;
+	/// Name of the env var holding the registry's Authorization header (the injected
+	/// secret key). Empty ⇒ unauthenticated fetch, like the skills registry.
+	string conversationAuthEnv;
 }
