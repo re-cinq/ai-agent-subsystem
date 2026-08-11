@@ -7,6 +7,12 @@ the npm package versions.
 ## Unreleased
 
 ### Fixed
+- Resuming a conversation **failed the whole run**. The claude adapter emitted
+  `--resume <id> --session-id <pin>`, and the CLI refuses that pair unless
+  `--fork-session` is also given — it exits non-zero before the agent starts, so a
+  resumed round died rather than merely losing its history. Forking is the intent
+  (each run leaves the one it continued intact, so a caller can go back to it), so
+  the flag is now declared whenever both ids are present.
 - `resources.conversation` restore always answered **401**. The init step read the
   credential with shell expansion (`$agent-events-auth`), but that env var is named
   after a Kubernetes secret key and those routinely contain dashes — `$agent` is
