@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.10.0
+
 ### Added
 - `spec.resources.conversation` lets a run continue a previous one instead of starting
   a fresh conversation every time. The init restores the prior run's state before the
