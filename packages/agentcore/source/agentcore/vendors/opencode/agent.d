@@ -23,6 +23,11 @@ final class OpenCodeAgent : Agent
 	/// No continuity yet: opencode's resume syntax and state layout have not been
 	/// verified against the real CLI, and guessing them would produce an adapter that
 	/// silently starts fresh every run while claiming otherwise.
+	override string[] pinConversationArgs(string) const @safe
+	{
+		return [];
+	}
+
 	override string stateDir() const @safe
 	{
 		return "";

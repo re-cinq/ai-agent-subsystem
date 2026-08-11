@@ -26,6 +26,10 @@ enum envWatch = "AGENT_WATCH";
 enum envSkills = "AGENT_SKILLS";
 // Base URL of the skill/settings registry the init fetches skills + settings from.
 enum envSkillsSource = "AGENT_SKILLS_SOURCE";
+// A previous run this one continues: the base URL its state archive is fetched from,
+// and the opaque id identifying it. Empty id ⇒ fresh conversation.
+enum envConversationSource = "AGENT_CONVERSATION_SOURCE";
+enum envConversationId = "AGENT_CONVERSATION_ID";
 
 // After the agent emits its terminal event, how long the supervisor waits for the
 // process to exit on its own before escalating SIGTERM -> SIGKILL. Some agent CLIs

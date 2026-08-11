@@ -49,6 +49,15 @@ export interface RepoRef {
   token_secret?: string;
 }
 
+export interface ConversationRef {
+  /** Base URL the prior conversation state is fetched from. */
+  source?: string;
+  /** Conversation to continue; empty starts a fresh one. */
+  id?: string;
+  /** Secret holding the Authorization header for the fetch. */
+  headers_secret?: string;
+}
+
 export interface AgentResources {
   env?: EnvVar[];
   secrets?: SecretRef[];
@@ -56,6 +65,7 @@ export interface AgentResources {
   repos?: RepoRef[];
   skills?: string[];
   skills_source?: string;
+  conversation?: ConversationRef;
 }
 
 export interface OutputSelector {

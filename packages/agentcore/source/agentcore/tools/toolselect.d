@@ -3,6 +3,7 @@ module agentcore.tools.toolselect;
 import agentcore.tools.agent_tool : AgentTool;
 import agentcore.tools.git_tool : GitTool;
 import agentcore.tools.initcontext : InitContext;
+import agentcore.tools.conversation_tool : ConversationTool;
 import agentcore.tools.skills_tool : SkillsTool;
 import agentcore.tools.supervisor_tool : SupervisorTool;
 import agentcore.tools.tool : Tool;
@@ -22,6 +23,10 @@ Tool[] allTools(in InitContext ctx) @safe
 	// After git (so a repo's own .claude/skills is cloned) and the CLI: stage the
 	// run's skills + base settings into HOME for claude to auto-load.
 	tools ~= new SkillsTool;
+	// Last: restore a previous run's state into the vendor's own state dir, after the
+	// CLI is installed (so the directory it owns exists) and after skills, which write
+	// elsewhere under the same $HOME.
+	tools ~= new ConversationTool;
 	return tools;
 }
 
@@ -32,11 +37,12 @@ version (unittest) import fluent.asserts;
 	InitContext ctx;
 	ctx.model = "claude-sonnet-4-6";
 	auto tools = allTools(ctx);
-	tools.length.should.equal(4);
+	tools.length.should.equal(5);
 	tools[0].name.should.equal("supervisor");
 	tools[1].name.should.equal("git");
 	tools[2].name.should.equal("claude");
 	tools[3].name.should.equal("skills");
+	tools[4].name.should.equal("conversation");
 
 	// The agent tool follows the model's adapter routing.
 	ctx.model = "gpt-5-codex";

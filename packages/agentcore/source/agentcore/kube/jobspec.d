@@ -79,7 +79,10 @@ Json buildJob(Agent agent, Station station, AgentDefinition definition, string a
 {
 	auto recipe = definition.spec;
 	const prompt = renderPrompt(recipe.prompt, agent.spec.parameters);
-	auto argv = agentForModel(recipe.model).command(recipe, prompt);
+	// The conversation to continue rides into the argv: the adapter decides whether it
+	// is a flag or a subcommand, and adds a pin when its CLI supports one.
+	auto vendor = agentForModel(recipe.model);
+	auto argv = vendor.command(recipe, prompt, recipe.resources.conversation.id);
 	auto env = runEnv(agent, station, recipe);
 
 	auto template_ = wirePodTemplate(deepCopy(station.spec.template_), commandFor(argv), env, agentImage);
@@ -485,6 +488,9 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 	// what gates the fetch (empty ⇒ off).
 	strVar(envSkills, skillsJson(recipe.resources.skills));
 	strVar(envSkillsSource, recipe.resources.skillsSource);
+	// A previous run to continue: the init restores its state, the adapter resumes it.
+	strVar(envConversationSource, recipe.resources.conversation.source);
+	strVar(envConversationId, recipe.resources.conversation.id);
 	// The supervisor's own deadline, set inside the Job's activeDeadlineSeconds so a
 	// wedged agent is terminated — and reported — by the supervisor rather than silently
 	// killed with the pod (#48).
@@ -556,7 +562,8 @@ enum pathEnv = "PATH";
 bool isReservedEnvName(string name) @safe pure nothrow
 {
 	static immutable string[] reserved = [
-		envSinks, envRepos, envSkills, envSkillsSource, envSelect, envWatch, envWorkspace, envParameters, envTargetRepo,
+		envSinks, envRepos, envSkills, envSkillsSource, envConversationSource, envConversationId,
+		envSelect, envWatch, envWorkspace, envParameters, envTargetRepo,
 		envBranch, envModel, envAgentName, envStationName, envTaskId, envPodName,
 		envPodNamespace, envDeadlineMs, homeEnv, pathEnv,
 	];

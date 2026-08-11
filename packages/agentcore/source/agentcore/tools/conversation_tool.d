@@ -1,0 +1,105 @@
+module agentcore.tools.conversation_tool;
+
+import agentcore.core.env : envConversationSource, envConversationId;
+import agentcore.tools.initcontext : InitContext;
+import agentcore.tools.tool : Tool;
+
+/// Restore the state of a previous run so the agent continues that conversation
+/// instead of starting fresh.
+///
+/// Modelled on the SkillsTool, and consumer-agnostic for the same reason: it fetches
+/// `<source>/<id>` from the URL the recipe hands it and knows nothing about what the
+/// id groups.
+///
+/// The state is restored as a whole DIRECTORY (a tarball extracted under `$HOME`)
+/// rather than a single file, because a CLI's layout is its own business: Claude
+/// writes `.claude/projects/<cwd-slug>/<id>.jsonl`, but Codex writes
+/// `.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<timestamp>-<id>.jsonl` — a path that
+/// cannot be derived from the id. Snapshotting the directory also handles multi-file
+/// formats without this tool knowing any of them.
+///
+/// Best-effort by construction: a missing or unreachable archive leaves the run with a
+/// fresh conversation rather than failing it. Losing continuity is a bad round; failing
+/// here would be a lost one.
+final class ConversationTool : Tool
+{
+	override string name() const @safe
+	{
+		return "conversation";
+	}
+
+	override string[] requires() const @safe
+	{
+		return ["sh", "curl", "tar"];
+	}
+
+	override string[][] steps(in InitContext ctx) const @safe
+	{
+		// Nothing to continue, or a vendor with no state directory to continue into.
+		if (ctx.conversationId.length == 0 || ctx.conversationSource.length == 0
+			|| ctx.conversationStateDir.length == 0)
+			return null;
+
+		// Source and id ride the env, never the command string — same reason as the
+		// skills registry: a URL or id from the recipe must not be able to inject shell.
+		const src = "\"$" ~ envConversationSource ~ "\"";
+		const id = "\"$" ~ envConversationId ~ "\"";
+
+		return [
+			[
+				"sh", "-c",
+				"mkdir -p \"$HOME/" ~ ctx.conversationStateDir ~ "\" && curl -fsSL "
+					~ src ~ "/" ~ id ~ " | tar -xz -C \"$HOME\" 2>/dev/null || true",
+			],
+		];
+	}
+}
+
+version (unittest) import fluent.asserts;
+
+@safe unittest
+{
+	// Nothing declared: no step at all, so a fresh run pays nothing.
+	InitContext ctx;
+	(new ConversationTool).steps(ctx).length.should.equal(0);
+}
+
+@safe unittest
+{
+	// A vendor with no state dir cannot continue, so no restore is attempted even
+	// when the consumer supplied a conversation.
+	InitContext ctx;
+	ctx.conversationSource = "https://floor/api/agent-conversations";
+	ctx.conversationId = "conv-1";
+	(new ConversationTool).steps(ctx).length.should.equal(0);
+}
+
+@safe unittest
+{
+	// A declared conversation extracts under $HOME, with source and id read from the
+	// env rather than interpolated into the command.
+	InitContext ctx;
+	ctx.conversationSource = "https://floor/api/agent-conversations";
+	ctx.conversationId = "conv-1";
+	ctx.conversationStateDir = ".claude/projects";
+
+	const steps = (new ConversationTool).steps(ctx);
+	steps.length.should.equal(1);
+	steps[0][0 .. 2].should.equal(["sh", "-c"]);
+	steps[0][2].should.contain("$AGENT_CONVERSATION_SOURCE");
+	steps[0][2].should.contain("$AGENT_CONVERSATION_ID");
+	steps[0][2].should.contain("$HOME/.claude/projects");
+	steps[0][2].should.contain("tar -xz -C \"$HOME\"");
+	// The literal URL never enters the command string.
+	steps[0][2].should.not.contain("https://floor");
+}
+
+@safe unittest
+{
+	// An unreachable archive must not fail the run — continuity is lost, the round is not.
+	InitContext ctx;
+	ctx.conversationSource = "https://floor/api/agent-conversations";
+	ctx.conversationId = "conv-1";
+	ctx.conversationStateDir = ".codex/sessions";
+	(new ConversationTool).steps(ctx)[0][2].should.contain("|| true");
+}

@@ -33,6 +33,16 @@ interface Agent
 	/// handles multi-file formats without the interface knowing any of them.
 	string stateDir() const @safe;
 
+	/// Argv that PINS this run's conversation id, so the caller knows it before the
+	/// run rather than having to discover it afterwards.
+	///
+	/// Empty means the CLI assigns its own id: Claude accepts `--session-id <uuid>`,
+	/// Codex does not — it only offers `resume`. A vendor with a state dir but no pin
+	/// can resume in principle, but driving it needs the id read back out of the run,
+	/// which nothing implements yet. Reporting that here keeps the gap explicit
+	/// instead of silently starting fresh every round.
+	string[] pinConversationArgs(string conversationId) const @safe;
+
 	/// Convenience for callers with no conversation to continue.
 	final string[] command(in AgentDefinitionSpec recipe, string renderedPrompt) const @safe
 	{

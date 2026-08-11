@@ -23,6 +23,11 @@ final class ClaudeAgent : Agent
 		return "claude";
 	}
 
+	override string[] pinConversationArgs(string conversationId) const @safe
+	{
+		return conversationId.length ? ["--session-id", conversationId] : [];
+	}
+
 	override string stateDir() const @safe
 	{
 		return ".claude/projects";
@@ -248,4 +253,13 @@ version (unittest) import fluent.asserts;
 {
 	// State is a directory under $HOME, snapshotted whole.
 	(new ClaudeAgent).stateDir.should.equal(".claude/projects");
+}
+
+@safe unittest
+{
+	// The caller can pin the id, so it knows the conversation before the run and
+	// never has to parse it back out of the stream.
+	(new ClaudeAgent).pinConversationArgs("11111111-2222-3333-4444-555555555555")
+		.should.equal(["--session-id", "11111111-2222-3333-4444-555555555555"]);
+	(new ClaudeAgent).pinConversationArgs("").should.equal(cast(string[])[]);
 }

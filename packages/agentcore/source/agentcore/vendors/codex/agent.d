@@ -18,6 +18,13 @@ final class CodexAgent : Agent
 		return "codex";
 	}
 
+	/// Codex assigns its own session id — `codex exec` has no pin flag, only the
+	/// `resume` subcommand. Continuity therefore needs the id read back from the run.
+	override string[] pinConversationArgs(string) const @safe
+	{
+		return [];
+	}
+
 	override string stateDir() const @safe
 	{
 		return ".codex/sessions";
@@ -98,4 +105,11 @@ version (unittest) import fluent.asserts;
 {
 	// Date/timestamp-partitioned paths mean the state is addressed as a directory.
 	(new CodexAgent).stateDir.should.equal(".codex/sessions");
+}
+
+@safe unittest
+{
+	// Codex has no pin flag — only `resume`. An empty result is how the adapter says
+	// the id is assigned by the CLI, rather than pretending it can be chosen.
+	(new CodexAgent).pinConversationArgs("sess-1").should.equal(cast(string[])[]);
 }

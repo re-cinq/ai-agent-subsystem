@@ -5,6 +5,7 @@ import agentcore.crds.env_var : EnvVar;
 import agentcore.crds.secret_ref : SecretRef;
 import agentcore.crds.mcp_server : McpServer;
 import agentcore.crds.repo_ref : RepoRef;
+import agentcore.crds.conversation_ref : ConversationRef;
 
 struct AgentResources
 {
@@ -23,6 +24,10 @@ struct AgentResources
 	// Empty ⇒ no fetch (skills off). Provided by the consumer (e.g. Lore) — kept out of
 	// the subsystem so it stays consumer-agnostic.
 	@optional @wire("skills_source") string skillsSource;
+	// A previous run this one continues (#188 sibling): the init restores the prior
+	// state into the vendor's stateDir and the adapter resumes it. Opaque to the
+	// subsystem — what the id groups is the consumer's business.
+	@optional ConversationRef conversation;
 }
 
 @safe unittest

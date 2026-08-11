@@ -25,6 +25,11 @@ final class ExecAgent : Agent
 	}
 
 	/// A deterministic command has no conversation to continue.
+	override string[] pinConversationArgs(string) const @safe
+	{
+		return [];
+	}
+
 	override string stateDir() const @safe
 	{
 		return "";
