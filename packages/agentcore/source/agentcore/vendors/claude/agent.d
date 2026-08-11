@@ -2,7 +2,7 @@ module agentcore.vendors.claude.agent;
 
 import std.conv : to;
 
-import agentcore.vendors.base.agent : Agent;
+import agentcore.vendors.base.agent : Agent, ConversationArgs;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 import agentcore.crds.enums : PermissionMode, McpTransport;
 import agentcore.crds.mcp_server : McpServer, headerEnvName;
@@ -14,12 +14,27 @@ import agentcore.core.env : defaultModel;
 /// passes the recipe's allow/deny tool lists through.
 final class ClaudeAgent : Agent
 {
+	/// Un-hide the interface's no-conversation convenience overload, which this
+	/// class's own `command` would otherwise shadow.
+	alias command = Agent.command;
+
 	override string name() const @safe
 	{
 		return "claude";
 	}
 
-	override string[] command(in AgentDefinitionSpec recipe, string renderedPrompt) const @safe
+	override string[] pinConversationArgs(string conversationId) const @safe
+	{
+		return conversationId.length ? ["--session-id", conversationId] : [];
+	}
+
+	override string stateDir() const @safe
+	{
+		return ".claude/projects";
+	}
+
+	override string[] command(in AgentDefinitionSpec recipe, string renderedPrompt,
+		in ConversationArgs conv) const @safe
 	{
 		string[] cmd = [
 			"claude",
@@ -61,6 +76,13 @@ final class ClaudeAgent : Agent
 
 		if (recipe.maxTurns > 0)
 			cmd ~= ["--max-turns", recipe.maxTurns.to!string];
+
+		// Continue a previous run. Claude takes this as a flag before the `--`
+		// terminator; the restored transcript is staged under stateDir by the init.
+		// Both go BEFORE the `--` terminator: anything after it is the prompt.
+		if (conv.resume.length)
+			cmd ~= ["--resume", conv.resume];
+		cmd ~= pinConversationArgs(conv.pin);
 
 		cmd ~= ["--", renderedPrompt];
 		return cmd;
@@ -210,4 +232,62 @@ version (unittest) import fluent.asserts;
 	// No mcp_servers -> no --mcp-config.
 	AgentDefinitionSpec recipe;
 	(new ClaudeAgent).command(recipe, "p").should.not.contain("--mcp-config");
+}
+
+@safe unittest
+{
+	// Continuing a run adds --resume BEFORE the prompt terminator, so the prompt is
+	// still the trailing positional the CLI expects.
+	AgentDefinitionSpec recipe;
+	const cmd = (new ClaudeAgent).command(recipe, "next turn", ConversationArgs("sess-1", ""));
+	cmd[$ - 4 .. $].should.equal(["--resume", "sess-1", "--", "next turn"]);
+}
+
+@safe unittest
+{
+	// A fresh run mentions no conversation at all.
+	AgentDefinitionSpec recipe;
+	(new ClaudeAgent).command(recipe, "p", ConversationArgs.init).should.not.contain("--resume");
+	(new ClaudeAgent).command(recipe, "p").should.not.contain("--resume");
+}
+
+@safe unittest
+{
+	// State is a directory under $HOME, snapshotted whole.
+	(new ClaudeAgent).stateDir.should.equal(".claude/projects");
+}
+
+@safe unittest
+{
+	// The caller can pin the id, so it knows the conversation before the run and
+	// never has to parse it back out of the stream.
+	(new ClaudeAgent).pinConversationArgs("11111111-2222-3333-4444-555555555555")
+		.should.equal(["--session-id", "11111111-2222-3333-4444-555555555555"]);
+	(new ClaudeAgent).pinConversationArgs("").should.equal(cast(string[])[]);
+}
+
+@safe unittest
+{
+	// A fork resumes one id and saves as another, and BOTH must sit before the `--`
+	// terminator: anything after it is the prompt, so an appended flag would silently
+	// become part of the text the agent is asked to work on.
+	AgentDefinitionSpec recipe;
+	const cmd = (new ClaudeAgent).command(recipe, "next turn",
+		ConversationArgs("prev-1", "new-2"));
+
+	cmd[$ - 2 .. $].should.equal(["--", "next turn"]);
+	const flags = cmd[0 .. $ - 2];
+	flags.should.contain("--resume");
+	flags.should.contain("prev-1");
+	flags.should.contain("--session-id");
+	flags.should.contain("new-2");
+}
+
+@safe unittest
+{
+	// A fresh run that still saves: pin without resume.
+	AgentDefinitionSpec recipe;
+	const cmd = (new ClaudeAgent).command(recipe, "p", ConversationArgs("", "new-2"));
+	cmd.should.not.contain("--resume");
+	cmd.should.contain("--session-id");
 }

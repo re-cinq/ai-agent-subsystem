@@ -2,7 +2,7 @@ module agentcore.vendors.opencode.agent;
 
 import std.algorithm.searching : startsWith;
 
-import agentcore.vendors.base.agent : Agent;
+import agentcore.vendors.base.agent : Agent, ConversationArgs;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 
 /// OpenCode CLI adapter: `opencode run --format json …`. `--format json` emits the
@@ -11,12 +11,30 @@ import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 /// recipe's allow/deny lists do not map to arguments here.
 final class OpenCodeAgent : Agent
 {
+	/// Un-hide the interface's no-conversation convenience overload, which this
+	/// class's own `command` would otherwise shadow.
+	alias command = Agent.command;
+
 	override string name() const @safe
 	{
 		return "opencode";
 	}
 
-	override string[] command(in AgentDefinitionSpec recipe, string renderedPrompt) const @safe
+	/// No continuity yet: opencode's resume syntax and state layout have not been
+	/// verified against the real CLI, and guessing them would produce an adapter that
+	/// silently starts fresh every run while claiming otherwise.
+	override string[] pinConversationArgs(string) const @safe
+	{
+		return [];
+	}
+
+	override string stateDir() const @safe
+	{
+		return "";
+	}
+
+	override string[] command(in AgentDefinitionSpec recipe, string renderedPrompt,
+		in ConversationArgs conv) const @safe
 	{
 		string[] cmd = ["opencode", "run", "--format", "json"];
 		const model = opencodeModel(recipe.model);
@@ -72,4 +90,11 @@ version (unittest) import fluent.asserts;
 	const cmd = (new OpenCodeAgent).command(recipe, "--help");
 	cmd[$ - 2].should.equal("--");
 	cmd[$ - 1].should.equal("--help");
+}
+
+@safe unittest
+{
+	// No verified continuity support: an empty stateDir is how an adapter says so,
+	// rather than silently starting fresh while appearing to resume.
+	(new OpenCodeAgent).stateDir.should.equal("");
 }

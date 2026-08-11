@@ -14,7 +14,12 @@ import std.conv : to;
 import std.process : environment;
 
 import agentcore.vendors.select : agentForModel;
-import agentcore.core.env : defaultExitGraceMs, defaultWorkspace, envDeadlineMs, envExitGraceMs,
+import std.file : exists;
+import std.process : environment;
+static import std.file;
+static import std.process;
+import agentcore.core.env : defaultExitGraceMs, defaultWorkspace, envConversationPin,
+	envConversationSource, envDeadlineMs, envExitGraceMs,
 	envModel, envSelect, envWatch, envWorkspace;
 import agentcore.crds.output_sink : OutputSink;
 import agentcore.output.event : EventSource, sourceFromEnv;
@@ -25,7 +30,7 @@ import agentcore.core.log : logError;
 import agentcore.output.output : sinksFromEnv;
 import agentcore.output.selectmatcher : parseSelectors, selected;
 import agentcore.output.terminal : terminalFor;
-import sink : emit;
+import sink : emit, postConversation;
 
 /// How often the wait loop polls the agent's exit / terminal-event state.
 private enum pollInterval = 20.msecs;
@@ -189,6 +194,10 @@ int supervise(string[] agentArgv)
 	// has exited and the workspace volume is still mounted, so this is the only point
 	// where a file it produced can be read at all (#188).
 	emitWatchedFiles(sinks, source);
+	// Save this run's conversation so a later round can continue it. Before the
+	// terminal event for the same reason as the artifacts: a consumer that stops
+	// there must not miss it, and the state dir only exists while this pod does.
+	saveConversation();
 	emit(sinks, source, agentExit(code).toJson);
 
 	// Hard-exit instead of joining the reader/waiter and unwinding the event loop.
@@ -221,6 +230,60 @@ private void emitWatchedFiles(const OutputSink[] sinks, in EventSource source) n
 	}
 	catch (Exception e)
 		logError("[watch] " ~ e.msg);
+}
+
+/// Archive the vendor's conversation state directory and POST it to the run's
+/// conversation registry, so a later run can continue this one.
+///
+/// Saved under `pin` rather than the id being resumed: that is what makes this a
+/// FORK — the run it continued is left intact and independently resumable, which is
+/// what lets a caller rewind to an earlier run rather than only the latest.
+///
+/// Silent no-op unless the recipe declared a source, a pin, and the vendor reports a
+/// state dir. Best-effort throughout: a failed save costs the NEXT run its continuity,
+/// never this one its result.
+/// Delete a temp file without letting a failure escape a nothrow path.
+private void removeQuiet(string path) nothrow
+{
+	try
+		std.file.remove(path);
+	catch (Exception)
+	{
+	}
+}
+
+private void saveConversation() nothrow
+{
+	try
+	{
+		const src = environment.get(envConversationSource, "");
+		const pin = environment.get(envConversationPin, "");
+		const dir = agentForModel(environment.get(envModel, "")).stateDir;
+
+		if (src.length == 0 || pin.length == 0 || dir.length == 0)
+			return;
+
+		const home = environment.get("HOME", "");
+		const path = home ~ "/" ~ dir;
+
+		if (!path.exists)
+			return;
+
+		// tar to a temp file, then read the bytes: the archive is binary and can be
+		// megabytes, so it goes nowhere near a string or an event line.
+		const tmp = "/tmp/conversation-state.tgz";
+		auto pid = std.process.spawnProcess(["tar", "-czf", tmp, "-C", home, dir]);
+
+		if (std.process.wait(pid) != 0 || !tmp.exists)
+			return;
+		scope (exit)
+			removeQuiet(tmp);
+
+		postConversation(src ~ "/" ~ pin, cast(ubyte[]) std.file.read(tmp));
+
+	}
+	catch (Exception e)
+		logError("[conversation] save failed: " ~ e.msg);
 }
 
 /// Block until the agent's run is over, returning the exit code to report. The run

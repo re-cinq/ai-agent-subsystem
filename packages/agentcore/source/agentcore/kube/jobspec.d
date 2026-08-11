@@ -16,6 +16,7 @@ import agentcore.crds.mcp_server : headerEnvName;
 import agentcore.crds.station : Station;
 import agentcore.crds.serialization : toJson;
 import agentcore.vendors.select : agentForModel;
+import agentcore.vendors.base.agent : ConversationArgs;
 import agentcore.kube.bundle : bundleRoot, supervisorPath;
 import agentcore.core.env;
 import agentcore.kube.jobs : jobNameFor, safeName;
@@ -79,7 +80,13 @@ Json buildJob(Agent agent, Station station, AgentDefinition definition, string a
 {
 	auto recipe = definition.spec;
 	const prompt = renderPrompt(recipe.prompt, agent.spec.parameters);
-	auto argv = agentForModel(recipe.model).command(recipe, prompt);
+	// The conversation to continue rides into the argv: the adapter decides whether it
+	// is a flag or a subcommand, and adds a pin when its CLI supports one.
+	auto vendor = agentForModel(recipe.model);
+	// Continue `id` but SAVE AS `pin`: a fork leaves the original intact and
+	// independently resumable, which is what makes rewinding to an earlier run possible.
+	auto argv = vendor.command(recipe, prompt,
+		ConversationArgs(recipe.resources.conversation.id, recipe.resources.conversation.pin));
 	auto env = runEnv(agent, station, recipe);
 
 	auto template_ = wirePodTemplate(deepCopy(station.spec.template_), commandFor(argv), env, agentImage);
@@ -485,6 +492,26 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 	// what gates the fetch (empty ⇒ off).
 	strVar(envSkills, skillsJson(recipe.resources.skills));
 	strVar(envSkillsSource, recipe.resources.skillsSource);
+	// A previous run to continue: the init restores its state, the adapter resumes it.
+	// The conversation registry's auth, injected exactly as a sink's is: the referenced
+	// key becomes an env var of the SAME NAME, which the pod resolves back through
+	// headerLines. Without this the restore fetch and the save POST go out with no
+	// Authorization header — and a declared-but-inert field is precisely the failure
+	// this codebase keeps paying for (a recipe that looks configured and does nothing).
+	// A reserved name is blanked for the same reason sinks blank theirs: it would
+	// otherwise resolve to the controller's own value and be posted as an auth header.
+	auto conversation = recipe.resources.conversation;
+	if (isReservedEnvName(conversation.headersSecret))
+		conversation.headersSecret = "";
+	if (conversation.headersSecret.length && conversation.headersSecret !in secretsInjected)
+	{
+		secretVar(conversation.headersSecret, conversation.headersSecret);
+		secretsInjected[conversation.headersSecret] = true;
+	}
+	strVar(envConversationAuth, conversation.headersSecret);
+	strVar(envConversationSource, recipe.resources.conversation.source);
+	strVar(envConversationId, recipe.resources.conversation.id);
+	strVar(envConversationPin, recipe.resources.conversation.pin);
 	// The supervisor's own deadline, set inside the Job's activeDeadlineSeconds so a
 	// wedged agent is terminated — and reported — by the supervisor rather than silently
 	// killed with the pod (#48).
@@ -556,7 +583,9 @@ enum pathEnv = "PATH";
 bool isReservedEnvName(string name) @safe pure nothrow
 {
 	static immutable string[] reserved = [
-		envSinks, envRepos, envSkills, envSkillsSource, envSelect, envWatch, envWorkspace, envParameters, envTargetRepo,
+		envSinks, envRepos, envSkills, envSkillsSource, envConversationSource, envConversationId,
+		envConversationPin, envConversationAuth,
+		envSelect, envWatch, envWorkspace, envParameters, envTargetRepo,
 		envBranch, envModel, envAgentName, envStationName, envTaskId, envPodName,
 		envPodNamespace, envDeadlineMs, homeEnv, pathEnv,
 	];

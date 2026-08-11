@@ -17,4 +17,15 @@ struct InitContext
 	/// Recipe `resources.skillsSource` — the registry base URL skills + settings are
 	/// fetched from. Empty ⇒ no fetch (repo-own skills still stage).
 	string skillsSource;
+	/// Recipe `resources.conversation` — a previous run to continue. The
+	/// ConversationTool restores its state into the vendor's stateDir before the agent
+	/// starts. Empty id ⇒ fresh conversation.
+	string conversationSource;
+	string conversationId;
+	/// The vendor's state directory, relative to $HOME (e.g. `.claude/projects`).
+	/// Empty ⇒ this vendor cannot continue a run, so no restore is attempted.
+	string conversationStateDir;
+	/// Name of the env var holding the registry's Authorization header (the injected
+	/// secret key). Empty ⇒ unauthenticated fetch, like the skills registry.
+	string conversationAuthEnv;
 }
