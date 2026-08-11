@@ -6,6 +6,16 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+- `resources.conversation` restore always answered **401**. The init step read the
+  credential with shell expansion (`$agent-events-auth`), but that env var is named
+  after a Kubernetes secret key and those routinely contain dashes — `$agent` is
+  unset, so the header went out as `-events-auth`. It now reads the value with
+  `printenv`, and the var's NAME rides the env too rather than the command string.
+  The upload half was never affected (the supervisor resolves the name in D), so a
+  run saved its state correctly and the next run silently failed to restore it —
+  continuity that looked wired end to end and remembered nothing.
+
 ## v0.10.0
 
 ### Added

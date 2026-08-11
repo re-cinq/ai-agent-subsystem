@@ -1,6 +1,6 @@
 module agentcore.tools.conversation_tool;
 
-import agentcore.core.env : envConversationSource, envConversationId;
+import agentcore.core.env : envConversationSource, envConversationId, envConversationAuth;
 import agentcore.tools.initcontext : InitContext;
 import agentcore.tools.tool : Tool;
 
@@ -45,10 +45,14 @@ final class ConversationTool : Tool
 		const src = "\"$" ~ envConversationSource ~ "\"";
 		const id = "\"$" ~ envConversationId ~ "\"";
 
-		// The credential is read from its env var inside the shell, never interpolated
-		// into the command string — same rule as the URL and id above.
+		// The credential is read through `printenv`, not shell expansion. The env var
+		// holding it is named after a Kubernetes SECRET KEY, and those routinely
+		// contain dashes — `$agent-events-auth` expands `$agent` (unset) and leaves
+		// `-events-auth` behind, so every restore answered 401 while the upload side,
+		// which resolves the name in D, worked fine. The name itself now rides the
+		// env too, so nothing from the recipe reaches the command string.
 		const auth = ctx.conversationAuthEnv.length
-			? "-H \"Authorization: $" ~ ctx.conversationAuthEnv ~ "\" " : "";
+			? "-H \"Authorization: $(printenv \"$" ~ envConversationAuth ~ "\")\" " : "";
 
 		return [
 			[
@@ -111,7 +115,10 @@ version (unittest) import fluent.asserts;
 	ctx.conversationAuthEnv = "agent-events-auth";
 
 	const step = (new ConversationTool).steps(ctx)[0][2];
-	step.should.contain("Authorization: $agent-events-auth");
+	// Read via printenv, because a secret-key name with dashes is not a shell
+	// variable name — `$agent-events-auth` would send `-events-auth`.
+	step.should.contain("Authorization: $(printenv \"$AGENT_CONVERSATION_AUTH\")");
+	step.should.not.contain("$agent-events-auth");
 }
 
 @safe unittest
