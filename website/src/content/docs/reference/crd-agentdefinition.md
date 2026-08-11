@@ -31,6 +31,7 @@ The recipe. It has a `spec` and no `status`.
 | `secrets` | [] `{name, ref}` | `name` is the env var; `ref` is an allowlisted secret-store key. |
 | `mcp_servers` | [] object | `{name, transport(stdio\|http\|sse), command?, args?, url?, headers_secret?}`. |
 | `repos` | [] object | `{name, url, ref?, path?, token_secret?}`. |
+| `conversation` | object | `{source, id?, pin?, headers_secret?}` — a previous run this one continues. The init restores its state before the agent starts; the supervisor saves this run's own state as `pin`. `id` is opaque to the subsystem. |
 
 ### `spec.output`
 

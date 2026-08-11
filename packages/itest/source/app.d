@@ -18,7 +18,7 @@ module app;
 
 import std.algorithm.searching : any, canFind, count, startsWith;
 import std.conv : to;
-import std.file : exists, readText, remove, tempDir;
+import std.file : exists, mkdirRecurse, readText, remove, rmdirRecurse, tempDir, write;
 import std.path : buildPath;
 import std.process : pipeProcess, ProcessPipes, Redirect, wait;
 import std.socket;
@@ -155,6 +155,8 @@ int main(string[] args)
 	badArgv();
 	watchedFiles();
 	watchedFileMissing();
+	conversationSaved();
+	conversationNotSaved();
 
 	writeln(failures == 0 ? "ALL PASSED" : failures.to!string ~ " CHECK(S) FAILED");
 	return failures == 0 ? 0 : 1;
@@ -431,6 +433,66 @@ private void watchedFileMissing()
 		emitted(r.lines, `"event":"planning.result"`));
 	check("missing artifact says why", emitted(r.lines, `"reason":"missing"`));
 	check("missing artifact carries no content", !emitted(r.lines, `"content"`));
+}
+
+/// The run's conversation state is archived and POSTed so a later run can continue
+/// it. Exercises the real supervisor against a real HTTP endpoint: a unit test cannot
+/// catch a save that never leaves the process, which is exactly the class of failure
+/// this subsystem keeps producing.
+private void conversationSaved()
+{
+	writeln("conversation state saved");
+	const home = buildPath(tempDir, "itest-conv-home");
+	const stateDir = buildPath(home, ".claude", "projects", "-workspace-target");
+	mkdirRecurse(stateDir);
+	write(buildPath(stateDir, "conv-new.jsonl"), `{"turn":"one"}`);
+
+	auto listener = new TcpSocket();
+	listener.setOption(SocketOptionLevel.SOCKET, SocketOption.REUSEADDR, true);
+	listener.bind(new InternetAddress("127.0.0.1", cast(ushort) 18_101));
+	listener.listen(8);
+
+	auto pipes = pipeProcess([supervisor, "--", mock], Redirect.stdout,
+		withSource([
+			"MOCK_LINES": "1",
+			"HOME": home,
+			"AGENT_MODEL": "claude-sonnet-4-6",
+			"AGENT_CONVERSATION_SOURCE": "http://127.0.0.1:18101/conversations",
+			"AGENT_CONVERSATION_PIN": "conv-new",
+		]));
+
+	auto conn = listener.accept();
+	const body_ = readBody(conn);
+	conn.send("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+	conn.close();
+	foreach (line; pipes.stdout.byLine)
+	{
+	}
+	const code = wait(pipes.pid);
+	listener.close();
+
+	check("run completes (exit 0)", code == 0);
+	check("state archive posted", body_.length > 0);
+	// gzip magic: the transcript travels as a binary archive, never as text on the
+	// event stream (which caps far below a real conversation).
+	check("posted body is a gzip archive",
+		body_.length > 2 && body_[0] == '\x1f' && body_[1] == '\x8b');
+
+	try
+		rmdirRecurse(home);
+	catch (Exception)
+	{
+	}
+}
+
+/// A run with nothing to save posts nothing at all — a fresh conversation must not
+/// cost a request, and an unconfigured registry must not be contacted.
+private void conversationNotSaved()
+{
+	writeln("no conversation, no save");
+	auto r = run(["MOCK_LINES": "1"]);
+    check("run completes (exit 0)", r.code == 0);
+	check("no save attempted", !r.err.canFind("[conversation]"));
 }
 
 /// Read one HTTP request from `conn` and return its body (Content-Length bytes).

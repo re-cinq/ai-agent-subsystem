@@ -6,6 +6,32 @@ the npm package versions.
 
 ## Unreleased
 
+### Added
+- `spec.resources.conversation` lets a run continue a previous one instead of starting
+  a fresh conversation every time. The init restores the prior run's state before the
+  agent starts, the adapter resumes it, and the supervisor archives this run's own
+  state and POSTs it back — so a caller can carry context across runs rather than
+  re-describing the past in every prompt.
+
+  The interface is vendor-neutral, and checking the real CLIs rather than assuming they
+  resemble Claude shaped it twice: Claude appends `--resume <id>` before the `--`
+  terminator while Codex makes resume a SUBCOMMAND taking the prompt as a positional,
+  so the id is a parameter of `Agent.command()` and each adapter decides where it goes;
+  and Claude writes `.claude/projects/<cwd-slug>/<id>.jsonl` while Codex writes
+  `.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<timestamp>-<id>.jsonl` — a path that cannot
+  be derived from the id — so state is addressed as a DIRECTORY (`Agent.stateDir()`)
+  and restored/saved as an archive, which also handles multi-file formats for free.
+
+  State is saved under `pin` rather than the id being resumed, making each run a FORK:
+  the run it continued is left intact and independently resumable, so a caller can go
+  back to an earlier run rather than only ever the latest. `pin` requires a CLI that
+  accepts a chosen id (`Agent.pinConversationArgs`) — Claude does, Codex does not, and
+  an adapter reports that by returning empty rather than appearing to support it.
+
+  Everything on the path is best-effort: a missing or unreachable archive leaves the run
+  with a fresh conversation, and a failed save costs the NEXT run its continuity, never
+  this one its result. (#188)
+
 ## v0.9.0
 
 ### Added
