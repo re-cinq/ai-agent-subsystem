@@ -10,10 +10,12 @@
 #   - deploy/controller.yaml                    controller image             tag/@digest    -> @digest
 #   - deploy/controller.yaml                    env AGENT_IMAGE              tag/@digest    -> @digest
 #   - website/.../setup/install.md              cosign verify <controller>@  @digest        -> @digest
+#   - website/.../setup/{install,uninstall}.md  releases/download/<tag>/     tag            -> REF
+#   - website/.../setup/install.md, README.md   TAG=<tag> build example      tag            -> REF
 #
-# Resolving a digest from a tag needs registry read access (docker login ghcr.io
-# with a read:packages token). In CI the build already emitted the digests, so
-# pass them in and no registry read happens:
+# Resolving a digest from a tag reads the registry; both images are public, so this
+# works unauthenticated. In CI the build already emitted the digests, so pass them
+# in and no registry read happens at all:
 #   CONTROLLER_DIGEST=sha256:... AGENT_DIGEST=sha256:... scripts/pin-image-digests.sh vX.Y.Z
 #
 #   usage: scripts/pin-image-digests.sh [REF]      # REF defaults to "latest"
@@ -79,6 +81,47 @@ if n < 1:
     sys.exit(f"cosign verify reference {name} not found in {path}")
 open(path, "w").write(new)
 PY
+
+# Docs: every "install/uninstall this exact release" example has to name a release
+# that EXISTS, and the build examples should not advertise a tag three releases old.
+# This job runs on the v* tag AFTER the release job published that install.yaml, so
+# the ref written here is always a real download — which is why the version lives
+# here and not in the website build, where the only versions available are the ones
+# bumped at cut time, before the tag is pushed.
+#
+# Skipped unless REF is a release tag: "latest" is not a valid /releases/download/
+# path (that form is /releases/latest/download/, which needs no pinning and is left
+# alone by the pattern below).
+case "$ref" in
+v*)
+	python3 - "$ref" \
+		"$repo/website/src/content/docs/setup/install.md" \
+		"$repo/website/src/content/docs/setup/uninstall.md" \
+		"$repo/README.md" <<'PY'
+import re, sys
+ref, paths = sys.argv[1], sys.argv[2:]
+patterns = [
+    (re.compile(r"(/releases/download/)[^/]+(/install\.yaml)"), r"\g<1>" + ref + r"\g<2>"),
+    (re.compile(r"(?m)^TAG=v\S+"), "TAG=" + ref),
+]
+landed = 0
+for path in paths:
+    text = open(path).read()
+    for pattern, replacement in patterns:
+        text, n = pattern.subn(replacement, text)
+        landed += n
+    open(path, "w").write(text)
+if landed == 0:
+    sys.exit("expected version references in the docs, found none to pin")
+PY
+	grep -q "/releases/download/${ref}/install.yaml" \
+		"$repo/website/src/content/docs/setup/install.md" \
+		|| { echo "pin failed: ${ref} not written to setup/install.md" >&2; exit 1; }
+	grep -q "/releases/download/${ref}/install.yaml" \
+		"$repo/website/src/content/docs/setup/uninstall.md" \
+		|| { echo "pin failed: ${ref} not written to setup/uninstall.md" >&2; exit 1; }
+	;;
+esac
 
 # Fail loudly if any rewrite did not land a digest — a release must never ship a
 # floating tag, and the docs must verify the image it actually pins.

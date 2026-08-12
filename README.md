@@ -11,16 +11,37 @@ linked [dub](https://dub.pm) monorepo with **no runtime dependencies**.
 
 ## Install
 
-> The prebuilt agent runtime image is **private**, so the published `install.yaml` is not pullable
-> from an arbitrary cluster. Third-party users build the two images from source and push them to a
-> registry their cluster can pull from, then install pointing at those.
+You need a Kubernetes cluster (v1.27+), `kubectl`, and permission to create cluster-scoped
+resources. One apply stands the whole subsystem up in its own `ai-agents` namespace — CRDs, RBAC,
+NetworkPolicy and the controller — with both images pinned to the cosign-signed digests that release
+built:
 
-You need a Kubernetes cluster, `kubectl`, and Docker (with Buildx). Both images build from the repo
-root — build them, tag for **your** registry, and push:
+```sh
+kubectl apply -f https://github.com/re-cinq/ai-agent-subsystem/releases/latest/download/install.yaml
+```
+
+Verify the controller is up and reconciling:
+
+```sh
+kubectl -n ai-agents get deploy,pods
+kubectl -n ai-agents logs deploy/agent-controller
+```
+
+Agents call a model provider, so before a run can succeed create an `agent-secrets` Secret in the
+`ai-agents` namespace and reference its keys from your recipe — see the
+[install guide](https://re-cinq.github.io/ai-agent-subsystem/setup/install/).
+
+With the controller running, define your first recipe from the [`examples/`](examples/).
+
+### Build your own images
+
+Not needed to install — the published images are public. Do this only when your cluster must pull
+from a private or air-gapped registry. You need Docker (with Buildx); both images build from the
+repo root — build them, tag for **your** registry, and push:
 
 ```sh
 REGISTRY=your-registry.example.com/your-project   # a registry your cluster can pull from
-TAG=v0.10.0
+TAG=v0.10.3
 
 docker build -f deploy/Dockerfile.controller       -t "$REGISTRY/ai-agent-controller:$TAG" .
 docker build -f scripts/container/Dockerfile.agent -t "$REGISTRY/ai-agent:$TAG"            .
@@ -40,22 +61,13 @@ into each run pod is the `AGENT_IMAGE` env in [`deploy/controller.yaml`](deploy/
 
 If your registry needs credentials to pull, create an image pull secret in the `ai-agents` namespace
 and reference it from the controller Deployment (and the injected run pods). Then apply the
-kustomization — it stands the whole subsystem up in its own `ai-agents` namespace (CRDs, RBAC,
-NetworkPolicy, controller):
+kustomization instead of the release artifact:
 
 ```sh
 kubectl apply -k deploy
 ```
 
-Verify the controller is up and reconciling:
-
-```sh
-kubectl -n ai-agents get deploy,pods
-kubectl -n ai-agents logs deploy/agent-controller
-```
-
-With the controller running, define your first recipe from the [`examples/`](examples/). See the
-[install guide](https://re-cinq.github.io/ai-agent-subsystem/setup/install/) for more detail.
+See the [install guide](https://re-cinq.github.io/ai-agent-subsystem/setup/install/) for more detail.
 
 ## The model
 

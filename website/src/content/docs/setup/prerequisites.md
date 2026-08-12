@@ -11,8 +11,9 @@ cluster is plenty.
 - **`kubectl`**: configured to talk to your target cluster.
 - **A Kubernetes cluster**: `v1.27+`. Any distribution works; for local use see
   [Local cluster](./local-cluster.md).
-- **A container registry**: to host the controller and agent images, unless you side-load them into
-  a local cluster.
+- **A container registry**: only if you build your own images. The published controller and agent
+  images are public, so a normal install pulls them with no registry, credentials or side-loading of
+  your own.
 
 ## To build from source
 

@@ -13,15 +13,9 @@ to the exact cosign-signed digests that release built — no floating `:latest`.
 checkout before a release exists? Use `kubectl apply -k deploy` instead (see below).
 :::
 
-:::caution[The agent runtime image is private]
-`ghcr.io/re-cinq/ai-agent-controller` is public, but the agent runtime image
-`ghcr.io/re-cinq/ai-agent` — the one the controller injects into every run pod — is **not**. The
-published `install.yaml` references it by digest, so applying it on an arbitrary cluster stands the
-controller up and then fails every run with `ImagePullBackOff`.
-
-If you are outside the re-cinq org, [build both images from source](#build-your-own-images) and
-install pointing at your own registry.
-:::
+Both images are public, so there is nothing to build, mirror or authenticate against first. You need
+a cluster, `kubectl`, and permission to create cluster-scoped resources (the CRDs) — see
+[Prerequisites](./prerequisites.md).
 
 ## Install
 
@@ -29,20 +23,29 @@ install pointing at your own registry.
 kubectl apply -f https://github.com/re-cinq/ai-agent-subsystem/releases/latest/download/install.yaml
 ```
 
-To pin a specific version instead of tracking the latest release:
+That is the entire install. To pin a specific release instead of tracking the latest, substitute a
+tag from the [releases page](https://github.com/re-cinq/ai-agent-subsystem/releases):
 
 ```sh
-kubectl apply -f https://github.com/re-cinq/ai-agent-subsystem/releases/download/v0.10.0/install.yaml
+kubectl apply -f https://github.com/re-cinq/ai-agent-subsystem/releases/download/v0.10.3/install.yaml
 ```
 
+Then [verify the deployment](#verify-the-deployment). One thing `install.yaml` cannot ship for you is
+credentials: an agent calls a model provider, so it needs an `agent-secrets` Secret in the
+`ai-agents` namespace before a run can succeed. See
+[Prerequisites](./prerequisites.md#credentials).
+
 ### Build your own images
+
+You do **not** need this to install — the published images are public. Build your own only when the
+cluster must pull from a private or air-gapped registry of your own.
 
 You need Docker (with Buildx) and a registry your cluster can pull from. Both images build from the
 repository root:
 
 ```sh
 REGISTRY=your-registry.example.com/your-project
-TAG=v0.10.0
+TAG=v0.10.3
 
 docker build -f deploy/Dockerfile.controller       -t "$REGISTRY/ai-agent-controller:$TAG" .
 docker build -f scripts/container/Dockerfile.agent -t "$REGISTRY/ai-agent:$TAG"            .
@@ -105,4 +108,5 @@ and SLSA provenance attestation; see [Releases](https://github.com/re-cinq/ai-ag
 ## Next
 
 Define your first recipe in [Define a recipe](../tasks/define-a-recipe.md), or jump
-straight to the [Examples](../tasks/examples.md).
+straight to the [Examples](../tasks/examples.md). To tear it all back down, see
+[Uninstall](./uninstall.md).
