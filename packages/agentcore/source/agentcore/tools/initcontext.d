@@ -28,4 +28,8 @@ struct InitContext
 	/// Name of the env var holding the registry's Authorization header (the injected
 	/// secret key). Empty ⇒ unauthenticated fetch, like the skills registry.
 	string conversationAuthEnv;
+	/// The credential's VALUE, resolved by the init via getenv. The variable it came
+	/// from is named after a Kubernetes secret key, so a shell cannot read it — see
+	/// ConversationTool.steps.
+	string conversationAuth;
 }
