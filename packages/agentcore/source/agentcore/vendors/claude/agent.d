@@ -82,6 +82,14 @@ final class ClaudeAgent : Agent
 		// Both go BEFORE the `--` terminator: anything after it is the prompt.
 		if (conv.resume.length)
 			cmd ~= ["--resume", conv.resume];
+		// Resuming one id while saving as ANOTHER is a fork, and the CLI refuses the
+		// pair without saying so: `--session-id can only be used with --continue or
+		// --resume if --fork-session is also specified`. It exits non-zero before the
+		// agent runs, so every resumed round FAILED rather than merely losing its
+		// history. Forking is the whole point here — each round leaves the run it
+		// continued intact so an author can rewind to it — so declare it.
+		if (conv.resume.length && conv.pin.length)
+			cmd ~= "--fork-session";
 		cmd ~= pinConversationArgs(conv.pin);
 
 		cmd ~= ["--", renderedPrompt];
@@ -281,6 +289,9 @@ version (unittest) import fluent.asserts;
 	flags.should.contain("prev-1");
 	flags.should.contain("--session-id");
 	flags.should.contain("new-2");
+	// Without this the CLI rejects the pair outright and the round fails before the
+	// agent ever starts.
+	flags.should.contain("--fork-session");
 }
 
 @safe unittest
@@ -290,4 +301,6 @@ version (unittest) import fluent.asserts;
 	const cmd = (new ClaudeAgent).command(recipe, "p", ConversationArgs("", "new-2"));
 	cmd.should.not.contain("--resume");
 	cmd.should.contain("--session-id");
+	// Nothing to fork FROM, and the CLI rejects --fork-session without a resume.
+	cmd.should.not.contain("--fork-session");
 }
