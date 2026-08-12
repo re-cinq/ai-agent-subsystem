@@ -6,6 +6,19 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.10.4
+
+### Changed
+- The agent runtime image `ghcr.io/re-cinq/ai-agent` is now **public**, so the published
+  `install.yaml` is installable by anyone: `kubectl apply -f .../releases/latest/download/install.yaml`
+  stands the subsystem up on any cluster with no registry, credentials or from-source build
+  of your own. The controller image was already public; the runtime image the controller
+  injects into every run pod was not, so an install outside the org stood the controller up
+  and then failed every run with `ImagePullBackOff`. The install docs, README and
+  prerequisites no longer route third-party users through building their own images, and the
+  release-time pin script now keeps every version reference in those pages current instead of
+  leaving them to drift.
+
 ### Fixed
 - Conversation state **never saved on a Station whose base image has no `tar`** — and
   `amazonlinux:2023`, one of the supported bases, has none. The supervisor shelled out
