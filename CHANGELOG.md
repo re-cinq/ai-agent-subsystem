@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.10.1
+
 ### Fixed
 - Resuming a conversation **failed the whole run**. The claude adapter emitted
   `--resume <id> --session-id <pin>`, and the CLI refuses that pair unless
