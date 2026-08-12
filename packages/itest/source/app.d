@@ -20,13 +20,14 @@ import std.algorithm.searching : any, canFind, count, startsWith;
 import std.conv : to;
 import std.file : exists, mkdirRecurse, readText, remove, rmdirRecurse, tempDir, write;
 import std.path : buildPath;
-import std.process : pipeProcess, ProcessPipes, Redirect, wait;
+import std.process : execute, executeShell, pipeProcess, ProcessPipes, Redirect, wait;
 import std.socket;
 import std.stdio : stderr, writeln;
 import std.string : indexOf, splitLines, strip, toLower;
 
 import core.sys.posix.signal : kill, SIGINT, SIGPIPE, SIGTERM;
 import core.thread : Thread;
+import core.time : seconds;
 
 private int failures = 0;
 private string supervisor;
@@ -44,6 +45,20 @@ private struct Result
 	int code;
 	string[] lines;
 	string err;
+}
+
+/// How long a test waits for a POST it expects — generous beside the sub-second
+/// reality, and bounded on purpose. A bare `accept()` turns a supervisor that never
+/// posts into a test that never ends: one such case wedged CI for six hours and
+/// reported nothing. A delivery that does not arrive has to FAIL a check.
+private enum postDeadline = 30.seconds;
+
+/// The next connection, or null if none arrives before the deadline.
+private Socket acceptWithin(Socket listener)
+{
+	auto readable = new SocketSet(1);
+	readable.add(listener);
+	return Socket.select(readable, null, null, postDeadline) > 0 ? listener.accept() : null;
 }
 
 /// The identity the controller would inject; the supervisor stamps it onto
@@ -234,7 +249,9 @@ private void httpSink()
 	string[] posts;
 	foreach (_; 0 .. 5)
 	{
-		auto conn = listener.accept();
+		auto conn = acceptWithin(listener);
+		if (conn is null)
+			break;
 		posts ~= readBody(conn);
 		conn.send("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
 		conn.close();
@@ -461,10 +478,14 @@ private void conversationSaved()
 			"AGENT_CONVERSATION_PIN": "conv-new",
 		]));
 
-	auto conn = listener.accept();
-	const body_ = readBody(conn);
-	conn.send("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
-	conn.close();
+	string body_;
+	auto conn = acceptWithin(listener);
+	if (conn !is null)
+	{
+		body_ = readBody(conn);
+		conn.send("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+		conn.close();
+	}
 	foreach (line; pipes.stdout.byLine)
 	{
 	}
@@ -477,12 +498,44 @@ private void conversationSaved()
 	// event stream (which caps far below a real conversation).
 	check("posted body is a gzip archive",
 		body_.length > 2 && body_[0] == '\x1f' && body_[1] == '\x8b');
+	archiveReadableBySystemTar(body_);
 
 	try
 		rmdirRecurse(home);
 	catch (Exception)
 	{
 	}
+}
+
+/// The supervisor writes the archive itself (it is exec'd by the Station's own base
+/// image, and amazonlinux:2023 ships no tar), so the format has to be checked against
+/// something other than the writer: a real GNU tar must EXTRACT it, to the same path
+/// with the same bytes, or a restore gets nothing back. Skipped on a distro without
+/// tar — which is the very case the in-process writer exists for, and where the
+/// supervisor's own round-trip unittests carry the proof instead.
+private void archiveReadableBySystemTar(string archive)
+{
+	if (executeShell("command -v tar").status != 0)
+	{
+		writeln("  SKIP  system tar cross-check (no tar on this distro)");
+		return;
+	}
+
+	const archivePath = buildPath(tempDir, "itest-conv.tgz");
+	const extractDir = buildPath(tempDir, "itest-conv-extract");
+	write(archivePath, archive);
+	mkdirRecurse(extractDir);
+
+	const extracted = execute(["tar", "-xzf", archivePath, "-C", extractDir]);
+	check("system tar extracts the archive", extracted.status == 0);
+
+	const transcript = buildPath(extractDir, ".claude", "projects", "-workspace-target",
+		"conv-new.jsonl");
+	check("extracted transcript matches the original",
+		exists(transcript) && readText(transcript) == `{"turn":"one"}`);
+
+	remove(archivePath);
+	rmdirRecurse(extractDir);
 }
 
 /// A run with nothing to save posts nothing at all — a fresh conversation must not

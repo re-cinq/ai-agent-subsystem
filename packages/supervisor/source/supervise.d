@@ -15,9 +15,6 @@ import std.process : environment;
 
 import agentcore.vendors.select : agentForModel;
 import std.file : exists;
-import std.process : environment;
-static import std.file;
-static import std.process;
 import agentcore.core.env : defaultExitGraceMs, defaultWorkspace, envConversationPin,
 	envConversationSource, envDeadlineMs, envExitGraceMs,
 	envModel, envSelect, envWatch, envWorkspace;
@@ -30,6 +27,7 @@ import agentcore.core.log : logError;
 import agentcore.output.output : sinksFromEnv;
 import agentcore.output.selectmatcher : parseSelectors, selected;
 import agentcore.output.terminal : terminalFor;
+import archive : collect, tarGz;
 import sink : emit, postConversation;
 
 /// How often the wait loop polls the agent's exit / terminal-event state.
@@ -242,16 +240,6 @@ private void emitWatchedFiles(const OutputSink[] sinks, in EventSource source) n
 /// Silent no-op unless the recipe declared a source, a pin, and the vendor reports a
 /// state dir. Best-effort throughout: a failed save costs the NEXT run its continuity,
 /// never this one its result.
-/// Delete a temp file without letting a failure escape a nothrow path.
-private void removeQuiet(string path) nothrow
-{
-	try
-		std.file.remove(path);
-	catch (Exception)
-	{
-	}
-}
-
 private void saveConversation() nothrow
 {
 	try
@@ -269,18 +257,12 @@ private void saveConversation() nothrow
 		if (!path.exists)
 			return;
 
-		// tar to a temp file, then read the bytes: the archive is binary and can be
-		// megabytes, so it goes nowhere near a string or an event line.
-		const tmp = "/tmp/conversation-state.tgz";
-		auto pid = std.process.spawnProcess(["tar", "-czf", tmp, "-C", home, dir]);
-
-		if (std.process.wait(pid) != 0 || !tmp.exists)
-			return;
-		scope (exit)
-			removeQuiet(tmp);
-
-		postConversation(src ~ "/" ~ pin, cast(ubyte[]) std.file.read(tmp));
-
+		// Archived in-process rather than by shelling out to `tar`: this binary is
+		// exec'd by the Station's OWN base image, and a supported base ships no tar
+		// (amazonlinux:2023), where the spawn failed and the run still reported
+		// success — continuity that saved nothing. The bytes stay binary throughout,
+		// nowhere near a string or an event line.
+		postConversation(src ~ "/" ~ pin, tarGz(collect(home, dir)));
 	}
 	catch (Exception e)
 		logError("[conversation] save failed: " ~ e.msg);

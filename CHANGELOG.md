@@ -6,6 +6,21 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+- Conversation state **never saved on a Station whose base image has no `tar`** — and
+  `amazonlinux:2023`, one of the supported bases, has none. The supervisor shelled out
+  to `tar -czf`, so on such a base the archive step failed while the run still reported
+  success: the next run restored nothing. The supervisor now writes the ustar + gzip
+  archive itself through zlib, which it already links, so a save depends on nothing the
+  Station's base image might omit. The wire format is byte-compatible, so the restore
+  half and any stored archive are untouched — and the itest now has a real GNU tar
+  extract what the supervisor wrote, on every distro that ships one.
+
+  The cross-distro suite had been reporting this failure since v0.9.0 by hanging: the
+  test waited on a POST that could never arrive, with no deadline of its own and no
+  `timeout-minutes` on the job, so each run burned GitHub's full 6-hour default and
+  then said nothing. Both bounds are now set.
+
 ## v0.10.3
 
 ### Fixed

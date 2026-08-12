@@ -37,6 +37,10 @@ jobs:
   build:
     name: Build supervisor stack
     runs-on: ubuntu-latest
+    # Without this a job rides GitHub's 360-minute default: a hung distro test once
+    # burned six hours per run before being cancelled with nothing to show. A real
+    # build lands in ~5 minutes.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Build supervisor + mock + itest on Rocky 9
@@ -51,6 +55,9 @@ jobs:
     name: ${{ matrix.image }}
     needs: build
     runs-on: ubuntu-latest
+    # A passing distro takes ~20 seconds including the image pull; anything past this
+    # is wedged, not slow.
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
