@@ -48,11 +48,16 @@ final class ConversationTool : Tool
 		// The credential is read through `printenv`, not shell expansion. The env var
 		// holding it is named after a Kubernetes SECRET KEY, and those routinely
 		// contain dashes — `$agent-events-auth` expands `$agent` (unset) and leaves
-		// `-events-auth` behind, so every restore answered 401 while the upload side,
-		// which resolves the name in D, worked fine. The name itself now rides the
-		// env too, so nothing from the recipe reaches the command string.
+		// `-events-auth` behind. The name itself rides the env too, so nothing from
+		// the recipe reaches the command string.
+		//
+		// The value is a COMPLETE HEADER LINE (`Authorization: Bearer …`) — the same
+		// shape `sinkHeaders` parses on the upload side, which is why that half works.
+		// Prefixing `Authorization: ` here sent `Authorization: Authorization: Bearer
+		// …` and answered 401 just as the dashed-name bug did, so the two looked like
+		// one problem until the first was fixed.
 		const auth = ctx.conversationAuthEnv.length
-			? "-H \"Authorization: $(printenv \"$" ~ envConversationAuth ~ "\")\" " : "";
+			? "-H \"$(printenv \"$" ~ envConversationAuth ~ "\")\" " : "";
 
 		return [
 			[
@@ -117,7 +122,10 @@ version (unittest) import fluent.asserts;
 	const step = (new ConversationTool).steps(ctx)[0][2];
 	// Read via printenv, because a secret-key name with dashes is not a shell
 	// variable name — `$agent-events-auth` would send `-events-auth`.
-	step.should.contain("Authorization: $(printenv \"$AGENT_CONVERSATION_AUTH\")");
+	// The env value is the whole header line, so the tool must NOT add its own
+	// `Authorization: ` — that sent the header twice and answered 401.
+	step.should.contain("-H \"$(printenv \"$AGENT_CONVERSATION_AUTH\")\"");
+	step.should.not.contain("Authorization: $(printenv");
 	step.should.not.contain("$agent-events-auth");
 }
 

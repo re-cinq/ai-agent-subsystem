@@ -6,6 +6,14 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+- `resources.conversation` restore answered **401** a second way. The credential env
+  value is a COMPLETE HEADER LINE (`Authorization: Bearer …`) — the shape
+  `sinkHeaders` parses on the upload side — and the restore step prefixed its own
+  `Authorization: `, sending the header twice. v0.10.1 fixed the dashed-name half of
+  this; both produced an identical 401, so the second was invisible until the first
+  was gone.
+
 ## v0.10.1
 
 ### Fixed
