@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.10.3
+
 ### Fixed
 - `resources.conversation` restore answered **401** for a third reason, and this one
   was the actual bug: **a shell does not propagate an environment variable whose name
