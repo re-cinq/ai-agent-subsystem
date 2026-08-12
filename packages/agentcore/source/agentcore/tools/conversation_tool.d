@@ -1,6 +1,7 @@
 module agentcore.tools.conversation_tool;
 
-import agentcore.core.env : envConversationSource, envConversationId, envConversationAuth;
+import agentcore.core.env : envConversationSource, envConversationId,
+	envConversationAuthValue;
 import agentcore.tools.initcontext : InitContext;
 import agentcore.tools.tool : Tool;
 
@@ -45,19 +46,18 @@ final class ConversationTool : Tool
 		const src = "\"$" ~ envConversationSource ~ "\"";
 		const id = "\"$" ~ envConversationId ~ "\"";
 
-		// The credential is read through `printenv`, not shell expansion. The env var
-		// holding it is named after a Kubernetes SECRET KEY, and those routinely
-		// contain dashes — `$agent-events-auth` expands `$agent` (unset) and leaves
-		// `-events-auth` behind. The name itself rides the env too, so nothing from
-		// the recipe reaches the command string.
+		// The credential rides a SHELL-SAFE name the init exported for us.
 		//
-		// The value is a COMPLETE HEADER LINE (`Authorization: Bearer …`) — the same
-		// shape `sinkHeaders` parses on the upload side, which is why that half works.
-		// Prefixing `Authorization: ` here sent `Authorization: Authorization: Bearer
-		// …` and answered 401 just as the dashed-name bug did, so the two looked like
-		// one problem until the first was fixed.
+		// It cannot be read from its own variable here at any cost: that variable is
+		// named after a Kubernetes secret key (`agent-events-auth`), and a shell does
+		// not propagate a variable whose name is not a valid shell identifier — so
+		// `printenv "$AGENT_CONVERSATION_AUTH"` returns EMPTY from inside `sh -c`,
+		// and the header goes out with no value. Two previous fixes here corrected
+		// the SYNTAX of that read (`$agent-events-auth` does not expand; the value is
+		// already a whole header line) and both were true and both still 401'd,
+		// because the read itself was impossible.
 		const auth = ctx.conversationAuthEnv.length
-			? "-H \"$(printenv \"$" ~ envConversationAuth ~ "\")\" " : "";
+			? "-H \"$" ~ envConversationAuthValue ~ "\" " : "";
 
 		return [
 			[
@@ -112,7 +112,13 @@ version (unittest) import fluent.asserts;
 
 @safe unittest
 {
-	// A configured credential is sent, resolved from its env var rather than baked in.
+	// A configured credential is sent through a SHELL-SAFE variable.
+	//
+	// This asserts the PROPERTY, not a spelling: the step must not name the
+	// recipe-supplied variable at all, and must not try to read it with printenv.
+	// The two previous fixes here each asserted their own syntax, so each passed
+	// while the credential still arrived empty — the read was impossible, not
+	// misspelled.
 	InitContext ctx;
 	ctx.conversationSource = "https://floor/api/agent-conversations";
 	ctx.conversationId = "conv-1";
@@ -120,13 +126,13 @@ version (unittest) import fluent.asserts;
 	ctx.conversationAuthEnv = "agent-events-auth";
 
 	const step = (new ConversationTool).steps(ctx)[0][2];
-	// Read via printenv, because a secret-key name with dashes is not a shell
-	// variable name — `$agent-events-auth` would send `-events-auth`.
-	// The env value is the whole header line, so the tool must NOT add its own
-	// `Authorization: ` — that sent the header twice and answered 401.
-	step.should.contain("-H \"$(printenv \"$AGENT_CONVERSATION_AUTH\")\"");
-	step.should.not.contain("Authorization: $(printenv");
-	step.should.not.contain("$agent-events-auth");
+
+	step.should.contain("-H \"$LORE_CONVERSATION_AUTH\"");
+	// The secret-key name is not a shell identifier: no shell can read it, so the
+	// step must never mention it or reach for it.
+	step.should.not.contain("agent-events-auth");
+	step.should.not.contain("printenv");
+	step.should.not.contain("AGENT_CONVERSATION_AUTH");
 }
 
 @safe unittest

@@ -6,6 +6,16 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+- `resources.conversation` restore answered **401** for a third reason, and this one
+  was the actual bug: **a shell does not propagate an environment variable whose name
+  is not a valid shell identifier.** The credential's variable is named after a
+  Kubernetes secret key (`agent-events-auth`), so no child of `sh -c` — including
+  `printenv` — can ever read it, whatever the syntax. The init now resolves the value
+  itself with getenv, where a name is just a string, and exports it to each step as
+  `LORE_CONVERSATION_AUTH`. v0.10.1 and v0.10.2 each corrected the SYNTAX of a read
+  that was impossible; both were true and both still 401'd.
+
 ## v0.10.2
 
 ### Fixed

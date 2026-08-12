@@ -17,7 +17,8 @@ import agentcore.kube.jobspec : agentUid, agentGid;
 private extern (C) int lchown(scope const char* path, uid_t owner, gid_t group) @system nothrow @nogc;
 
 import agentcore.crds.enums : SinkType;
-import agentcore.core.env : defaultWorkspace, envConversationAuth, envConversationId,
+import agentcore.core.env : defaultWorkspace, envConversationAuth,
+	envConversationAuthValue, envConversationId,
 	envConversationSource, envModel,
 	envRepos, envSkills, envSkillsSource, envWorkspace;
 import agentcore.vendors.select : agentForModel;
@@ -53,6 +54,12 @@ InitContext contextFromEnv()
 	// Codex disagree on layout, and only the adapter knows its own.
 	ctx.conversationStateDir = agentForModel(ctx.model).stateDir;
 	ctx.conversationAuthEnv = environment.get(envConversationAuth, "");
+	// Resolve the credential's VALUE here, where the name is just a string. It is
+	// named after a Kubernetes secret key, so it routinely contains dashes, and a
+	// shell will not propagate a variable whose name is not a valid shell
+	// identifier — no child of `sh -c` can ever read it. getenv has no such rule.
+	ctx.conversationAuth = ctx.conversationAuthEnv.length
+		? environment.get(ctx.conversationAuthEnv, "") : "";
 	return ctx;
 }
 
@@ -82,7 +89,7 @@ int provision(InitContext ctx)
 		notify(sinks, source, LifecycleEvent(Phase.init_, Status.running, tool.name).toJson);
 		foreach (step; tool.steps(ctx))
 		{
-			const code = runStep(step);
+			const code = runStep(step, stepEnv(ctx));
 			if (code != 0)
 				return fail(sinks, source,
 					"[init] " ~ tool.name ~ " step failed (exit " ~ code.to!string ~ "): "
@@ -194,9 +201,22 @@ string detectPackageManager()
 	return "";
 }
 
+/// Values a step needs that only THIS process can read: the conversation
+/// credential, whose variable is named after a Kubernetes secret key and is
+/// therefore invisible to any shell. Empty when no credential is configured.
+private string[string] stepEnv(InitContext ctx)
+{
+	string[string] env;
+
+	if (ctx.conversationAuth.length)
+		env[envConversationAuthValue] = ctx.conversationAuth;
+
+	return env;
+}
+
 /// Run one argv step with inherited stdio. Returns its exit code, or 2 when the
 /// executable isn't on `PATH` (a clean failure instead of a deep exception).
-private int runStep(string[] step)
+private int runStep(string[] step, string[string] extraEnv = null)
 {
 	if (findExecutable(step[0]).length == 0)
 	{
@@ -204,7 +224,18 @@ private int runStep(string[] step)
 		return 2;
 	}
 	try
-		return wait(spawnProcess(step));
+	{
+		if (extraEnv is null || extraEnv.length == 0)
+			return wait(spawnProcess(step));
+
+		// The step's own environment, plus the values only this process could read.
+		auto env = environment.toAA;
+
+		foreach (k, v; extraEnv)
+			env[k] = v;
+
+		return wait(spawnProcess(step, env));
+	}
 	catch (Exception e)
 	{
 		logError("[init] failed to run " ~ step[0] ~ ": " ~ e.msg);

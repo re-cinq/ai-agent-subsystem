@@ -36,6 +36,14 @@ enum envConversationPin = "AGENT_CONVERSATION_PIN";
 // header. The controller injects that key as an env var of the same name; the pod
 // resolves it back, so the credential never rides in argv or a command string.
 enum envConversationAuth = "AGENT_CONVERSATION_AUTH";
+/// The credential VALUE, exported by the init under a shell-safe name.
+///
+/// `AGENT_CONVERSATION_AUTH` holds the NAME of the injected secret key, and that
+/// name comes from Kubernetes, where dashes are legal — `agent-events-auth`. A shell
+/// will not propagate a variable whose name is not a valid shell identifier, so a
+/// child process (`printenv`) can never see it, whatever the syntax. The init reads
+/// it with getenv, where the name is just a string, and re-exports it as this.
+enum envConversationAuthValue = "LORE_CONVERSATION_AUTH";
 
 // After the agent emits its terminal event, how long the supervisor waits for the
 // process to exit on its own before escalating SIGTERM -> SIGKILL. Some agent CLIs
