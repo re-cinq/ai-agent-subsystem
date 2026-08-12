@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.10.2
+
 ### Fixed
 - `resources.conversation` restore answered **401** a second way. The credential env
   value is a COMPLETE HEADER LINE (`Authorization: Bearer …`) — the shape
