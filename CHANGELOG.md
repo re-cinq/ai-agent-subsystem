@@ -6,6 +6,21 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.10.6
+
+### Fixed
+- **A cloned repo carried no way to authenticate, so an agent could commit but never
+  push.** The clone's credential helper rode `-c` flags, which live for that one
+  invocation — nothing persisted, and `repoUrl` strips any credentials from the url by
+  design (#117). An agent that finished its work therefore found out at push time that
+  it had no credential, and downstream the run looked *successful* with an empty branch
+  (re-cinq/lore#1329). The helper is now written into the clone's own config right
+  after cloning, so every later git command in that repo authenticates the same way the
+  clone did. Config-scoped, not global: a second repo in the same workspace does not
+  inherit another's token. What lands in `.git/config` is the helper script with
+  `$NAME` unexpanded, so the file names the environment variable and never holds the
+  secret — the same posture the clone argv already had.
+
 ## v0.10.5
 
 ### Fixed
