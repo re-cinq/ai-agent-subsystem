@@ -109,8 +109,34 @@ private string[] cloneStep(in RepoRef r, string dest) @safe pure
 	if (!isEnvName(r.tokenSecret))
 		return ["git", "clone", "--", url, dest];
 
-	const helper = "!f() { echo username=x-access-token; echo password=$" ~ r.tokenSecret ~ "; }; f";
-	return ["git", "-c", "credential.helper=", "-c", "credential.helper=" ~ helper, "clone", "--", url, dest];
+	return ["git", "-c", "credential.helper=", "-c", "credential.helper=" ~ credentialHelper(r.tokenSecret),
+		"clone", "--", url, dest];
+}
+
+/// The credential helper that answers with the token read from `tokenSecret` — an
+/// environment variable **by name**, expanded by the git child at the moment it
+/// authenticates. The value is never in the argv, never in the repo config, and
+/// therefore never in a log of either.
+private string credentialHelper(string tokenSecret) @safe pure
+{
+	return "!f() { echo username=x-access-token; echo password=$" ~ tokenSecret ~ "; }; f";
+}
+
+/// Persist that helper into the CLONE's own config, so git commands the agent runs
+/// later authenticate too.
+///
+/// The clone's `-c` flags apply to that one invocation and nothing else, so a cloned
+/// repo carried no way to authenticate: an agent that committed could not push, and
+/// found out only at push time, with no credential to fall back on. (Downstream, that
+/// is a run whose work is complete and whose branch is empty — re-cinq/lore#1329.)
+///
+/// Config-scoped rather than global: the token belongs to the repo it was minted for,
+/// and a second repo in the same workspace must not inherit it. What lands in
+/// `.git/config` is the helper SCRIPT — `$NAME`, unexpanded — so the file names the
+/// variable and never holds the secret.
+private string[] credentialStep(in RepoRef r, string dest) @safe pure
+{
+	return ["git", "-C", dest, "config", "credential.helper", credentialHelper(r.tokenSecret)];
 }
 
 /// The checkout argv for a declared `ref_`. A ref beginning with `-` is never a
@@ -170,6 +196,10 @@ final class GitTool : Tool
 				continue;
 			all ~= ["rm", "-rf", dest];
 			all ~= cloneStep(r, dest);
+			// Straight after the clone, so every later git command in this repo —
+			// the agent's push included — can authenticate the same way.
+			if (isEnvName(r.tokenSecret))
+				all ~= credentialStep(r, dest);
 			if (r.ref_.length)
 				all ~= checkoutStep(dest, r.ref_);
 		}
@@ -312,6 +342,58 @@ unittest
 	bad.tokenSecret = "GH;rm -rf /";
 	ctx.repos = [bad];
 	git.steps(ctx)[1].should.equal(["git", "clone", "--", "https://github.com/o/app.git", "/ws/app"]);
+}
+
+unittest
+{
+	// The helper is PERSISTED into the clone's own config, so the agent's later
+	// git commands — a push, above all — authenticate the same way the clone did.
+	// Without this a run could commit and never deliver: the clone's `-c` flags
+	// live for that one invocation (re-cinq/lore#1329).
+	auto git = new GitTool;
+	InitContext ctx;
+	ctx.workspaceDir = "/ws";
+	auto authed = RepoRef("app", "o/app", "topic");
+	authed.tokenSecret = "GH_TOKEN_b81f9fd2";
+	ctx.repos = [authed];
+
+	auto steps = git.steps(ctx);
+	steps[2].should.equal([
+		"git", "-C", "/ws/app", "config", "credential.helper",
+		"!f() { echo username=x-access-token; echo password=$GH_TOKEN_b81f9fd2; }; f",
+	]);
+	// what lands in the config names the variable; the value stays in the environment
+	steps[2][$ - 1].canFind("$GH_TOKEN_b81f9fd2").should.equal(true);
+	// and it is written before the checkout, which still follows
+	steps[3].should.equal(["git", "-C", "/ws/app", "checkout", "topic"]);
+}
+
+unittest
+{
+	// No token_secret, nothing to persist: a public clone gets no credential step,
+	// so the checkout stays where an unauthenticated repo has always had it.
+	auto git = new GitTool;
+	InitContext ctx;
+	ctx.workspaceDir = "/ws";
+	ctx.repos = [RepoRef("app", "o/app", "topic")];
+
+	auto steps = git.steps(ctx);
+	steps.length.should.equal(3);
+	steps[2].should.equal(["git", "-C", "/ws/app", "checkout", "topic"]);
+}
+
+unittest
+{
+	// A malformed env-var name is rejected for the config write exactly as it is for
+	// the clone — otherwise the injection the clone refuses would land in a file.
+	auto git = new GitTool;
+	InitContext ctx;
+	ctx.workspaceDir = "/ws";
+	auto bad = RepoRef("app", "o/app");
+	bad.tokenSecret = "GH;rm -rf /";
+	ctx.repos = [bad];
+
+	git.steps(ctx).length.should.equal(2); // rm + unauthenticated clone, no config step
 }
 
 // An option-shaped url/ref is handed to git as data, never as a flag, so a crafted
