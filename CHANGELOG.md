@@ -6,6 +6,18 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+- **Already-terminal Agents were never pruned**, so history limits only held while the
+  controller was alive to observe each completion: `pruneHistory` fires on a run's
+  terminal *transition*, and a CR that is already Succeeded/Failed at startup never
+  transitions again. On a controller that kept restarting the pile only grew — 2,657
+  accumulated CRs drove a production controller into CrashLoopBackOff, each startup
+  sync slower than the last (re-cinq/lore#1290). The startup/poll sync now runs a
+  prune sweep over every Station's history limits BEFORE the reconcile pass, so the
+  inventory shrinks to the configured limits no matter how it got big. Per-Station
+  error containment; a standby or a replica that loses leadership mid-sweep never
+  deletes.
+
 ## v0.10.4
 
 ### Changed

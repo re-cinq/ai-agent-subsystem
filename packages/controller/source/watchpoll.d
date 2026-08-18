@@ -13,7 +13,10 @@ import vibe.core.log : logError, logInfo;
 import agentcore.core.types : Phase;
 import agentcore.crds.agent : Agent;
 import agentcore.kube.jsonbody : parseAgent;
-import agentcore.reconcile.reconcile_driver : reconcileAgent, ReconcileEffect;
+import agentcore.kube.kubeclient : NotFound;
+import agentcore.reconcile.prune : agentsToPrune;
+import agentcore.reconcile.reconcile_driver : reconcileAgent, ReconcileEffect,
+	resourceVersionByName;
 
 import cache : AgentCache;
 import httpkube : AgentInformerClient, WatchExpired;
@@ -190,8 +193,66 @@ private string sync(AgentInformerClient client, string ns, string agentImage, Ag
 	cache.replaceAll(page.items);
 	recordResync();
 	logInfo("sync: %s agent(s) at resourceVersion %s", page.items.length, page.resourceVersion);
+	pruneAllStations(client, ns, cache, leadership);
 	reconcileAll(client, ns, agentImage, cache, leadership);
 	return page.resourceVersion;
+}
+
+/// Every distinct `spec.stationRef` among `agents`, in first-seen order. Pure so
+/// the prune sweep's fan-out is unit-testable.
+string[] distinctStationRefs(const Agent[] agents) @safe pure nothrow
+{
+	string[] refs;
+	outer: foreach (ref agent; agents)
+	{
+		if (agent.spec.stationRef.length == 0)
+			continue;
+		foreach (existing; refs)
+			if (existing == agent.spec.stationRef)
+				continue outer;
+		refs ~= agent.spec.stationRef;
+	}
+	return refs;
+}
+
+/// Enforce every Station's history limits over the freshly-synced cache BEFORE the
+/// reconcile pass walks it (re-cinq/lore#1290). `pruneHistory` fires only on a run's
+/// terminal TRANSITION, so CRs that are already terminal at startup are invisible to
+/// it: a controller that keeps dying never completes a run, the pile grows with every
+/// restart, and every startup sync gets slower — 2,657 accumulated CRs took a
+/// production controller into CrashLoopBackOff. Pruning first shrinks the inventory
+/// to the configured limits regardless of how it got big. One Station's failure must
+/// not strand the sweep for the rest, so errors are contained per Station.
+private void pruneAllStations(AgentInformerClient client, string ns, AgentCache cache,
+	Leadership leadership)
+{
+	auto agents = cache.snapshot();
+	foreach (stationRef; distinctStationRefs(agents))
+	{
+		// Losing leadership mid-sweep must stop us deleting from a now-stale cache,
+		// same as reconcileAll.
+		if (!leadership.isLeader)
+			return;
+		try
+		{
+			const station = client.getStation(ns, stationRef);
+			foreach (name; agentsToPrune(agents, stationRef,
+					station.spec.successfulRunsHistoryLimit, station.spec.failedRunsHistoryLimit))
+			{
+				client.deleteAgent(ns, name, resourceVersionByName(agents, name));
+				cache.remove(name);
+			}
+		}
+		catch (NotFound)
+		{
+			// A run whose Station is gone has no limits to enforce; the reconcile pass
+			// reports the missing ref.
+		}
+		catch (Throwable error) // contain vibe-level Errors too, as reconcileOne does (#88)
+		{
+			logError("prune %s: %s", stationRef, error.msg);
+		}
+	}
 }
 
 /// Watch from `resourceVersion`, updating the cache and reconciling each change,
@@ -513,6 +574,7 @@ version (unittest)
 		Station station;
 		AgentDefinition definition;
 		Leadership flipLeaderOnCreate; /// when set, leadership drops after the first createJob
+		bool stationMissing; /// when set, getStation throws NotFound
 
 		Json[] createdJobs;
 		string[] patchedNames;
@@ -531,6 +593,8 @@ version (unittest)
 
 		Station getStation(string ns, string name)
 		{
+			if (stationMissing)
+				throw new NotFound("station " ~ name ~ " not found");
 			return station;
 		}
 
@@ -578,6 +642,16 @@ version (unittest)
 		agent.metadata.name = name;
 		agent.spec.stationRef = stationRef;
 		agent.status.phase = Phase.pending;
+		return agent;
+	}
+
+	private Agent terminalRun(string name, string stationRef, Phase phase, string completedAt)
+	{
+		Agent agent;
+		agent.metadata.name = name;
+		agent.spec.stationRef = stationRef;
+		agent.status.phase = phase;
+		agent.status.completedAt = completedAt;
 		return agent;
 	}
 
@@ -663,4 +737,80 @@ unittest
 	leadership.isLeader = true;
 	auto cache = new AgentCache;
 	watch(client, "ai-agents", "img", leadership, cache, "1").should.throwException!WatchExpired;
+}
+
+unittest
+{
+	// Distinct refs in first-seen order; runs with no stationRef are skipped.
+	Agent a = pendingRun("r1", "stn-a");
+	Agent b = pendingRun("r2", "stn-b");
+	Agent c = pendingRun("r3", "stn-a");
+	Agent orphan = pendingRun("r4", "");
+
+	distinctStationRefs([a, b, c, orphan]).should.equal(["stn-a", "stn-b"]);
+	distinctStationRefs([]).length.should.equal(0);
+}
+
+unittest
+{
+	// Startup sync prunes ALREADY-terminal runs over the Station's history limits
+	// before reconciling (re-cinq/lore#1290): none of these transitions this pass —
+	// the transition-time pruneHistory would never touch them — yet the pile is cut
+	// to the limits and the pruned names leave the cache. Success limit 1 keeps only
+	// the newest succeeded run; the failed bucket is under its limit and untouched.
+	auto client = stationClient();
+	client.station.spec.successfulRunsHistoryLimit = 1;
+	client.station.spec.failedRunsHistoryLimit = 3;
+	client.listPage = AgentListPage([
+		terminalRun("succ-old", "stn", Phase.succeeded, "2026-08-18T08:00:00Z"),
+		terminalRun("succ-new", "stn", Phase.succeeded, "2026-08-18T10:00:00Z"),
+		terminalRun("failed-one", "stn", Phase.failed, "2026-08-18T09:00:00Z"),
+	], "100", "");
+
+	auto leadership = new Leadership;
+	leadership.isLeader = true;
+	auto cache = new AgentCache;
+	sync(client, "ai-agents", "img", cache, leadership);
+
+	client.deletedAgents.should.equal(["succ-old"]);
+	cache.length.should.equal(2);
+}
+
+unittest
+{
+	// A missing Station leaves its runs alone and does not abort the sweep: the
+	// reconcile pass owns reporting the missing ref.
+	auto client = stationClient();
+	client.stationMissing = true;
+	client.listPage = AgentListPage([
+		terminalRun("succ-1", "stn", Phase.succeeded, "2026-08-18T08:00:00Z"),
+		terminalRun("succ-2", "stn", Phase.succeeded, "2026-08-18T09:00:00Z"),
+		terminalRun("succ-3", "stn", Phase.succeeded, "2026-08-18T10:00:00Z"),
+		terminalRun("succ-4", "stn", Phase.succeeded, "2026-08-18T11:00:00Z"),
+	], "100", "");
+
+	auto leadership = new Leadership;
+	leadership.isLeader = true;
+	auto cache = new AgentCache;
+	sync(client, "ai-agents", "img", cache, leadership);
+
+	client.deletedAgents.length.should.equal(0);
+	cache.length.should.equal(4);
+}
+
+unittest
+{
+	// Without leadership nothing is pruned — a standby must not delete from a cache
+	// it is not reconciling.
+	auto client = stationClient();
+	client.station.spec.successfulRunsHistoryLimit = 0;
+	auto cache = new AgentCache;
+	cache.replaceAll([terminalRun("succ-1", "stn", Phase.succeeded, "2026-08-18T08:00:00Z")]);
+
+	auto leadership = new Leadership;
+	leadership.isLeader = false;
+	pruneAllStations(client, "ai-agents", cache, leadership);
+
+	client.deletedAgents.length.should.equal(0);
+	cache.length.should.equal(1);
 }
