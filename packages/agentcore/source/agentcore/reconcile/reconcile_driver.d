@@ -112,8 +112,9 @@ ReconcileEffect reconcileAgent(KubeClient client, string ns, Agent agent, string
 
 /// The `resourceVersion` of the cached Agent named `name`, or "" if it is not in the
 /// cache — used to send a delete precondition so a stale-cache delete of an Agent that
-/// has since changed is rejected rather than removing the newer object.
-private string resourceVersionByName(const Agent[] cached, string name) @safe
+/// has since changed is rejected rather than removing the newer object. Public because
+/// the controller's startup prune sweep (watchpoll) sends the same precondition.
+string resourceVersionByName(const Agent[] cached, string name) @safe
 {
 	foreach (agent; cached)
 		if (agent.metadata.name == name)
