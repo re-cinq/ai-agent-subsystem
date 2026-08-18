@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.10.5
+
 ### Fixed
 - **Already-terminal Agents were never pruned**, so history limits only held while the
   controller was alive to observe each completion: `pruneHistory` fires on a run's
