@@ -6,6 +6,15 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.10.7
+
+### Added
+- **Support for Google Gemini CLI (`@google/gemini-cli`) as a pluggable agent vendor.**
+  This includes the new `GeminiAgent` adapter and the dynamic `GeminiSetup` installer, which
+  automates the installation of the `gemini` CLI via its official curl script. The adapter
+  maps model parameters (`gemini-*` models), permission bypass modes (via `--yolo`),
+  and conversation session state resumption (via `--resume`) to their native CLI options.
+
 ## v0.10.6
 
 ### Fixed
