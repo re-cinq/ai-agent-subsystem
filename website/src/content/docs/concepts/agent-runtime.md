@@ -62,7 +62,7 @@ itself whether the run needs it:
 | --- | --- | --- |
 | `supervisor` | always | copies the supervisor binary baked into the agent image into `/agent/bin`, so the main container can exec it as PID 1. Idempotent across init retries. |
 | `git` | `resources.repos` is non-empty | clones each repo (full history) into `WORKSPACE_DIR`, checking out its `ref` (branch, tag, or SHA). Re-entrant across init retries. Private repos authenticate with `token_secret` (below). |
-| the agent CLI (`claude`, `codex`, `opencode`, `exec`) | always; *which* CLI comes from the recipe's `model` (same routing as [pluggable agents](#pluggable-agents)) | installs the one CLI the run's model routes to, via that vendor's official installer — e.g. Claude's `curl -fsSL https://claude.ai/install.sh \| bash`. Picking the installer from the same routing that picks the adapter means "install X" can never drift from "run X". |
+| the agent CLI (`claude`, `codex`, `gemini`, `opencode`, `exec`) | always; *which* CLI comes from the recipe's `model` (same routing as [pluggable agents](#pluggable-agents)) | installs the one CLI the run's model routes to, via that vendor's official installer — e.g. Claude's `curl -fsSL https://claude.ai/install.sh \| bash`. Picking the installer from the same routing that picks the adapter means "install X" can never drift from "run X". |
 | `skills` | always (the repo's own `.claude/skills`); the registry half when `resources.skills_source` is set | stages skills into the run's `$HOME/.claude` so headless `claude --print` auto-loads them user-scope: the cloned repo's own `.claude/skills`, then the registry's `settings.json` (session hooks), then each name in `resources.skills` fetched as `<source>/<name>.tar.gz`. Best-effort — an unreachable registry never fails the run. |
 | `conversation` | `resources.conversation` names both a `source` and an `id`, and the vendor has a state directory | restores the prior run's state archive into the vendor's own state dir under `$HOME`, so the agent resumes that conversation instead of starting fresh. Best-effort: a missing archive leaves the run with a fresh conversation. See [continuing a conversation](#continuing-a-conversation). |
 
@@ -130,6 +130,7 @@ bakes the resulting command into the Job; the supervisor just runs it.
 | --- | --- | --- | --- |
 | Claude Code | `claude-*`, and anything unrecognized (the default) | `ClaudeAgent` | `claude --print --output-format stream-json …` |
 | OpenAI Codex | `gpt-*`, `o1*`/`o3*`/`o4*`, `*codex*` | `CodexAgent` | `codex exec --json …` |
+| Google Gemini | `gemini-*` | `GeminiAgent` | `gemini --prompt … --output-format stream-json` |
 | OpenCode | any id containing `opencode`, e.g. `opencode/anthropic/claude-sonnet-4-6` | `OpenCodeAgent` | `opencode run --format json …` |
 | Command runner | the literal id `exec` | `ExecAgent` | the argv from the recipe's `tool_config.command`, with the rendered prompt appended |
 
@@ -163,6 +164,7 @@ which handles multi-file formats for free.
 | --- | --- | --- |
 | Claude Code | `.claude/projects` | yes (`--session-id`) |
 | OpenAI Codex | `.codex/sessions` | no — the CLI assigns its own id |
+| Google Gemini | `.gemini` | no — the CLI assigns its own id |
 | OpenCode, `exec` | — | no |
 
 `pin` is the id this run saves its *own* state as, which makes each run a **fork**: the run it

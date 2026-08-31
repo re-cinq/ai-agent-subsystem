@@ -11,13 +11,16 @@ import agentcore.vendors.codex.agent : CodexAgent;
 import agentcore.vendors.codex.setup : CodexSetup;
 import agentcore.vendors.exec.agent : ExecAgent;
 import agentcore.vendors.exec.setup : ExecSetup;
+import agentcore.vendors.gemini.agent : GeminiAgent;
+import agentcore.vendors.gemini.setup : GeminiSetup;
 import agentcore.vendors.opencode.agent : OpenCodeAgent;
 import agentcore.vendors.opencode.setup : OpenCodeSetup;
 
 /// Choose the agent adapter from a model id. The literal `exec` id maps to the
 /// non-LLM command runner (station recipes); an explicit `opencode` / `opencode/…`
-/// id maps to OpenCode; the GPT / o-series / codex family maps to Codex; Claude
-/// models and the empty or unrecognized case map to Claude (the system default).
+/// id maps to OpenCode; the GPT / o-series / codex family maps to Codex; Gemini
+/// models map to Gemini; Claude models and the empty or unrecognized case map to
+/// Claude (the system default).
 /// OpenCode is checked first so an `opencode/openai/gpt-…` id routes to OpenCode
 /// rather than matching the Codex `gpt` rule.
 Agent agentForModel(string model) @safe
@@ -27,6 +30,8 @@ Agent agentForModel(string model) @safe
 		return new ExecAgent;
 	if (m.canFind("opencode"))
 		return new OpenCodeAgent;
+	if (m.canFind("gemini"))
+		return new GeminiAgent;
 	if (m.canFind("codex") || m.startsWith("gpt") || m.startsWith("o1")
 		|| m.startsWith("o3") || m.startsWith("o4"))
 		return new CodexAgent;
@@ -42,6 +47,7 @@ AgentSetup[] allAgentSetups() @safe
 		cast(AgentSetup) new ClaudeSetup,
 		new CodexSetup,
 		new ExecSetup,
+		new GeminiSetup,
 		new OpenCodeSetup,
 	];
 }
@@ -79,6 +85,7 @@ version (unittest) import fluent.asserts;
 	agentForModel("opencode").name.should.equal("opencode");
 	agentForModel("opencode/anthropic/claude-sonnet-4-6").name.should.equal("opencode");
 	agentForModel("opencode/openai/gpt-4.1").name.should.equal("opencode"); // OpenCode wins over the gpt rule
+	agentForModel("gemini-1.5-pro").name.should.equal("gemini");
 	agentForModel("exec").name.should.equal("exec");
 	agentForModel("EXEC").name.should.equal("exec");
 	agentForModel("executive-model").name.should.equal("claude"); // exact match only, no substring
@@ -93,10 +100,12 @@ version (unittest) import fluent.asserts;
 	agentSetupForModel("gpt-5-codex").name.should.equal("codex");
 	agentSetupForModel("o3-mini").name.should.equal("codex");
 	agentSetupForModel("opencode/anthropic/claude-sonnet-4-6").name.should.equal("opencode");
+	agentSetupForModel("gemini-2.0-flash").name.should.equal("gemini");
 
 	agentSetupForModel("exec").name.should.equal("exec");
 
-	allAgentSetups().length.should.equal(4);
+	allAgentSetups().length.should.equal(5);
 	agentSetupByName("codex").name.should.equal("codex");
+	agentSetupByName("gemini").name.should.equal("gemini");
 	(agentSetupByName("nope") is null).should.equal(true);
 }

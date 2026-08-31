@@ -16,7 +16,7 @@ ai-agent-subsystem/
 │   │       ├── crds/              #   CR types + schema (UDAs)
 │   │       ├── reconcile/         #   decide() state machine, driver, pruning, concurrency
 │   │       ├── kube/              #   KubeClient, Job builder, JSON bodies, bundle paths
-│   │       ├── vendors/           #   agent adapters + installers (claude/codex/opencode/exec)
+│   │       ├── vendors/           #   agent adapters + installers (claude/codex/gemini/opencode/exec)
 │   │       ├── tools/             #   init-container tools (supervisor/git/agent/skills/conversation)
 │   │       ├── pkgmanager/        #   apt/dnf/apk detection + bootstrap
 │   │       ├── output/            #   event wrapping, sinks, lifecycle, output.select, file events
