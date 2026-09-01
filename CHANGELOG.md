@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.10.9
+
 ### Fixed
 - **The Gemini CLI installer fetched a URL that does not exist.** v0.10.8's
   `GeminiSetup` piped `https://dl.google.com/gemini/install.sh` to bash, but
