@@ -36,6 +36,13 @@ final class GeminiAgent : Agent
 			"--prompt", renderedPrompt,
 			"--output-format", "stream-json",
 			"--model", recipe.model.length ? recipe.model : "gemini-2.5-flash",
+			// Workspace trust is a separate gate from approvals: a headless run
+			// in a freshly-cloned directory is "untrusted" and the CLI refuses
+			// to start — --yolo does not cover it (exit 55, first hit in
+			// production 2026-09-02). The run pod IS the trust boundary here:
+			// the workspace is the recipe's own clone, in a container that
+			// exists only for this run.
+			"--skip-trust",
 		];
 
 		if (recipe.permissionMode == PermissionMode.bypass)
@@ -58,6 +65,9 @@ version (unittest) import fluent.asserts;
 	cmd[0].should.equal("gemini");
 	cmd.should.contain("--output-format");
 	cmd.should.contain("stream-json");
+	// Always present, approvals or not: trust gates STARTUP, and every run's
+	// workspace is a fresh clone the CLI has never seen.
+	cmd.should.contain("--skip-trust");
 	cmd.should.contain("gemini-2.5-pro");
 	cmd.should.not.contain("--yolo");
 	cmd.should.contain("--prompt");
