@@ -6,6 +6,18 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+- **The Gemini CLI installer fetched a URL that does not exist.** v0.10.8's
+  `GeminiSetup` piped `https://dl.google.com/gemini/install.sh` to bash, but
+  Google ships no curl installer for gemini-cli — the URL 404s, so every
+  gemini-model run failed at init (`curl: (22)`) before the agent container
+  ever started. The installer now fetches the `@google/gemini-cli` npm
+  tarball directly (it is a dependency-free self-contained bundle), extracts
+  it with tar — which the debian-slim init image has, unlike node/npm — and
+  drops a `node` wrapper into `$HOME/.local/bin`, resolved at run time in the
+  main container, which is the one that has node. Verified end to end against
+  debian:bookworm-slim (install) and node:22-bookworm (execution).
+
 ## v0.10.8
 
 ### Added
