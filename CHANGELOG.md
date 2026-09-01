@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.10.10
+
 ### Fixed
 - **Headless Gemini runs died on the workspace-trust gate.** Trust is a
   separate gate from approvals: a run pod's freshly-cloned workspace is
