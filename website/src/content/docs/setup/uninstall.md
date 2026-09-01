@@ -22,7 +22,7 @@ kubectl delete -f https://github.com/re-cinq/ai-agent-subsystem/releases/latest/
 To remove a specific version you installed by digest, delete with that release's manifest:
 
 ```sh
-kubectl delete -f https://github.com/re-cinq/ai-agent-subsystem/releases/download/v0.10.8/install.yaml
+kubectl delete -f https://github.com/re-cinq/ai-agent-subsystem/releases/download/v0.10.9/install.yaml
 ```
 
 ### From a source checkout
