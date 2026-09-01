@@ -41,7 +41,7 @@ repo root — build them, tag for **your** registry, and push:
 
 ```sh
 REGISTRY=your-registry.example.com/your-project   # a registry your cluster can pull from
-TAG=v0.10.9
+TAG=v0.10.10
 
 docker build -f deploy/Dockerfile.controller       -t "$REGISTRY/ai-agent-controller:$TAG" .
 docker build -f scripts/container/Dockerfile.agent -t "$REGISTRY/ai-agent:$TAG"            .
