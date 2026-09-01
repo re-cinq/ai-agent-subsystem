@@ -6,6 +6,12 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+- **`@re-cinq/agent-contracts` 0.10.10 never reached npm.** The v0.10.10 release
+  commit truncated the package's `package.json` and lockfile to zero bytes, so the
+  tag-driven publish (and CI on main) failed. Both files are restored at 0.10.10 and
+  the package is published from main by a manual run of the publish workflow.
+
 ## v0.10.10
 
 ### Fixed
