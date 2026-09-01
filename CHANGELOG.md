@@ -6,6 +6,15 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+- **Headless Gemini runs died on the workspace-trust gate.** Trust is a
+  separate gate from approvals: a run pod's freshly-cloned workspace is
+  "untrusted", and the CLI refuses to start there headless — `--yolo` does not
+  cover it (exit 55). The adapter now always passes `--skip-trust`: the run
+  pod is the trust boundary, a container that exists only for this run,
+  working on the recipe's own clone. Verified against the real CLI: the full
+  production invocation returns a stream-json `result: success`.
+
 ## v0.10.9
 
 ### Fixed
