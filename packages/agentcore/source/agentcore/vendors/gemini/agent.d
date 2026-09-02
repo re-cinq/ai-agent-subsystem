@@ -35,7 +35,10 @@ final class GeminiAgent : Agent
 			"gemini",
 			"--prompt", renderedPrompt,
 			"--output-format", "stream-json",
-			"--model", recipe.model.length ? recipe.model : "gemini-2.5-flash",
+			// The 2.5 family is retired for new users ("no longer available… use
+			// gemini-3.1" — first hit in production 2026-09-02, re-cinq/lore#1732):
+			// a model-less recipe must fall back to one that still answers.
+			"--model", recipe.model.length ? recipe.model : "gemini-3.1-flash-lite",
 			// Workspace trust is a separate gate from approvals: a headless run
 			// in a freshly-cloned directory is "untrusted" and the CLI refuses
 			// to start — --yolo does not cover it (exit 55, first hit in

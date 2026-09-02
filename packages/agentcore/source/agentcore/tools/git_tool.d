@@ -117,9 +117,40 @@ private string[] cloneStep(in RepoRef r, string dest) @safe pure
 /// environment variable **by name**, expanded by the git child at the moment it
 /// authenticates. The value is never in the argv, never in the repo config, and
 /// therefore never in a log of either.
-private string credentialHelper(string tokenSecret) @safe pure
+///
+/// With a `fallbackFile`, the helper falls back to reading that file when the
+/// variable is unset or empty. The env stays the primary path; the file exists
+/// because some agent CLIs spawn their shell-tool children with a scrubbed
+/// environment, in which `$NAME` expands to nothing and the push dies on
+/// "terminal prompts disabled" with the work complete and undeliverable
+/// (re-cinq/lore#1732 — the gemini ready-for-review pods).
+private string credentialHelper(string tokenSecret, string fallbackFile = "") @safe pure
 {
-	return "!f() { echo username=x-access-token; echo password=$" ~ tokenSecret ~ "; }; f";
+	const password = fallbackFile.length
+		? "${" ~ tokenSecret ~ ":-$(cat \"" ~ fallbackFile ~ "\" 2>/dev/null)}"
+		: "$" ~ tokenSecret;
+	return "!f() { echo username=x-access-token; echo password=" ~ password ~ "; }; f";
+}
+
+/// Where the fallback token copy lives: inside the clone's own `.git`, so it can
+/// never be committed or pushed, is wiped by the re-entrant `rm -rf`, and is
+/// handed to the agent uid by the same chown that hands over the clone.
+private string tokenFilePath(string dest) @safe pure
+{
+	return dest ~ "/.git/lore-token";
+}
+
+/// Write the token's VALUE to the fallback file, 0600 before a byte lands. The
+/// only thing spliced into the script is the validated env-var name (the same
+/// rule as the helper); the path rides as a positional argument, never through
+/// the script text.
+private string[] tokenFileStep(in RepoRef r, string dest) @safe pure
+{
+	return [
+		"sh", "-c",
+		"umask 077; printf %s \"$" ~ r.tokenSecret ~ "\" > \"$1\"",
+		"sh", tokenFilePath(dest),
+	];
 }
 
 /// Persist that helper into the CLONE's own config, so git commands the agent runs
@@ -132,11 +163,12 @@ private string credentialHelper(string tokenSecret) @safe pure
 ///
 /// Config-scoped rather than global: the token belongs to the repo it was minted for,
 /// and a second repo in the same workspace must not inherit it. What lands in
-/// `.git/config` is the helper SCRIPT — `$NAME`, unexpanded — so the file names the
-/// variable and never holds the secret.
+/// `.git/config` is the helper SCRIPT — `$NAME`, unexpanded, plus the fallback
+/// file's PATH — so the config names where the secret lives and never holds it.
 private string[] credentialStep(in RepoRef r, string dest) @safe pure
 {
-	return ["git", "-C", dest, "config", "credential.helper", credentialHelper(r.tokenSecret)];
+	return ["git", "-C", dest, "config", "credential.helper",
+		credentialHelper(r.tokenSecret, tokenFilePath(dest))];
 }
 
 /// The checkout argv for a declared `ref_`. A ref beginning with `-` is never a
@@ -197,9 +229,14 @@ final class GitTool : Tool
 			all ~= ["rm", "-rf", dest];
 			all ~= cloneStep(r, dest);
 			// Straight after the clone, so every later git command in this repo —
-			// the agent's push included — can authenticate the same way.
+			// the agent's push included — can authenticate the same way. The token
+			// file follows: it is the helper's fallback for shell-tool children
+			// whose environment the agent CLI scrubbed (re-cinq/lore#1732).
 			if (isEnvName(r.tokenSecret))
+			{
 				all ~= credentialStep(r, dest);
+				all ~= tokenFileStep(r, dest);
+			}
 			if (r.ref_.length)
 				all ~= checkoutStep(dest, r.ref_);
 		}
@@ -360,12 +397,21 @@ unittest
 	auto steps = git.steps(ctx);
 	steps[2].should.equal([
 		"git", "-C", "/ws/app", "config", "credential.helper",
-		"!f() { echo username=x-access-token; echo password=$GH_TOKEN_b81f9fd2; }; f",
+		"!f() { echo username=x-access-token; echo password=${GH_TOKEN_b81f9fd2:-$(cat \"/ws/app/.git/lore-token\" 2>/dev/null)}; }; f",
 	]);
-	// what lands in the config names the variable; the value stays in the environment
-	steps[2][$ - 1].canFind("$GH_TOKEN_b81f9fd2").should.equal(true);
-	// and it is written before the checkout, which still follows
-	steps[3].should.equal(["git", "-C", "/ws/app", "checkout", "topic"]);
+	// what lands in the config names the variable and the fallback file's path;
+	// the value itself lives in the environment and, as a backstop for CLIs that
+	// scrub their shell children's env (re-cinq/lore#1732), in that file.
+	steps[2][$ - 1].canFind("${GH_TOKEN_b81f9fd2:-").should.equal(true);
+	steps[2][$ - 1].canFind("/ws/app/.git/lore-token").should.equal(true);
+	// the file write follows the config: 0600 before a byte lands, the var name
+	// validated exactly as the helper's, the path a positional — never script text
+	steps[3].should.equal([
+		"sh", "-c", "umask 077; printf %s \"$GH_TOKEN_b81f9fd2\" > \"$1\"",
+		"sh", "/ws/app/.git/lore-token",
+	]);
+	// and the checkout still follows
+	steps[4].should.equal(["git", "-C", "/ws/app", "checkout", "topic"]);
 }
 
 unittest
@@ -393,7 +439,9 @@ unittest
 	bad.tokenSecret = "GH;rm -rf /";
 	ctx.repos = [bad];
 
-	git.steps(ctx).length.should.equal(2); // rm + unauthenticated clone, no config step
+	// rm + unauthenticated clone: no config step, and no token-file step either —
+	// the injection the helper refuses must not land in the write script instead.
+	git.steps(ctx).length.should.equal(2);
 }
 
 // An option-shaped url/ref is handed to git as data, never as a flag, so a crafted
