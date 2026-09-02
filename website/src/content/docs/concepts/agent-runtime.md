@@ -69,9 +69,15 @@ itself whether the run needs it:
 A repo's `token_secret` names the **environment variable** holding its access token (the controller
 populates it from the secret store, the same way [secrets](./agentdefinition.md) become env
 vars). The clone authenticates through a git credential helper that reads that variable **by name**
-at clone time, so the token value never appears in an argv or a log line; only the git child that
-inherits the environment ever sees it. The env-var name is validated before use, and the repo url is
-never passed through a shell.
+at clone time, so the token value never appears in an argv or a log line. The env-var name is
+validated before use, and the repo url is never passed through a shell.
+
+The helper persisted into the clone's config additionally falls back to a token **file** at
+`<clone>/.git/lore-token` (written by the init, `0600` before a byte lands) when the variable is
+unset or empty: some agent CLIs spawn their shell-tool children with a scrubbed environment, in
+which the env-only helper answered an empty password and every push died on "terminal prompts
+disabled" with the round complete. The environment stays the primary path; the file lives inside
+`.git/` so it can never be committed, and is removed with the clone.
 
 Before running the tools it **self-bootstraps prerequisites**: any executable a tool needs (`git`,
 `bash`, `curl`, `sha256sum`) that isn't on `PATH` is installed using the package manager detected
