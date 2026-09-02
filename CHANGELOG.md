@@ -6,7 +6,24 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.10.11
+
 ### Fixed
+- **Gemini pods finished their round and could not push.** The clone's
+  credential helper reads the token from an env var by name — sound when
+  git's child inherits the environment, which Claude's shell tool does.
+  Gemini's `run_shell_command` spawns children with a scrubbed environment,
+  so `$NAME` expanded empty and every push died on "terminal prompts
+  disabled" with the work complete and the branch undeliverable
+  (re-cinq/lore#1732). The init now also writes the token to
+  `<clone>/.git/lore-token` (0600 before a byte lands, uncommittable inside
+  `.git`, wiped by the re-entrant clone, chowned with the workspace) and the
+  persisted helper falls back to it: `password=${NAME:-$(cat <file>)}`. The
+  env stays the primary path; the clone-time helper is unchanged.
+- **A model-less Gemini recipe fell back to a retired model.** The vendor's
+  default was `gemini-2.5-flash`, which Google no longer serves to new users
+  ("no longer available… use gemini-3.1"); the fallback is now
+  `gemini-3.1-flash-lite`.
 - **`@re-cinq/agent-contracts` 0.10.10 never reached npm.** The v0.10.10 release
   commit truncated the package's `package.json` and lockfile to zero bytes, so the
   tag-driven publish (and CI on main) failed. Both files are restored at 0.10.10 and
