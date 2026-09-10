@@ -15,12 +15,13 @@ interface PackageManager
 }
 
 /// Map an executable name to the OS package that provides it. Most tools are
-/// named after their package; `sha256sum` ships in `coreutils`.
+/// named after their package; `sha256sum` and `base64` ship in `coreutils`.
 string packageFor(string exe) @safe pure
 {
 	switch (exe)
 	{
 	case "sha256sum":
+	case "base64":
 		return "coreutils";
 	default:
 		return exe;
@@ -32,4 +33,5 @@ unittest
 	packageFor("git").should.equal("git");
 	packageFor("curl").should.equal("curl");
 	packageFor("sha256sum").should.equal("coreutils");
+	packageFor("base64").should.equal("coreutils");
 }
