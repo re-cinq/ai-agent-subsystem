@@ -42,9 +42,13 @@ done
 if [ -n "$glibc_targets" ] || [ "${BUILD_ONLY:-0}" = 1 ]; then
 	if [ "${SKIP_BUILD:-0}" != 1 ]; then
 		echo ">> building portable ai-agent-init on $builder"
+		# bullseye (kept for its glibc 2.31 floor) is in LTS, and its bullseye-security
+		# Release file has been served past its Valid-Until (2026-09), which makes apt
+		# refuse the whole update. Only the expiry check is skipped: the Release files
+		# are still signature-verified, and the container builds one binary and exits.
 		"$engine" run --rm -v "$PWD:/src" -w /src "$builder" sh -euc '
 			export DEBIAN_FRONTEND=noninteractive
-			apt-get update >/dev/null
+			apt-get -o Acquire::Check-Valid-Until=false update >/dev/null
 			apt-get install -y --no-install-recommends ldc dub gcc libc6-dev zlib1g-dev >/dev/null
 			DFLAGS="-link-defaultlib-shared=false -L-lz" dub build :initializer --compiler=ldc2
 		'
