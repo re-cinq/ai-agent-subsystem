@@ -42,10 +42,24 @@ done
 if [ -n "$glibc_targets" ] || [ "${BUILD_ONLY:-0}" = 1 ]; then
 	if [ "${SKIP_BUILD:-0}" != 1 ]; then
 		echo ">> building portable ai-agent-init on $builder"
-		"$engine" run --rm -v "$PWD:/src" -w /src "$builder" sh -euc '
+		# bullseye is kept for its glibc 2.31 floor, but Debian has retired it: since
+		# 2026-09 the bullseye-security index is frozen past its Valid-Until and its
+		# pool is being deleted (glibc 2.31-13+deb11u14 answers 404). So main comes from
+		# archive.debian.org, bullseye's permanent home, and only bullseye-security comes
+		# from snapshot.debian.org, pinned to when it was whole — a handful of glibc and
+		# kernel-header debs, because the snapshot service resets connections under load.
+		# Both indexes are past Valid-Until, so that check is off; signatures are still
+		# verified. Plain http: the image has no CA certificates.
+		"$engine" run --rm -v "$PWD:/src" -w /src -e DEBIAN_SNAPSHOT="${DEBIAN_SNAPSHOT:-20260830T000000Z}" "$builder" sh -euc '
 			export DEBIAN_FRONTEND=noninteractive
-			apt-get update >/dev/null
-			apt-get install -y --no-install-recommends ldc dub gcc libc6-dev zlib1g-dev >/dev/null
+			snap="http://snapshot.debian.org/archive"
+			printf "%s\n" \
+				"deb http://archive.debian.org/debian bullseye main" \
+				"deb $snap/debian-security/$DEBIAN_SNAPSHOT bullseye-security main" \
+				>/etc/apt/sources.list
+			rm -f /etc/apt/sources.list.d/*.list
+			apt-get -o Acquire::Check-Valid-Until=false -o Acquire::Retries=10 update >/dev/null
+			apt-get -o Acquire::Retries=10 install -y --no-install-recommends ldc dub gcc libc6-dev zlib1g-dev >/dev/null
 			DFLAGS="-link-defaultlib-shared=false -L-lz" dub build :initializer --compiler=ldc2
 		'
 		cp packages/initializer/ai-agent-init "$stage/ai-agent-init"
