@@ -6,6 +6,33 @@ the npm package versions.
 
 ## Unreleased
 
+### Changed
+- **Runtime names no longer carry a consumer's name.** The clone's fallback
+  token file is now `<clone>/.git/agent-token`, the extraheader include is
+  `<clone>/.git/agent-auth.gitconfig`, and the init re-exports the
+  conversation registry credential as `AGENT_CONVERSATION_CREDENTIAL`. All
+  three are written and read inside one pod, so a running pod is unaffected.
+  `@re-cinq/agent-contracts` now server-side-applies as field manager
+  `agent-contracts`. With `force`, it takes over the fields the previous
+  manager held.
+
+### Added
+- **Git credentials from a broker, minted when git asks.** An Agent whose
+  `parameters` carry `git_credential` and `git_credential_url` gets them as
+  `AGENT_GIT_CREDENTIAL` / `AGENT_GIT_CREDENTIAL_URL` (controller-owned; a
+  recipe cannot override them). The clone's credential helper then POSTs
+  `{"repo":"<owner>/<name>"}` to the broker under that run credential and
+  answers git with the token it returns. That token is scoped to the one repo,
+  minted at that moment, and never in an argv or a config file. The helper is
+  persisted into the clone, so a push hours later asks again instead of
+  presenting a token that has since expired. For an https
+  origin the broker's token is also written as the clone's extraheader
+  include, so Gemini, which empties `credential.helper`, can still push.
+  Only a plain GitHub `owner/name` is ever spliced into the helper script. Any
+  other repo clones the way it would without a broker. `curl` joins the init's
+  auto-installed prerequisites. Without the two parameters nothing changes, and
+  `token_secret` works as before.
+
 ## v0.10.12
 
 ### Fixed
@@ -16,12 +43,12 @@ the npm package versions.
   Env config outranks repo config, so the clone's persisted helper was wiped
   before git asked it. That is why the v0.10.11 token-file fallback could not
   help: `git push` from a Gemini agent still died on "could not read
-  Username… terminal prompts disabled" (re-cinq/lore#1732). The init now also
+  Username… terminal prompts disabled". The init now also
   persists the token as an `http.https://<host>/.extraheader`
   (`AUTHORIZATION: basic base64(x-access-token:<token>)`, the mechanism
   `actions/checkout` uses), which Gemini does not override. It is scoped to
-  the clone's own https origin and lives in `<clone>/.git/lore-auth.gitconfig`
-  (0600), pulled in by `include.path`. The shell builds it from the env var,
+  the clone's own https origin and lives in a 0600 file under `<clone>/.git/`,
+  pulled in by `include.path`. The shell builds it from the env var,
   so the token is never in an argv and `.git/config` still never holds it.
   The helper and the token file stay; `base64` joins the init's
   auto-installed prerequisites.
@@ -34,9 +61,8 @@ the npm package versions.
   git's child inherits the environment, which Claude's shell tool does.
   Gemini's `run_shell_command` spawns children with a scrubbed environment,
   so `$NAME` expanded empty and every push died on "terminal prompts
-  disabled" with the work complete and the branch undeliverable
-  (re-cinq/lore#1732). The init now also writes the token to
-  `<clone>/.git/lore-token` (0600 before a byte lands, uncommittable inside
+  disabled" with the work complete and the branch undeliverable.
+  The init now also writes the token to a file under `<clone>/.git/` (0600 before a byte lands, uncommittable inside
   `.git`, wiped by the re-entrant clone, chowned with the workspace) and the
   persisted helper falls back to it: `password=${NAME:-$(cat <file>)}`. The
   env stays the primary path; the clone-time helper is unchanged.
@@ -90,8 +116,8 @@ the npm package versions.
   push.** The clone's credential helper rode `-c` flags, which live for that one
   invocation — nothing persisted, and `repoUrl` strips any credentials from the url by
   design (#117). An agent that finished its work therefore found out at push time that
-  it had no credential, and downstream the run looked *successful* with an empty branch
-  (re-cinq/lore#1329). The helper is now written into the clone's own config right
+  it had no credential, and downstream the run looked *successful* with an empty branch.
+  The helper is now written into the clone's own config right
   after cloning, so every later git command in that repo authenticates the same way the
   clone did. Config-scoped, not global: a second repo in the same workspace does not
   inherit another's token. What lands in `.git/config` is the helper script with
@@ -106,7 +132,7 @@ the npm package versions.
   terminal *transition*, and a CR that is already Succeeded/Failed at startup never
   transitions again. On a controller that kept restarting the pile only grew — 2,657
   accumulated CRs drove a production controller into CrashLoopBackOff, each startup
-  sync slower than the last (re-cinq/lore#1290). The startup/poll sync now runs a
+  sync slower than the last. The startup/poll sync now runs a
   prune sweep over every Station's history limits BEFORE the reconcile pass, so the
   inventory shrinks to the configured limits no matter how it got big. Per-Station
   error containment; a standby or a replica that loses leadership mid-sweep never
@@ -148,8 +174,8 @@ the npm package versions.
   is not a valid shell identifier.** The credential's variable is named after a
   Kubernetes secret key (`agent-events-auth`), so no child of `sh -c` — including
   `printenv` — can ever read it, whatever the syntax. The init now resolves the value
-  itself with getenv, where a name is just a string, and exports it to each step as
-  `LORE_CONVERSATION_AUTH`. v0.10.1 and v0.10.2 each corrected the SYNTAX of a read
+  itself with getenv, where a name is just a string, and exports it to each step under
+  a shell-safe name (now `AGENT_CONVERSATION_CREDENTIAL`). v0.10.1 and v0.10.2 each corrected the SYNTAX of a read
   that was impossible; both were true and both still 401'd.
 
 ## v0.10.2
@@ -295,7 +321,7 @@ the npm package versions.
   and `runEnv` injects each `headers_secret` as a `secretKeyRef` env from
   `agent-secrets`. An http/sse `Authorization` value is a `${ENV}` reference Claude
   expands at runtime, so the token never rides in argv; both sides derive the same
-  shell-safe name through `headerEnvName` (`lore-mcp-auth` → `${LORE_MCP_AUTH}`)
+  shell-safe name through `headerEnvName` (`tools-mcp-auth` → `${TOOLS_MCP_AUTH}`)
   because `${}` expansion rejects the hyphens a secret key allows (#177).
 - A contributor on-ramp: root `CONTRIBUTING.md` (toolchain table, everyday commands,
   integration-test tiers) and a root `Makefile` as the single dev entry point —
@@ -316,7 +342,7 @@ the npm package versions.
 - `disallowedTools` is emitted in every permission mode, not just the non-bypass ones.
   Bypass only skips the interactive prompts — it must never silently re-enable a tool
   the recipe explicitly denied, which matters now that a pod can hold live MCP tools
-  (the seeded recipe denies `lore_create_pipeline_task` so a run cannot spawn more
+  (a recipe can deny a task-spawning MCP tool so a run cannot spawn more
   tasks) (#177).
 - The README's documentation links pointed at the retired
   `glowing-garbanzo-y7ek98q.pages.github.io` hostname and omitted the site base, so
@@ -417,7 +443,7 @@ Release (an immutable-release tag collision), so the digest-pinned images and
 
 ### Notes
 - The controller + agent images are republished at `v0.3.0` (digest-pinned, signed).
-- Consumers (e.g. Lore's Floor and web UI) import `@re-cinq/agent-contracts@0.3.0`
+- Consumers (e.g. an orchestrator and a web UI) import `@re-cinq/agent-contracts@0.3.0`
   instead of re-declaring the resource shapes.
 
 ## v0.2.0

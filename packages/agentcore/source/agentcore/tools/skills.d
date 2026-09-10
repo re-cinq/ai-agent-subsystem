@@ -45,7 +45,7 @@ version (unittest) import fluent.asserts;
 @safe unittest
 {
 	safeSkillName("review-checklist").should.equal(true);
-	safeSkillName("lore_test-commands.v2").should.equal(true);
+	safeSkillName("team_test-commands.v2").should.equal(true);
 	safeSkillName("").should.equal(false);
 	safeSkillName("../evil").should.equal(false);
 	safeSkillName("has space").should.equal(false);

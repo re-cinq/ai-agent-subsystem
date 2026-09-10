@@ -36,7 +36,7 @@ final class GeminiAgent : Agent
 			"--prompt", renderedPrompt,
 			"--output-format", "stream-json",
 			// The 2.5 family is retired for new users ("no longer available… use
-			// gemini-3.1" — first hit in production 2026-09-02, re-cinq/lore#1732):
+			// gemini-3.1" — first hit in production 2026-09-02):
 			// a model-less recipe must fall back to one that still answers.
 			"--model", recipe.model.length ? recipe.model : "gemini-3.1-flash-lite",
 			// Workspace trust is a separate gate from approvals: a headless run

@@ -19,7 +19,7 @@ private extern (C) int lchown(scope const char* path, uid_t owner, gid_t group) 
 import agentcore.crds.enums : SinkType;
 import agentcore.core.env : defaultWorkspace, envConversationAuth,
 	envConversationAuthValue, envConversationId,
-	envConversationSource, envModel,
+	envConversationSource, envGitCredentialUrl, envModel,
 	envRepos, envSkills, envSkillsSource, envWorkspace;
 import agentcore.vendors.select : agentForModel;
 import agentcore.output.event : EventSource, sourceFromEnv;
@@ -46,6 +46,7 @@ InitContext contextFromEnv()
 	ctx.model = environment.get(envModel, "");
 	ctx.repos = parseRepos(environment.get(envRepos, ""));
 	ctx.workspaceDir = environment.get(envWorkspace, defaultWorkspace);
+	ctx.gitCredentialUrl = environment.get(envGitCredentialUrl, "");
 	ctx.skills = parseSkills(environment.get(envSkills, ""));
 	ctx.skillsSource = environment.get(envSkillsSource, "");
 	ctx.conversationSource = environment.get(envConversationSource, "");
@@ -61,6 +62,19 @@ InitContext contextFromEnv()
 	ctx.conversationAuth = ctx.conversationAuthEnv.length
 		? environment.get(ctx.conversationAuthEnv, "") : "";
 	return ctx;
+}
+
+version (unittest) import fluent.asserts;
+
+unittest
+{
+	// The broker the controller lifted out of the run's parameters reaches the clone,
+	// so a run that has one clones through it.
+	environment[envGitCredentialUrl] = "https://broker.example.com/api/github-credentials";
+	scope (exit)
+		environment.remove(envGitCredentialUrl);
+
+	contextFromEnv().gitCredentialUrl.should.equal("https://broker.example.com/api/github-credentials");
 }
 
 /// Provision the agent's environment: install any missing prerequisites, then run

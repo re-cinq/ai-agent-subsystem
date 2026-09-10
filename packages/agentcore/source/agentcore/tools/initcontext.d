@@ -11,6 +11,10 @@ struct InitContext
 	string model;
 	RepoRef[] repos;
 	string workspaceDir;
+	/// The git-credential broker (`AGENT_GIT_CREDENTIAL_URL`). Set ⇒ each clone's
+	/// credential helper asks it for a token scoped to that repo at the moment git
+	/// authenticates, rather than reading a token minted at launch.
+	string gitCredentialUrl;
 	/// Recipe `resources.skills` names — the SkillsTool fetches each from `skillsSource`
 	/// into the run's `$HOME/.claude/skills`.
 	string[] skills;

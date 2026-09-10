@@ -52,12 +52,12 @@ final class ClaudeAgent : Agent
 
 		// disallowedTools is enforced in EVERY permission mode: bypass only skips
 		// the interactive prompts, it must not silently re-enable an explicitly
-		// denied tool (e.g. mcp__lore__lore_create_pipeline_task, which the seeded
+		// denied tool (e.g. mcp__tools__create_ticket, which the seeded
 		// agent recipe denies to keep a live-MCP pod from spawning more tasks).
 		foreach (tool; recipe.disallowedTools)
 			cmd ~= ["--disallowedTools", tool];
 
-		// Live Lore tools: the pod cwd is `/`, so Claude's project-dir auto-load
+		// Live MCP tools: the pod cwd is `/`, so Claude's project-dir auto-load
 		// never fires — the recipe's mcp_servers are passed explicitly (and
 		// --strict-mcp-config ignores any ambient config). The auth header value is
 		// a `${ENV}` reference Claude expands from the pod environment, where the
@@ -205,12 +205,12 @@ version (unittest) import fluent.asserts;
 	// disallowedTools is honored under bypass too — bypass only drops the prompts.
 	AgentDefinitionSpec recipe;
 	recipe.permissionMode = PermissionMode.bypass;
-	recipe.disallowedTools = ["mcp__lore__lore_create_pipeline_task"];
+	recipe.disallowedTools = ["mcp__tools__create_ticket"];
 
 	const cmd = (new ClaudeAgent).command(recipe, "p");
 	cmd.should.contain("--dangerously-skip-permissions");
 	cmd.should.contain("--disallowedTools");
-	cmd.should.contain("mcp__lore__lore_create_pipeline_task");
+	cmd.should.contain("mcp__tools__create_ticket");
 }
 
 @safe unittest
@@ -221,7 +221,7 @@ version (unittest) import fluent.asserts;
 
 	AgentDefinitionSpec recipe;
 	recipe.resources.mcpServers = [
-		McpServer("lore", McpTransport.http, "", null, "https://lore-mcp.example/mcp", "lore-mcp-auth")
+		McpServer("tools", McpTransport.http, "", null, "https://tools-mcp.example/mcp", "tools-mcp-auth")
 	];
 
 	const cmd = (new ClaudeAgent).command(recipe, "p");
@@ -230,9 +230,9 @@ version (unittest) import fluent.asserts;
 
 	const json = cmd[cmd.countUntil("--mcp-config") + 1];
 	json.should.contain(`"type":"http"`);
-	json.should.contain(`"url":"https://lore-mcp.example/mcp"`);
-	json.should.contain(`"Authorization":"${LORE_MCP_AUTH}"`);
-	json.should.not.contain("lore-mcp-auth"); // raw secret key never appears
+	json.should.contain(`"url":"https://tools-mcp.example/mcp"`);
+	json.should.contain(`"Authorization":"${TOOLS_MCP_AUTH}"`);
+	json.should.not.contain("tools-mcp-auth"); // raw secret key never appears
 }
 
 @safe unittest

@@ -77,9 +77,9 @@ describe("findAgents", () => {
     const items: Agent[] = [{ metadata: { name: "a" } }, { metadata: { name: "b" } }];
     const t = new FakeTransport([ok({ items })]);
     const client = new AgentContractsClient(t);
-    const result = await client.findAgents("lore/task-id=123");
+    const result = await client.findAgents("example.com/task-id=123");
     expect(result).toEqual(items);
-    expect(t.seen[0].query).toEqual({ labelSelector: "lore/task-id=123" });
+    expect(t.seen[0].query).toEqual({ labelSelector: "example.com/task-id=123" });
   });
 
   it("returns [] when the list has no items", async () => {
@@ -99,7 +99,7 @@ describe("apply", () => {
     expect(t.seen[0]).toMatchObject({
       method: "PATCH",
       path: `/apis/${GROUP}/${VERSION}/namespaces/ai-agents/agentdefinitions/bug-fixer`,
-      query: { fieldManager: "lore-ui", force: "true" },
+      query: { fieldManager: "agent-contracts", force: "true" },
       contentType: "application/apply-patch+yaml",
     });
   });
