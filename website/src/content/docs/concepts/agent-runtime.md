@@ -79,8 +79,22 @@ which the env-only helper answered an empty password and every push died on "ter
 disabled" with the round complete. The environment stays the primary path; the file lives inside
 `.git/` so it can never be committed, and is removed with the clone.
 
+For an https origin the token is persisted a third way, as an `http.<origin>.extraheader`
+(`AUTHORIZATION: basic base64(x-access-token:<token>)`, the mechanism `actions/checkout` uses),
+scoped to the clone's own scheme and host, so a remote on any other host never receives it. The
+Gemini CLI runs every shell command with `GIT_CONFIG_*` environment entries that empty
+`credential.helper` (and point global and system config at `/dev/null`). Environment config
+outranks the repo's, so the helper above is wiped before git ever asks it, and the token file
+cannot help. Gemini overrides nothing under `http.*` and repo-local config still loads, so the
+header authenticates the push anyway. Git sends the header on every request to that origin, so it
+is what authenticates for every vendor; the helper keeps answering for an origin that gets no
+header. The header lives in `<clone>/.git/lore-auth.gitconfig` (`0600`), which the clone's config
+pulls in with `include.path`; the shell builds it from the variable's value, so the token is never
+in an argv, and `.git/config` itself still only names where the secret lives. An unset variable
+writes no header.
+
 Before running the tools it **self-bootstraps prerequisites**: any executable a tool needs (`git`,
-`bash`, `curl`, `sha256sum`) that isn't on `PATH` is installed using the package manager detected
+`bash`, `curl`, `sha256sum`, `base64`) that isn't on `PATH` is installed using the package manager detected
 from the distro (`apt`/`dnf`/`apk`). The staging tools add `sh`, `curl`, and `tar` when they are
 active. On a base image that already ships these, nothing is installed.
 

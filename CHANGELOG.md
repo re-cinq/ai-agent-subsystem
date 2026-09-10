@@ -6,6 +6,24 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+- **Gemini pods still could not push after v0.10.11.** The Gemini CLI runs
+  every shell command with `GIT_CONFIG_*` env entries that set an empty
+  `credential.helper` (resetting the list) and point global/system config at
+  `/dev/null`. It does this unconditionally, with no setting to turn it off.
+  Env config outranks repo config, so the clone's persisted helper was wiped
+  before git asked it. That is why the v0.10.11 token-file fallback could not
+  help: `git push` from a Gemini agent still died on "could not read
+  Username… terminal prompts disabled" (re-cinq/lore#1732). The init now also
+  persists the token as an `http.https://<host>/.extraheader`
+  (`AUTHORIZATION: basic base64(x-access-token:<token>)`, the mechanism
+  `actions/checkout` uses), which Gemini does not override. It is scoped to
+  the clone's own https origin and lives in `<clone>/.git/lore-auth.gitconfig`
+  (0600), pulled in by `include.path`. The shell builds it from the env var,
+  so the token is never in an argv and `.git/config` still never holds it.
+  The helper and the token file stay; `base64` joins the init's
+  auto-installed prerequisites.
+
 ## v0.10.11
 
 ### Fixed

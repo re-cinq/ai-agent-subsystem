@@ -1,8 +1,9 @@
 module agentcore.tools.git_tool;
 
-import std.algorithm.searching : canFind;
+import std.algorithm.searching : all, canFind;
+import std.ascii : isAlphaNum;
 import std.path : buildNormalizedPath;
-import std.string : indexOf;
+import std.string : indexOf, indexOfAny;
 
 import agentcore.crds.repo_ref : RepoRef;
 import agentcore.tools.initcontext : InitContext;
@@ -171,6 +172,69 @@ private string[] credentialStep(in RepoRef r, string dest) @safe pure
 		credentialHelper(r.tokenSecret, tokenFilePath(dest))];
 }
 
+/// The `https://host/` an `http.<url>.*` key is scoped to — the clone's own https
+/// origin — or "" when the url is not https, or its host holds anything but
+/// hostname characters: the value is written inside a quoted gitconfig
+/// subsection, so a `"`, `\` or newline must never reach it.
+private string httpsOrigin(string url) @safe pure
+{
+	enum https = "https://";
+	if (url.length <= https.length || url[0 .. https.length] != https)
+		return "";
+	const rest = url[https.length .. $];
+	const hostEnd = rest.indexOfAny("/?#");
+	const host = hostEnd < 0 ? rest : rest[0 .. hostEnd];
+	if (host.length == 0 || !host.all!(c => c.isAlphaNum || c == '.' || c == '-' || c == ':'))
+		return "";
+	return https ~ host ~ "/";
+}
+
+/// The 0600 config file holding the extraheader, inside the clone's `.git` like the
+/// token file; `.git/config` includes it by this (relative) name.
+private enum authConfigName = "lore-auth.gitconfig";
+
+/// Persist the token a second way: as an `http.<origin>.extraheader` carrying
+/// `AUTHORIZATION: basic base64(x-access-token:<token>)` — what `actions/checkout`
+/// does. The Gemini CLI runs every shell command with GIT_CONFIG_* env entries that
+/// empty `credential.helper`, and env config outranks the repo's, so the persisted
+/// helper is never asked and the push dies on "terminal prompts disabled"
+/// (re-cinq/lore#1732). Nothing under `http.*` is overridden, so the header holds.
+///
+/// Header only, never the helper's replacement: an origin that is not https gets no
+/// header, and the helper keeps answering there. Unlike the helper, a header must
+/// hold the value itself, so the shell builds it from the variable — the builtin
+/// `printf` feeds `base64` on stdin, keeping the token out of every argv, git's
+/// included — into a 0600 file under `.git/`. `.git/config` gains only the
+/// `include.path`, so it still names where the secret lives and never holds it.
+/// An unset variable writes nothing: a header with an empty password would turn a
+/// public clone's anonymous fetch into a 401.
+private string[] authHeaderStep(in RepoRef r, string origin, string dest) @safe pure
+{
+	return [
+		"sh", "-c",
+		"set -e; [ -n \"$" ~ r.tokenSecret ~ "\" ] || exit 0; umask 077; "
+			~ "basic=$(printf %s \"x-access-token:$" ~ r.tokenSecret ~ "\" | base64 | tr -d '\\n'); "
+			~ "printf '[http \"%s\"]\\n\\textraheader = AUTHORIZATION: basic %s\\n' \"$1\" \"$basic\" > \"$2\"; "
+			~ "git -C \"$3\" config include.path " ~ authConfigName,
+		"sh", origin, dest ~ "/.git/" ~ authConfigName, dest,
+	];
+}
+
+/// Everything that lets the agent's later git commands authenticate, straight after
+/// the clone: the helper, its token-file fallback for shell-tool children whose env
+/// the agent CLI scrubbed, and the extraheader for CLIs that reset the helper
+/// itself. Nothing without a valid `token_secret` name.
+private string[][] persistedAuthSteps(in RepoRef r, string dest) @safe pure
+{
+	if (!isEnvName(r.tokenSecret))
+		return [];
+	string[][] auth = [credentialStep(r, dest), tokenFileStep(r, dest)];
+	const origin = httpsOrigin(repoUrl(r.url));
+	if (origin.length)
+		auth ~= authHeaderStep(r, origin, dest);
+	return auth;
+}
+
 /// The checkout argv for a declared `ref_`. A ref beginning with `-` is never a
 /// valid branch/tag/sha, so it is routed after a `--` separator: git then rejects
 /// it as a non-matching pathspec (a clean, fail-closed error) instead of parsing
@@ -215,7 +279,7 @@ final class GitTool : Tool
 
 	override string[] requires() const @safe
 	{
-		return ["git"];
+		return ["git", "base64"];
 	}
 
 	override string[][] steps(in InitContext ctx) const @safe
@@ -228,15 +292,7 @@ final class GitTool : Tool
 				continue;
 			all ~= ["rm", "-rf", dest];
 			all ~= cloneStep(r, dest);
-			// Straight after the clone, so every later git command in this repo —
-			// the agent's push included — can authenticate the same way. The token
-			// file follows: it is the helper's fallback for shell-tool children
-			// whose environment the agent CLI scrubbed (re-cinq/lore#1732).
-			if (isEnvName(r.tokenSecret))
-			{
-				all ~= credentialStep(r, dest);
-				all ~= tokenFileStep(r, dest);
-			}
+			all ~= persistedAuthSteps(r, dest);
 			if (r.ref_.length)
 				all ~= checkoutStep(dest, r.ref_);
 		}
@@ -290,7 +346,7 @@ unittest
 {
 	auto git = new GitTool;
 	git.name.should.equal("git");
-	git.requires.should.equal(["git"]);
+	git.requires.should.equal(["git", "base64"]);
 
 	// no repos -> nothing to do
 	InitContext empty;
@@ -410,8 +466,48 @@ unittest
 		"sh", "-c", "umask 077; printf %s \"$GH_TOKEN_b81f9fd2\" > \"$1\"",
 		"sh", "/ws/app/.git/lore-token",
 	]);
+	// then the same token as an `http.<host>.extraheader`, which survives an agent
+	// CLI resetting `credential.helper` through GIT_CONFIG_* env (re-cinq/lore#1732 —
+	// Gemini empties the helper list on every shell command). The header is built
+	// by the shell from the var's value, so the argv carries only the name; it lands
+	// in a 0600 file under `.git/` that the repo config includes by path.
+	steps[4].should.equal([
+		"sh", "-c",
+		"set -e; [ -n \"$GH_TOKEN_b81f9fd2\" ] || exit 0; umask 077; "
+			~ "basic=$(printf %s \"x-access-token:$GH_TOKEN_b81f9fd2\" | base64 | tr -d '\\n'); "
+			~ "printf '[http \"%s\"]\\n\\textraheader = AUTHORIZATION: basic %s\\n' \"$1\" \"$basic\" > \"$2\"; "
+			~ "git -C \"$3\" config include.path lore-auth.gitconfig",
+		"sh", "https://github.com/", "/ws/app/.git/lore-auth.gitconfig", "/ws/app",
+	]);
 	// and the checkout still follows
-	steps[4].should.equal(["git", "-C", "/ws/app", "checkout", "topic"]);
+	steps[5].should.equal(["git", "-C", "/ws/app", "checkout", "topic"]);
+}
+
+unittest
+{
+	// The extraheader is scoped to the clone's own https origin — scheme and host —
+	// so a remote on any other host never receives the token. An ssh/scp origin or a
+	// plain-http one gets no header (the helper still answers where it always did):
+	// a preemptive header is never sent in cleartext.
+	auto git = new GitTool;
+
+	string[][] stepsFor(string url)
+	{
+		InitContext ctx;
+		ctx.workspaceDir = "/ws";
+		auto r = RepoRef("app", url);
+		r.tokenSecret = "GH_TOKEN";
+		ctx.repos = [r];
+		return git.steps(ctx);
+	}
+
+	stepsFor("https://git.example.com:8443/o/app.git")[4][4].should.equal("https://git.example.com:8443/");
+	stepsFor("https://user:tok@github.com/o/app")[4][4].should.equal("https://github.com/");
+	stepsFor("git@github.com:o/app.git").length.should.equal(4);
+	stepsFor("ssh://git@github.com/o/app.git").length.should.equal(4);
+	stepsFor("http://github.com/o/app.git").length.should.equal(4);
+	// a host that could break out of the gitconfig subsection quoting gets no header
+	stepsFor("https://evil\"]x/o/app").length.should.equal(4);
 }
 
 unittest
