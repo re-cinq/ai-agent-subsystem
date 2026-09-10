@@ -127,7 +127,7 @@ version (unittest) import fluent.asserts;
 
 	const step = (new ConversationTool).steps(ctx)[0][2];
 
-	step.should.contain("-H \"$LORE_CONVERSATION_AUTH\"");
+	step.should.contain("-H \"$AGENT_CONVERSATION_CREDENTIAL\"");
 	// The secret-key name is not a shell identifier: no shell can read it, so the
 	// step must never mention it or reach for it.
 	step.should.not.contain("agent-events-auth");

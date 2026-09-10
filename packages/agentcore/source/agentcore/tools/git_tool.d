@@ -5,6 +5,7 @@ import std.ascii : isAlphaNum;
 import std.path : buildNormalizedPath;
 import std.string : indexOf, indexOfAny;
 
+import agentcore.core.env : envGitCredential, envGitCredentialUrl;
 import agentcore.crds.repo_ref : RepoRef;
 import agentcore.tools.initcontext : InitContext;
 import agentcore.tools.tool : Tool;
@@ -104,9 +105,13 @@ private bool safeDest(string dest, string workspaceDir) @safe pure
 /// crafted `token_secret` can't inject into the helper, and the repo url is never
 /// passed through a shell. A `--` separator precedes the url so an option-shaped
 /// value (e.g. `--upload-pack=...`) is parsed as data, never as a git flag.
-private string[] cloneStep(in RepoRef r, string dest) @safe pure
+private string[] cloneStep(in RepoRef r, string dest, string brokerUrl) @safe pure
 {
 	const url = repoUrl(r.url);
+	const slug = brokerSlug(r, brokerUrl);
+	if (slug.length)
+		return ["git", "-c", "credential.helper=", "-c", "credential.helper=" ~ brokerHelper(slug),
+			"clone", "--", url, dest];
 	if (!isEnvName(r.tokenSecret))
 		return ["git", "clone", "--", url, dest];
 
@@ -124,7 +129,7 @@ private string[] cloneStep(in RepoRef r, string dest) @safe pure
 /// because some agent CLIs spawn their shell-tool children with a scrubbed
 /// environment, in which `$NAME` expands to nothing and the push dies on
 /// "terminal prompts disabled" with the work complete and undeliverable
-/// (re-cinq/lore#1732 — the gemini ready-for-review pods).
+/// (the gemini ready-for-review pods).
 private string credentialHelper(string tokenSecret, string fallbackFile = "") @safe pure
 {
 	const password = fallbackFile.length
@@ -133,12 +138,58 @@ private string credentialHelper(string tokenSecret, string fallbackFile = "") @s
 	return "!f() { echo username=x-access-token; echo password=" ~ password ~ "; }; f";
 }
 
+/// The `owner/name` the broker grants by: a bare `owner/name` as-is, or the path of a
+/// `https://github.com/owner/name(.git)` url.
+private string repoSlug(string urlOrOwnerName) @safe pure
+{
+	enum github = "https://github.com/";
+	enum dotGit = ".git";
+	auto slug = urlOrOwnerName;
+	if (slug.length > github.length && slug[0 .. github.length] == github)
+		slug = slug[github.length .. $];
+	if (slug.length > dotGit.length && slug[$ - dotGit.length .. $] == dotGit)
+		slug = slug[0 .. $ - dotGit.length];
+	return slug;
+}
+
+/// The `owner/name` to ask the broker for, or "" when the run has no broker or the repo
+/// is not a plain GitHub owner/name — then nothing is spliced into a helper script and
+/// the repo authenticates the way it did before brokers existed.
+private string brokerSlug(in RepoRef r, string brokerUrl) @safe pure
+{
+	const slug = repoSlug(r.url);
+	return brokerUrl.length && isRepoSlug(slug) ? slug : "";
+}
+
+/// True when `s` is `owner/name` in GitHub's name characters — the only shape spliced
+/// into the broker helper's script, so no quote, space or `$` can ever reach it.
+private bool isRepoSlug(string s) @safe pure
+{
+	const slash = s.indexOf('/');
+	if (slash <= 0 || slash == s.length - 1 || s[slash + 1 .. $].indexOf('/') >= 0)
+		return false;
+	return s.all!(c => c.isAlphaNum || c == '.' || c == '_' || c == '-' || c == '/');
+}
+
+/// The credential helper that asks the git-credential broker for a token scoped to
+/// `repo`, minted when git authenticates. The run credential and the broker URL are
+/// read from their variables **by name** when the helper runs, so neither — nor the
+/// token the broker answers with — is ever in an argv or a config file. Only `get`
+/// is answered; `store`/`erase` are no-ops, since there is nothing to keep.
+private string brokerHelper(string repo) @safe pure
+{
+	return `!f() { test "$1" = get || exit 0; `
+		~ `curl -fsS --max-time 30 -H "Authorization: Bearer $` ~ envGitCredential ~ `" `
+		~ `-H "Content-Type: application/json" -d '{"repo":"` ~ repo ~ `"}' "$` ~ envGitCredentialUrl ~ `" `
+		~ `| sed -n 's/.*"username":"\([^"]*\)".*"password":"\([^"]*\)".*/username=\1\npassword=\2/p'; }; f`;
+}
+
 /// Where the fallback token copy lives: inside the clone's own `.git`, so it can
 /// never be committed or pushed, is wiped by the re-entrant `rm -rf`, and is
 /// handed to the agent uid by the same chown that hands over the clone.
 private string tokenFilePath(string dest) @safe pure
 {
-	return dest ~ "/.git/lore-token";
+	return dest ~ "/.git/agent-token";
 }
 
 /// Write the token's VALUE to the fallback file, 0600 before a byte lands. The
@@ -160,7 +211,7 @@ private string[] tokenFileStep(in RepoRef r, string dest) @safe pure
 /// The clone's `-c` flags apply to that one invocation and nothing else, so a cloned
 /// repo carried no way to authenticate: an agent that committed could not push, and
 /// found out only at push time, with no credential to fall back on. (Downstream, that
-/// is a run whose work is complete and whose branch is empty — re-cinq/lore#1329.)
+/// is a run whose work is complete and whose branch is empty.)
 ///
 /// Config-scoped rather than global: the token belongs to the repo it was minted for,
 /// and a second repo in the same workspace must not inherit it. What lands in
@@ -191,14 +242,14 @@ private string httpsOrigin(string url) @safe pure
 
 /// The 0600 config file holding the extraheader, inside the clone's `.git` like the
 /// token file; `.git/config` includes it by this (relative) name.
-private enum authConfigName = "lore-auth.gitconfig";
+private enum authConfigName = "agent-auth.gitconfig";
 
 /// Persist the token a second way: as an `http.<origin>.extraheader` carrying
 /// `AUTHORIZATION: basic base64(x-access-token:<token>)` — what `actions/checkout`
 /// does. The Gemini CLI runs every shell command with GIT_CONFIG_* env entries that
 /// empty `credential.helper`, and env config outranks the repo's, so the persisted
 /// helper is never asked and the push dies on "terminal prompts disabled"
-/// (re-cinq/lore#1732). Nothing under `http.*` is overridden, so the header holds.
+/// Nothing under `http.*` is overridden, so the header holds.
 ///
 /// Header only, never the helper's replacement: an origin that is not https gets no
 /// header, and the helper keeps answering there. Unlike the helper, a header must
@@ -220,12 +271,44 @@ private string[] authHeaderStep(in RepoRef r, string origin, string dest) @safe 
 	];
 }
 
+/// The broker path's extraheader: the same `http.<origin>.extraheader` include the
+/// token_secret path writes, for CLIs that empty `credential.helper` (Gemini — the
+/// helper is never asked there). The shell mints the token from the broker, so neither
+/// the run credential nor the token is in an argv; only the variable names and the
+/// validated `owner/name` are spliced into the script, and the origin, file and clone
+/// ride as positionals. A broker that answers nothing writes nothing — the persisted
+/// helper still covers every CLI that leaves it alone.
+private string[] brokerHeaderStep(string slug, string origin, string dest) @safe pure
+{
+	return [
+		"sh", "-c",
+		"set -e; umask 077; "
+			~ "pw=$(curl -fsS --max-time 30 -H \"Authorization: Bearer $" ~ envGitCredential ~ "\" "
+			~ "-H \"Content-Type: application/json\" -d '{\"repo\":\"" ~ slug ~ "\"}' \"$" ~ envGitCredentialUrl ~ "\" "
+			~ "| sed -n 's/.*\"password\":\"\\([^\"]*\\)\".*/\\1/p'); "
+			~ "[ -n \"$pw\" ] || exit 0; "
+			~ "basic=$(printf %s \"x-access-token:$pw\" | base64 | tr -d '\\n'); "
+			~ "printf '[http \"%s\"]\\n\\textraheader = AUTHORIZATION: basic %s\\n' \"$1\" \"$basic\" > \"$2\"; "
+			~ "git -C \"$3\" config include.path " ~ authConfigName,
+		"sh", origin, dest ~ "/.git/" ~ authConfigName, dest,
+	];
+}
+
 /// Everything that lets the agent's later git commands authenticate, straight after
 /// the clone: the helper, its token-file fallback for shell-tool children whose env
 /// the agent CLI scrubbed, and the extraheader for CLIs that reset the helper
 /// itself. Nothing without a valid `token_secret` name.
-private string[][] persistedAuthSteps(in RepoRef r, string dest) @safe pure
+private string[][] persistedAuthSteps(in RepoRef r, string dest, string brokerUrl) @safe pure
 {
+	const slug = brokerSlug(r, brokerUrl);
+	if (slug.length)
+	{
+		string[][] auth = [["git", "-C", dest, "config", "credential.helper", brokerHelper(slug)]];
+		const origin = httpsOrigin(repoUrl(r.url));
+		if (origin.length)
+			auth ~= brokerHeaderStep(slug, origin, dest);
+		return auth;
+	}
 	if (!isEnvName(r.tokenSecret))
 		return [];
 	string[][] auth = [credentialStep(r, dest), tokenFileStep(r, dest)];
@@ -279,7 +362,7 @@ final class GitTool : Tool
 
 	override string[] requires() const @safe
 	{
-		return ["git", "base64"];
+		return ["git", "base64", "curl"];
 	}
 
 	override string[][] steps(in InitContext ctx) const @safe
@@ -291,8 +374,8 @@ final class GitTool : Tool
 			if (!safeDest(dest, ctx.workspaceDir))
 				continue;
 			all ~= ["rm", "-rf", dest];
-			all ~= cloneStep(r, dest);
-			all ~= persistedAuthSteps(r, dest);
+			all ~= cloneStep(r, dest, ctx.gitCredentialUrl);
+			all ~= persistedAuthSteps(r, dest, ctx.gitCredentialUrl);
 			if (r.ref_.length)
 				all ~= checkoutStep(dest, r.ref_);
 		}
@@ -346,7 +429,7 @@ unittest
 {
 	auto git = new GitTool;
 	git.name.should.equal("git");
-	git.requires.should.equal(["git", "base64"]);
+	git.requires.should.equal(["git", "base64", "curl"]);
 
 	// no repos -> nothing to do
 	InitContext empty;
@@ -442,7 +525,7 @@ unittest
 	// The helper is PERSISTED into the clone's own config, so the agent's later
 	// git commands — a push, above all — authenticate the same way the clone did.
 	// Without this a run could commit and never deliver: the clone's `-c` flags
-	// live for that one invocation (re-cinq/lore#1329).
+	// live for that one invocation.
 	auto git = new GitTool;
 	InitContext ctx;
 	ctx.workspaceDir = "/ws";
@@ -453,21 +536,21 @@ unittest
 	auto steps = git.steps(ctx);
 	steps[2].should.equal([
 		"git", "-C", "/ws/app", "config", "credential.helper",
-		"!f() { echo username=x-access-token; echo password=${GH_TOKEN_b81f9fd2:-$(cat \"/ws/app/.git/lore-token\" 2>/dev/null)}; }; f",
+		"!f() { echo username=x-access-token; echo password=${GH_TOKEN_b81f9fd2:-$(cat \"/ws/app/.git/agent-token\" 2>/dev/null)}; }; f",
 	]);
 	// what lands in the config names the variable and the fallback file's path;
 	// the value itself lives in the environment and, as a backstop for CLIs that
-	// scrub their shell children's env (re-cinq/lore#1732), in that file.
+	// scrub their shell children's env, in that file.
 	steps[2][$ - 1].canFind("${GH_TOKEN_b81f9fd2:-").should.equal(true);
-	steps[2][$ - 1].canFind("/ws/app/.git/lore-token").should.equal(true);
+	steps[2][$ - 1].canFind("/ws/app/.git/agent-token").should.equal(true);
 	// the file write follows the config: 0600 before a byte lands, the var name
 	// validated exactly as the helper's, the path a positional — never script text
 	steps[3].should.equal([
 		"sh", "-c", "umask 077; printf %s \"$GH_TOKEN_b81f9fd2\" > \"$1\"",
-		"sh", "/ws/app/.git/lore-token",
+		"sh", "/ws/app/.git/agent-token",
 	]);
 	// then the same token as an `http.<host>.extraheader`, which survives an agent
-	// CLI resetting `credential.helper` through GIT_CONFIG_* env (re-cinq/lore#1732 —
+	// CLI resetting `credential.helper` through GIT_CONFIG_* env (
 	// Gemini empties the helper list on every shell command). The header is built
 	// by the shell from the var's value, so the argv carries only the name; it lands
 	// in a 0600 file under `.git/` that the repo config includes by path.
@@ -476,8 +559,8 @@ unittest
 		"set -e; [ -n \"$GH_TOKEN_b81f9fd2\" ] || exit 0; umask 077; "
 			~ "basic=$(printf %s \"x-access-token:$GH_TOKEN_b81f9fd2\" | base64 | tr -d '\\n'); "
 			~ "printf '[http \"%s\"]\\n\\textraheader = AUTHORIZATION: basic %s\\n' \"$1\" \"$basic\" > \"$2\"; "
-			~ "git -C \"$3\" config include.path lore-auth.gitconfig",
-		"sh", "https://github.com/", "/ws/app/.git/lore-auth.gitconfig", "/ws/app",
+			~ "git -C \"$3\" config include.path agent-auth.gitconfig",
+		"sh", "https://github.com/", "/ws/app/.git/agent-auth.gitconfig", "/ws/app",
 	]);
 	// and the checkout still follows
 	steps[5].should.equal(["git", "-C", "/ws/app", "checkout", "topic"]);
@@ -566,6 +649,93 @@ unittest
 	optAuth.repos = [authed];
 	auto authClone = git.steps(optAuth)[1];
 	authClone[$ - 3 .. $].should.equal(["--", "https://github.com/o/app.git", "/ws/app"]);
+}
+
+unittest
+{
+	// With a broker, the clone asks it for a token scoped to this repo at the moment git
+	// authenticates: the helper POSTs the
+	// repo to $AGENT_GIT_CREDENTIAL_URL under the run credential in $AGENT_GIT_CREDENTIAL
+	// and turns the JSON answer into git's username=/password= lines. Only the variable
+	// NAMES are in the argv; neither the run credential nor the token it buys ever is.
+	auto git = new GitTool;
+	InitContext ctx;
+	ctx.workspaceDir = "/ws";
+	ctx.gitCredentialUrl = "https://broker.example.com/api/github-credentials";
+	ctx.repos = [RepoRef("app", "o/app")];
+
+	git.steps(ctx)[1].should.equal([
+		"git", "-c", "credential.helper=", "-c",
+		`credential.helper=!f() { test "$1" = get || exit 0; `
+			~ `curl -fsS --max-time 30 -H "Authorization: Bearer $AGENT_GIT_CREDENTIAL" `
+			~ `-H "Content-Type: application/json" -d '{"repo":"o/app"}' "$AGENT_GIT_CREDENTIAL_URL" `
+			~ `| sed -n 's/.*"username":"\([^"]*\)".*"password":"\([^"]*\)".*/username=\1\npassword=\2/p'; }; f`,
+		"clone", "--", "https://github.com/o/app.git", "/ws/app",
+	]);
+}
+
+unittest
+{
+	// The broker grants by `owner/name`, so a repo declared by its https url asks for
+	// the same slug a bare `owner/name` would — never the url itself.
+	auto git = new GitTool;
+	InitContext ctx;
+	ctx.workspaceDir = "/ws";
+	ctx.gitCredentialUrl = "https://broker.example.com/api/github-credentials";
+	ctx.repos = [RepoRef("app", "https://github.com/o/app.git")];
+
+	git.steps(ctx)[1][4].canFind(`-d '{"repo":"o/app"}'`).should.equal(true);
+}
+
+unittest
+{
+	// The repo is the one value spliced into the broker helper's script, so a url whose
+	// owner/name is anything but GitHub's name characters never reaches it: the clone
+	// runs unauthenticated instead, as it does for a malformed token_secret.
+	auto git = new GitTool;
+	InitContext ctx;
+	ctx.workspaceDir = "/ws";
+	ctx.gitCredentialUrl = "https://broker.example.com/api/github-credentials";
+	ctx.repos = [RepoRef("app", `o/app"}' ; curl evil.example.com #`)];
+
+	git.steps(ctx)[1].canFind!(a => a.canFind("credential.helper=!")).should.equal(false);
+}
+
+unittest
+{
+	// With a broker, the same helper is persisted into the clone's own config, so the
+	// agent's later git commands — a push, above all — ask the broker as the clone did,
+	// and get a token minted then rather than one that expired mid-run.
+	auto git = new GitTool;
+	InitContext ctx;
+	ctx.workspaceDir = "/ws";
+	ctx.gitCredentialUrl = "https://broker.example.com/api/github-credentials";
+	ctx.repos = [RepoRef("app", "o/app", "topic")];
+
+	auto steps = git.steps(ctx);
+	steps[2].should.equal([
+		"git", "-C", "/ws/app", "config", "credential.helper",
+		steps[1][4]["credential.helper=".length .. $],
+	]);
+	steps[4].should.equal(["git", "-C", "/ws/app", "checkout", "topic"]);
+}
+
+unittest
+{
+	// Gemini's shell empties credential.helper and GIT_ASKPASS on every command, so for an
+	// https origin the broker's token is also persisted as the extraheader Gemini leaves
+	// alone — minted from the broker by the shell, never spliced into the argv, written
+	// to the same 0600 include file the token_secret path uses.
+	auto git = new GitTool;
+	InitContext ctx;
+	ctx.workspaceDir = "/ws";
+	ctx.gitCredentialUrl = "https://broker.example.com/api/github-credentials";
+	ctx.repos = [RepoRef("app", "o/app", "topic")];
+
+	auto header = git.steps(ctx)[3];
+	header[0 .. 2].should.equal(["sh", "-c"]);
+	header[2].canFind(`"$AGENT_GIT_CREDENTIAL_URL"`).should.equal(true);
+	header[$ - 4 .. $].should.equal(["sh", "https://github.com/", "/ws/app/.git/agent-auth.gitconfig", "/ws/app"]);
 }
 
 unittest

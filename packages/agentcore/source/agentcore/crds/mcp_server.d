@@ -18,7 +18,7 @@ struct McpServer
 /// `runEnv`) and the Claude adapter references it as `${NAME}` inside the
 /// `--mcp-config` JSON, which Claude Code expands from the environment — so both
 /// sides MUST derive the name the same way. Uppercased, every non-alphanumeric
-/// char folded to `_` (e.g. `lore-mcp-auth` -> `LORE_MCP_AUTH`), because `${}`
+/// char folded to `_` (e.g. `tools-mcp-auth` -> `TOOLS_MCP_AUTH`), because `${}`
 /// expansion rejects the hyphens the raw secret key allows. Empty when there is
 /// no `headers_secret`.
 string headerEnvName(in McpServer server) @safe pure
@@ -42,8 +42,8 @@ string headerEnvName(in McpServer server) @safe pure
 @safe unittest
 {
 	McpServer server;
-	server.headersSecret = "lore-mcp-auth";
-	headerEnvName(server).should.equal("LORE_MCP_AUTH");
+	server.headersSecret = "tools-mcp-auth";
+	headerEnvName(server).should.equal("TOOLS_MCP_AUTH");
 
 	McpServer noAuth;
 	headerEnvName(noAuth).should.equal("");

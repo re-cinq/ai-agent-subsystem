@@ -1,7 +1,7 @@
 // Thin, typed client over the Kubernetes API for the agents.re-cinq.com CRDs.
 // IO is injected as a KubeTransport so the client logic is deterministically
 // testable with an in-memory fake (no cluster, no mocks). A concrete transport
-// (fetch / @kubernetes/client-node) is supplied by the consumer (the Floor / UI).
+// (fetch / @kubernetes/client-node) is supplied by the consumer (an orchestrator or UI).
 
 import type { Agent, AgentDefinition, Station, Phase } from "./types.generated.js";
 import { enforce, enforceHTTPSuccess } from "./enforce.js";
@@ -10,7 +10,7 @@ export const GROUP = "agents.re-cinq.com";
 export const VERSION = "v1alpha1";
 export const DEFAULT_NAMESPACE = "ai-agents";
 
-const FIELD_MANAGER = "lore-ui";
+const FIELD_MANAGER = "agent-contracts";
 const TERMINAL_PHASES: readonly Phase[] = ["Succeeded", "Failed"];
 
 export interface KubeRequest {

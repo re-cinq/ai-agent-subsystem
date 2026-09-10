@@ -65,10 +65,10 @@ version (unittest) import vibe.data.json : parseJsonString;
 @safe unittest
 {
 	AgentDefinitionSpec recipe;
-	recipe.toolConfig = parseJsonString(`{"command": ["lore-station", "validate"]}`);
+	recipe.toolConfig = parseJsonString(`{"command": ["station-runner", "validate"]}`);
 
 	const cmd = (new ExecAgent).command(recipe, `{"node_id":"validate"}`);
-	cmd.should.equal(["lore-station", "validate", `{"node_id":"validate"}`]);
+	cmd.should.equal(["station-runner", "validate", `{"node_id":"validate"}`]);
 }
 
 @safe unittest
@@ -82,7 +82,7 @@ version (unittest) import vibe.data.json : parseJsonString;
 	assertThrown((new ExecAgent).command(emptyCommand, "p"));
 
 	AgentDefinitionSpec nonStringEntry;
-	nonStringEntry.toolConfig = parseJsonString(`{"command": ["lore-station", 7]}`);
+	nonStringEntry.toolConfig = parseJsonString(`{"command": ["station-runner", 7]}`);
 	assertThrown((new ExecAgent).command(nonStringEntry, "p"));
 }
 

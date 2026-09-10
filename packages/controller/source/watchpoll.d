@@ -216,7 +216,7 @@ string[] distinctStationRefs(const Agent[] agents) @safe pure nothrow
 }
 
 /// Enforce every Station's history limits over the freshly-synced cache BEFORE the
-/// reconcile pass walks it (re-cinq/lore#1290). `pruneHistory` fires only on a run's
+/// reconcile pass walks it. `pruneHistory` fires only on a run's
 /// terminal TRANSITION, so CRs that are already terminal at startup are invisible to
 /// it: a controller that keeps dying never completes a run, the pile grows with every
 /// restart, and every startup sync gets slower — 2,657 accumulated CRs took a
@@ -754,7 +754,7 @@ unittest
 unittest
 {
 	// Startup sync prunes ALREADY-terminal runs over the Station's history limits
-	// before reconciling (re-cinq/lore#1290): none of these transitions this pass —
+	// before reconciling: none of these transitions this pass —
 	// the transition-time pruneHistory would never touch them — yet the pile is cut
 	// to the limits and the pruned names leave the cache. Success limit 1 keeps only
 	// the newest succeeded run; the failed bucket is under its limit and untouched.

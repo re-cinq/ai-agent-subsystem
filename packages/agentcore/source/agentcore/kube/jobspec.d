@@ -547,6 +547,10 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 	strVar(envWorkspace, defaultWorkspace);
 	if (agent.spec.parameters.length)
 		strVar(envParameters, parametersJson(agent.spec.parameters));
+	if (auto credential = "git_credential" in agent.spec.parameters)
+		strVar(envGitCredential, *credential);
+	if (auto brokerUrl = "git_credential_url" in agent.spec.parameters)
+		strVar(envGitCredentialUrl, *brokerUrl);
 	if (agent.spec.targetRepo.length)
 		strVar(envTargetRepo, agent.spec.targetRepo);
 	if (agent.spec.branch.length)
@@ -585,7 +589,7 @@ bool isReservedEnvName(string name) @safe pure nothrow
 	static immutable string[] reserved = [
 		envSinks, envRepos, envSkills, envSkillsSource, envConversationSource, envConversationId,
 		envConversationPin, envConversationAuth,
-		envSelect, envWatch, envWorkspace, envParameters, envTargetRepo,
+		envSelect, envWatch, envWorkspace, envParameters, envGitCredential, envGitCredentialUrl, envTargetRepo,
 		envBranch, envModel, envAgentName, envStationName, envTaskId, envPodName,
 		envPodNamespace, envDeadlineMs, homeEnv, pathEnv,
 	];
@@ -728,6 +732,48 @@ unittest
 	job["spec"]["ttlSecondsAfterFinished"].get!long.should.equal(3600);
 	job["spec"]["activeDeadlineSeconds"].get!long.should.equal(1800);
 	job["spec"]["backoffLimit"].get!long.should.equal(0);
+}
+
+unittest
+{
+	// A run whose parameters carry a broker credential gets it, and the broker's URL,
+	// as dedicated env vars, so the git credential helper reads two plain names
+	// rather than parsing AGENT_PARAMETERS.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	agent.spec.parameters["git_credential"] = "v1.claims-for-run-42.signature";
+	agent.spec.parameters["git_credential_url"] = "https://broker.example.com/api/github-credentials";
+
+	auto container = agentContainer(buildJob(agent, station, definition, "ghcr.io/re-cinq/ai-agent:latest"));
+
+	envValue(container, "AGENT_GIT_CREDENTIAL").should.equal("v1.claims-for-run-42.signature");
+	envValue(container, "AGENT_GIT_CREDENTIAL_URL").should.equal("https://broker.example.com/api/github-credentials");
+}
+
+unittest
+{
+	// A recipe cannot redirect the credential helper: an env entry reusing either name is
+	// dropped, so the run's own credential and broker are the only ones the pod sees.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	agent.spec.parameters["git_credential"] = "v1.claims-for-run-42.signature";
+	agent.spec.parameters["git_credential_url"] = "https://broker.example.com/api/github-credentials";
+	definition.spec.resources.env ~= [
+		EnvVar("AGENT_GIT_CREDENTIAL", "v1.someone-elses.signature"),
+		EnvVar("AGENT_GIT_CREDENTIAL_URL", "https://attacker.example.com/steal"),
+	];
+
+	auto container = agentContainer(buildJob(agent, station, definition, "ghcr.io/re-cinq/ai-agent:latest"));
+	string[] urls;
+	foreach (entry; container["env"].get!(Json[]))
+		if (entry["name"].get!string == "AGENT_GIT_CREDENTIAL_URL")
+			urls ~= entry["value"].get!string;
+
+	urls.should.equal(["https://broker.example.com/api/github-credentials"]);
 }
 
 unittest
@@ -1133,12 +1179,12 @@ unittest
 	AgentDefinition definition;
 	fixtures(agent, station, definition);
 	definition.spec.resources.mcpServers = [
-		McpServer("lore", McpTransport.http, "", null, "https://lore-mcp/mcp", "lore-mcp-auth"),
+		McpServer("tools", McpTransport.http, "", null, "https://tools-mcp/mcp", "tools-mcp-auth"),
 	];
 
 	auto container = agentContainer(buildJob(agent, station, definition, "img"));
 
-	envSecretKey(container, "LORE_MCP_AUTH").should.equal("lore-mcp-auth");
+	envSecretKey(container, "TOOLS_MCP_AUTH").should.equal("tools-mcp-auth");
 }
 
 unittest

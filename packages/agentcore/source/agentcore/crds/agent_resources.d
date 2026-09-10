@@ -21,7 +21,7 @@ struct AgentResources
 	@optional string[] skills;
 	// Base URL of the skill/settings registry the recipe's skills come from. The init
 	// fetches `<skillsSource>/<name>.tar.gz` per skill and `<skillsSource>/settings.json`.
-	// Empty ⇒ no fetch (skills off). Provided by the consumer (e.g. Lore) — kept out of
+	// Empty ⇒ no fetch (skills off). Provided by the consumer — kept out of
 	// the subsystem so it stays consumer-agnostic.
 	@optional @wire("skills_source") string skillsSource;
 	// A previous run this one continues (#188 sibling): the init restores the prior

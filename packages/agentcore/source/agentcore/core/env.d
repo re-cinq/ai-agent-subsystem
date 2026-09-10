@@ -8,6 +8,12 @@ enum envModel = "AGENT_MODEL";
 enum envNotifyUrl = "AGENT_NOTIFY_URL";
 enum envSinks = "AGENT_SINKS";
 enum envParameters = "AGENT_PARAMETERS";
+// A run credential and the broker that trades it for a git token scoped to the run's
+// repo, minted at the moment git asks.
+// Lifted out of the `git_credential` / `git_credential_url` parameters so the git
+// credential helper reads two plain names instead of parsing AGENT_PARAMETERS.
+enum envGitCredential = "AGENT_GIT_CREDENTIAL";
+enum envGitCredentialUrl = "AGENT_GIT_CREDENTIAL_URL";
 
 // HTTP sink delivery retry: a transient POST failure is retried with capped
 // exponential backoff before the event is dropped (never fatal to the run).
@@ -43,7 +49,7 @@ enum envConversationAuth = "AGENT_CONVERSATION_AUTH";
 /// will not propagate a variable whose name is not a valid shell identifier, so a
 /// child process (`printenv`) can never see it, whatever the syntax. The init reads
 /// it with getenv, where the name is just a string, and re-exports it as this.
-enum envConversationAuthValue = "LORE_CONVERSATION_AUTH";
+enum envConversationAuthValue = "AGENT_CONVERSATION_CREDENTIAL";
 
 // After the agent emits its terminal event, how long the supervisor waits for the
 // process to exit on its own before escalating SIGTERM -> SIGKILL. Some agent CLIs

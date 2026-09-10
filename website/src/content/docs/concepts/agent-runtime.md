@@ -73,7 +73,7 @@ at clone time, so the token value never appears in an argv or a log line. The en
 validated before use, and the repo url is never passed through a shell.
 
 The helper persisted into the clone's config additionally falls back to a token **file** at
-`<clone>/.git/lore-token` (written by the init, `0600` before a byte lands) when the variable is
+`<clone>/.git/agent-token` (written by the init, `0600` before a byte lands) when the variable is
 unset or empty: some agent CLIs spawn their shell-tool children with a scrubbed environment, in
 which the env-only helper answered an empty password and every push died on "terminal prompts
 disabled" with the round complete. The environment stays the primary path; the file lives inside
@@ -88,10 +88,23 @@ outranks the repo's, so the helper above is wiped before git ever asks it, and t
 cannot help. Gemini overrides nothing under `http.*` and repo-local config still loads, so the
 header authenticates the push anyway. Git sends the header on every request to that origin, so it
 is what authenticates for every vendor; the helper keeps answering for an origin that gets no
-header. The header lives in `<clone>/.git/lore-auth.gitconfig` (`0600`), which the clone's config
+header. The header lives in `<clone>/.git/agent-auth.gitconfig` (`0600`), which the clone's config
 pulls in with `include.path`; the shell builds it from the variable's value, so the token is never
 in an argv, and `.git/config` itself still only names where the secret lives. An unset variable
 writes no header.
+
+**A git-credential broker replaces the launch-time token when the run has one.** An Agent whose
+`parameters` carry `git_credential` (a run credential) and `git_credential_url` (the broker)
+gets them as `AGENT_GIT_CREDENTIAL` and `AGENT_GIT_CREDENTIAL_URL` — controller-owned names a
+recipe cannot override. The clone's credential helper then POSTs `{"repo":"<owner>/<name>"}` to
+the broker under `Authorization: Bearer $AGENT_GIT_CREDENTIAL` and answers git with the
+`username`/`password` it returns, so the token is minted at the moment git authenticates, scoped
+to that one repo, and never outlives the run. The same helper is persisted into the clone's config,
+so a push hours later asks again rather than presenting a token that has since expired. Only the
+variable names and the repo's `owner/name` are in the helper script; a repo whose `owner/name`
+holds anything but GitHub's name characters is not spliced in at all, and clones the way it would
+without a broker. The broker is expected to verify the run credential and grant only the repo it
+names, only while its run is open.
 
 Before running the tools it **self-bootstraps prerequisites**: any executable a tool needs (`git`,
 `bash`, `curl`, `sha256sum`, `base64`) that isn't on `PATH` is installed using the package manager detected
