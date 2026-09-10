@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.10.12
+
 ### Fixed
 - **Gemini pods still could not push after v0.10.11.** The Gemini CLI runs
   every shell command with `GIT_CONFIG_*` env entries that set an empty

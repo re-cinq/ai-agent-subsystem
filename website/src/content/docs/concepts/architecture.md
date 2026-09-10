@@ -59,7 +59,7 @@ election](./controller-lifecycle.md#leader-election) for the mechanics.
 Runs as the Pod's **init container**, before the supervisor. It provisions the agent's environment
 from what the recipe declares: cloning the `resources.repos` into the workspace and installing the
 agent CLI (e.g. Claude via the official installer), self-bootstrapping any missing prerequisites
-(git, curl, sha256sum) through the distro's package manager first, and reporting its lifecycle to the
+(git, bash, curl, sha256sum, base64) through the distro's package manager first, and reporting its lifecycle to the
 same output sinks as the agent. New provisioning tools and distros are added behind the `Tool` and
 `PackageManager` interfaces. See [Agent runtime](./agent-runtime.md) for the full model.
 
