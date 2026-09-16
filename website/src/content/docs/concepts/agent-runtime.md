@@ -64,6 +64,7 @@ itself whether the run needs it:
 | `git` | `resources.repos` is non-empty | clones each repo (full history) into `WORKSPACE_DIR`, checking out its `ref` (branch, tag, or SHA). Re-entrant across init retries. Private repos authenticate with `token_secret` (below). |
 | the agent CLI (`claude`, `codex`, `gemini`, `opencode`, `exec`) | always; *which* CLI comes from the recipe's `model` (same routing as [pluggable agents](#pluggable-agents)) | installs the one CLI the run's model routes to, via that vendor's official installer — e.g. Claude's `curl -fsSL https://claude.ai/install.sh \| bash`. Picking the installer from the same routing that picks the adapter means "install X" can never drift from "run X". |
 | `skills` | always (the repo's own `.claude/skills`); the registry half when `resources.skills_source` is set | stages skills into the run's `$HOME/.claude` so headless `claude --print` auto-loads them user-scope: the cloned repo's own `.claude/skills`, then the registry's `settings.json` (session hooks), then each name in `resources.skills` fetched as `<source>/<name>.tar.gz`. Best-effort — an unreachable registry never fails the run. |
+| `hooks` | `resources.skills_source` is set | fetches `<source>/hooks/<vendor>.tar.gz` for the vendor the model routes to and extracts it relative to `$HOME`. Hooks are vendor-native config (Claude Code `.claude/settings.json`, Codex `.codex/`, Gemini `.gemini/settings.json`, OpenCode its plugin dir), so nothing is translated: one mechanism per vendor, content owned by the registry. After `skills`, so a Claude bundle's `settings.json` wins over the flat one. Best-effort — no bundle for this vendor means no org hooks, not a failed run. |
 | `conversation` | `resources.conversation` names both a `source` and an `id`, and the vendor has a state directory | restores the prior run's state archive into the vendor's own state dir under `$HOME`, so the agent resumes that conversation instead of starting fresh. Best-effort: a missing archive leaves the run with a fresh conversation. See [continuing a conversation](#continuing-a-conversation). |
 
 A repo's `token_secret` names the **environment variable** holding its access token (the controller
@@ -221,6 +222,25 @@ stays consumer-agnostic: the recipe declares intent and hands over a URL, and th
 nothing of the registry beyond it. The URL is read from `$AGENT_SKILLS_SOURCE` at run time so a
 recipe-supplied string never enters a shell command, and skill names are validated against injection
 before use.
+
+## Hooks
+
+A hook is how an org puts a guard between the agent and its tools — refuse a command, audit a call —
+and every CLI reads hooks in its own format from its own place under `$HOME`: Claude Code from
+`.claude/settings.json` (also passed as `--settings`), Codex from `.codex/`, Gemini from
+`.gemini/settings.json`, OpenCode from its plugin directory. The subsystem translates none of those.
+Instead the registry publishes **one bundle per vendor** at `<skills_source>/hooks/<vendor>.tar.gz`,
+laid out relative to `$HOME` in that vendor's native format, and the init's hooks tool extracts it
+there for whichever vendor the run's `model` routes to — the same routing that picks the CLI to
+install and the adapter to run. A Claude bundle therefore carries `.claude/settings.json` plus
+whatever scripts its hook commands name; a Codex bundle carries `.codex/…`. Adding a vendor to the
+registry is adding a directory; the subsystem does not change.
+
+The vendor name comes from the adapter, never from recipe input, and the URL is the same
+`$AGENT_SKILLS_SOURCE` env reference skills use. The tool runs after `skills`, so a Claude bundle's
+`settings.json` wins over the flat `<source>/settings.json` the skills tool stages (kept for
+registries that predate bundles). Like skills it is best-effort: a registry with no bundle for this
+vendor leaves the run without org hooks and never fails it.
 
 ## Output and credentials
 

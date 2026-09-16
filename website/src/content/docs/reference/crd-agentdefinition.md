@@ -32,7 +32,7 @@ The recipe. It has a `spec` and no `status`.
 | `mcp_servers` | [] object | `{name, transport(stdio\|http\|sse), command?, args?, url?, headers_secret?}`. |
 | `repos` | [] object | `{name, url, ref?, path?, token_secret?}`. |
 | `skills` | []string | Skill names staged into the run's `$HOME/.claude/skills`, fetched from `skills_source` as `<source>/<name>.tar.gz`. The recipe declares intent; each adapter realizes it. |
-| `skills_source` | string | Base URL of the skill/settings registry. The init also fetches `<source>/settings.json` (session hooks) from it. Empty means no fetch — the cloned repo's own `.claude/skills` is still staged. |
+| `skills_source` | string | Base URL of the skill/settings registry. The init also fetches `<source>/settings.json` (Claude's flat session settings) and `<source>/hooks/<vendor>.tar.gz` — the hook bundle for the vendor the `model` routes to, in that vendor's native format, extracted relative to `$HOME`. Empty means no fetch — the cloned repo's own `.claude/skills` is still staged. |
 | `conversation` | object | `{source, id?, pin?, headers_secret?}` — a previous run this one continues. The init restores its state before the agent starts; the supervisor saves this run's own state as `pin`. `id` is opaque to the subsystem. |
 
 ### `spec.output`
