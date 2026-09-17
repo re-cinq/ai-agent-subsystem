@@ -242,6 +242,11 @@ The vendor name comes from the adapter, never from recipe input, and the URL is 
 registries that predate bundles). Like skills it is best-effort: a registry with no bundle for this
 vendor leaves the run without org hooks and never fails it.
 
+The bundle is extracted at the root of `$HOME`, not under `.claude`, so whoever controls the
+`skills_source` a recipe names can place any dotfile the run's CLI or tools will read. That is the
+same trust the skills tool already extends to the source (a recipe is org-authored), and `tar`
+strips leading slashes and refuses `..` members, so a bundle cannot write outside `$HOME`.
+
 ## Output and credentials
 
 - **Output** is emitted as one self-identifying JSON event per line:

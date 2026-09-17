@@ -92,3 +92,14 @@ version (unittest) import std.algorithm.searching : canFind;
 	// shell step it could break out of.
 	(new HooksTool("../evil")).steps(ctx).length.should.equal(0);
 }
+
+@safe unittest
+{
+	// A registry with no bundle for this vendor (a 404, or an unreachable host) must
+	// not fail the run: the init fails the whole run on any non-zero step, so the
+	// step itself has to swallow the fetch's failure.
+	InitContext ctx;
+	ctx.workspaceDir = "/workspace";
+	ctx.skillsSource = "https://registry.example/skills";
+	(new HooksTool("claude")).steps(ctx)[0][2].should.contain("|| true");
+}
