@@ -56,8 +56,11 @@ final class HooksTool : Tool
 	}
 }
 
-version (unittest) import fluent.asserts;
-version (unittest) import std.algorithm.searching : canFind;
+version (unittest)
+{
+	import fluent.asserts;
+	import std.algorithm.searching : canFind;
+}
 
 @safe unittest
 {
