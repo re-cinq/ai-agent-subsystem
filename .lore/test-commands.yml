@@ -1,0 +1,39 @@
+# Lore test-command manifest for ai-agent-subsystem
+#
+# Two toolchains: D packages (dub/unittest) and the TypeScript contracts package (vitest).
+# The team reviews and adjusts this scaffold — it does not change test behaviour.
+
+toolchains:
+  - id: d-packages
+    name: D unit tests (dub)
+    cwd: .
+    # Lists each D package that has a unittest configuration as a test descriptor.
+    list: |
+      echo '[
+        {"id":"agentcore","name":"agentcore unit tests","file":"packages/agentcore/dub.json","startLine":1,"endLine":1},
+        {"id":"controller","name":"controller unit tests","file":"packages/controller/dub.json","startLine":1,"endLine":1},
+        {"id":"supervisor","name":"supervisor unit tests","file":"packages/supervisor/dub.json","startLine":1,"endLine":1},
+        {"id":"initializer","name":"initializer unit tests","file":"packages/initializer/dub.json","startLine":1,"endLine":1},
+        {"id":"crdgen","name":"crdgen unit tests","file":"packages/crdgen/dub.json","startLine":1,"endLine":1},
+        {"id":"tsgen","name":"tsgen unit tests","file":"packages/tsgen/dub.json","startLine":1,"endLine":1}
+      ]'
+    # Runs the selected D sub-package's unittest configuration.
+    # dub does not produce lcov natively; results are reported via exit code.
+    run: dub test :{selector}
+    coverage_format: lcov
+
+  - id: agent-contracts
+    name: "@re-cinq/agent-contracts (vitest + v8 coverage)"
+    cwd: packages/agent-contracts
+    list: |
+      node -e "
+        const cfg = JSON.parse(require('fs').readFileSync('vitest.config.ts','utf8').replace(/^import.*\n/,'').replace(/export default defineConfig\(/,'(').replace(/\);$/,')'));
+        const tests = require('fs').readdirSync('src').filter(f => f.endsWith('.test.ts'));
+        console.log(JSON.stringify(tests.map(f => ({id: f, name: f, file: 'packages/agent-contracts/src/' + f, startLine: 1, endLine: 9999}))));
+      " 2>/dev/null || node -e "
+        const {execSync} = require('child_process');
+        const out = execSync('npx vitest list --reporter json 2>/dev/null || echo []').toString();
+        try { console.log(out); } catch(e) { console.log('[]'); }
+      "
+    run: npx vitest run --coverage --reporter verbose {selector}
+    coverage_format: lcov

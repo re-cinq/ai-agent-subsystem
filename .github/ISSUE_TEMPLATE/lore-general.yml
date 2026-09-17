@@ -1,0 +1,12 @@
+name: "Lore: General Task"
+description: "Ask Lore to do something (docs, runbook, analysis)"
+labels: ["lore"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What should Lore do?
+      description: Describe the task. Lore will use the repo's context.
+      placeholder: "Write a runbook for handling database failover..."
+    validations:
+      required: true
