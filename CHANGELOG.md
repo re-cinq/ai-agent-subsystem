@@ -6,6 +6,19 @@ the npm package versions.
 
 ## Unreleased
 
+### Added
+- **Per-vendor hook bundles from the registry.** When `resources.skills_source`
+  is set, the init now also fetches `<source>/hooks/<vendor>.tar.gz` for the
+  vendor the run's model routes to (`claude`, `codex`, `gemini`, `opencode`)
+  and extracts it relative to `$HOME`. Hooks are vendor-native config (Claude
+  Code reads `.claude/settings.json`, Codex `.codex/`, Gemini
+  `.gemini/settings.json`, OpenCode its plugin dir), so the subsystem
+  translates nothing: one fetch mechanism for every vendor, the content stays
+  with the registry. Runs after the skills tool, so a Claude bundle's
+  `.claude/settings.json` wins over the flat `<source>/settings.json`. A
+  registry with no bundle for the vendor leaves the run without org hooks,
+  never failed.
+
 ## v0.10.13
 
 ### Changed

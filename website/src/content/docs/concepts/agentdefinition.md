@@ -27,7 +27,8 @@ flowchart LR
 - **`max_turns`**: optional cap on agentic turns; omit for uncapped.
 - **`resources`**: what the run needs available to it — `env`, `secrets` (env-var name plus an
   allowlisted secret-store key), `mcp_servers`, `repos`, `skills` / `skills_source` (skills fetched
-  into the run's `$HOME/.claude`), and `conversation` (a previous run this one continues).
+  into the run's `$HOME/.claude`, plus the source's hook bundle for the vendor the model routes
+  to, extracted relative to `$HOME`), and `conversation` (a previous run this one continues).
 - **`output`**: the result contract: `format` (`text` / `json` / `stream-json`), an optional
   `schema`, event `select` filters, `sinks` (`stdout`, `http`, `file`), and `watch` (files the run
   is expected to produce, each raised as a named event).
