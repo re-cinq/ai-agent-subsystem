@@ -1,0 +1,73 @@
+name: Lore test report
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  d-tests:
+    name: D unit tests (dub)
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'pull_request' ||
+      contains(toJson(github.event.commits), '"packages/') ||
+      contains(toJson(github.event.commits), '"dub.json') ||
+      contains(toJson(github.event.commits), '"Makefile')
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Set up D toolchain (DMD)
+        uses: dlang-community/setup-dlang@d7d85fcde7c4cd5f9a6618fce1bccc316e1e910b # v2
+        with:
+          compiler: dmd-2.111.0
+
+      - name: Fetch lore-code-trace
+        env:
+          LORE_INGEST_URL: ${{ secrets.LORE_INGEST_URL || vars.LORE_INGEST_URL }}
+        run: |
+          curl -fsSL "${LORE_INGEST_URL}/dist/lore-code-trace/linux-amd64" -o lore-code-trace
+          curl -fsSL "${LORE_INGEST_URL}/dist/lore-code-trace/checksums.txt" -o checksums.txt
+          sha256sum --check --ignore-missing checksums.txt
+          chmod +x lore-code-trace
+
+      - name: Run tests and post report to Lore
+        env:
+          LORE_WEBHOOK_URL: ${{ vars.LORE_WEBHOOK_URL }}
+          LORE_INGEST_TOKEN: ${{ secrets.LORE_INGEST_TOKEN }}
+        run: ./lore-code-trace --post || echo "::warning::Lore test ingest failed"
+
+  contracts-tests:
+    name: "@re-cinq/agent-contracts (vitest)"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/agent-contracts
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+
+      - run: npm ci
+
+      - name: Fetch lore-code-trace
+        working-directory: .
+        env:
+          LORE_INGEST_URL: ${{ secrets.LORE_INGEST_URL || vars.LORE_INGEST_URL }}
+        run: |
+          curl -fsSL "${LORE_INGEST_URL}/dist/lore-code-trace/linux-amd64" -o lore-code-trace
+          curl -fsSL "${LORE_INGEST_URL}/dist/lore-code-trace/checksums.txt" -o checksums.txt
+          sha256sum --check --ignore-missing checksums.txt
+          chmod +x lore-code-trace
+
+      - name: Run tests and post report to Lore
+        working-directory: .
+        env:
+          LORE_WEBHOOK_URL: ${{ vars.LORE_WEBHOOK_URL }}
+          LORE_INGEST_TOKEN: ${{ secrets.LORE_INGEST_TOKEN }}
+        run: ./lore-code-trace --post || echo "::warning::Lore test ingest failed"
