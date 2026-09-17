@@ -26,7 +26,7 @@ jobs:
 
       - name: Fetch lore-code-trace
         env:
-          LORE_INGEST_URL: ${{ secrets.LORE_INGEST_URL || vars.LORE_INGEST_URL }}
+          LORE_INGEST_URL: ${{ secrets.LORE_INGEST_URL || vars.LORE_INGEST_URL || vars.LORE_API_URL }}
         run: |
           curl -fsSL "${LORE_INGEST_URL}/dist/lore-code-trace/linux-amd64" -o linux-amd64
           curl -fsSL "${LORE_INGEST_URL}/dist/lore-code-trace/checksums.txt" -o checksums.txt
@@ -59,7 +59,7 @@ jobs:
       - name: Fetch lore-code-trace
         working-directory: .
         env:
-          LORE_INGEST_URL: ${{ secrets.LORE_INGEST_URL || vars.LORE_INGEST_URL }}
+          LORE_INGEST_URL: ${{ secrets.LORE_INGEST_URL || vars.LORE_INGEST_URL || vars.LORE_API_URL }}
         run: |
           curl -fsSL "${LORE_INGEST_URL}/dist/lore-code-trace/linux-amd64" -o linux-amd64
           curl -fsSL "${LORE_INGEST_URL}/dist/lore-code-trace/checksums.txt" -o checksums.txt
