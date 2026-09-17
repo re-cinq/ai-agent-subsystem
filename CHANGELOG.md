@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.10.14
+
 ### Added
 - **Per-vendor hook bundles from the registry.** When `resources.skills_source`
   is set, the init now also fetches `<source>/hooks/<vendor>.tar.gz` for the
