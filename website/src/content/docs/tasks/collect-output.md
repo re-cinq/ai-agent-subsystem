@@ -92,6 +92,37 @@ on an event that never arrives:
 
 Oversized (>128 KiB) and unreadable files report the same way.
 
+### Large files by upload
+
+Inline content is capped at 128 KiB because it rides the event stream. For a larger artifact — or one
+that should never pass through the stream — give the watch an `upload` destination. The supervisor
+POSTs the file's bytes there and the event carries only its size and digest:
+
+```yaml
+output:
+  watch:
+    - event: report.ready
+      path: out/report.md
+      upload:
+        url: https://files.example.com/runs/{agent}/{event}
+        headers_secret: files-auth
+```
+
+```json
+{ "kind": "file", "event": "report.ready", "path": "/workspace/out/report.md", "uploaded": true, "bytes": 48213, "sha256": "9f86d0…" }
+```
+
+`{agent}` and `{event}` expand to the run's Agent name and the watch's event name, so one recipe
+serves every run. The body is `application/octet-stream`, and `headers_secret` names an
+`agent-secrets` key holding the header block, as for a sink. Uploads are capped at 64 MiB by
+default (`MAX_UPLOAD_BYTES` in `resources.env` overrides it); past the cap the event reports
+`too-large`, and a non-2xx or unreachable upload reports `upload-failed`.
+
+Together with an Agent's [input `files`](./launch-an-agent.md#hand-the-run-input-files), this makes
+a round trip by reference: the init downloads `notes/brief.md` into the workspace, the agent writes
+`out/report.md`, and the supervisor uploads it — no document ever sits in the CR, the event stream or
+`status.output`.
+
 For the exact wire format your listener receives (the event envelope, lifecycle, file and
 `stream-json` payloads, the HTTP contract, and the retry env vars), see the
 [Notification API](../reference/notification-api.md) reference. For a step-by-step setup with the

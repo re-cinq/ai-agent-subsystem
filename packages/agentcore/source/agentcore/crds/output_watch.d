@@ -1,6 +1,7 @@
 module agentcore.crds.output_watch;
 
 import agentcore.crds.schema;
+import agentcore.crds.watch_upload : WatchUpload;
 
 /// A file the run is expected to produce, and the event name to raise when it does.
 ///
@@ -28,4 +29,10 @@ struct OutputWatch
 	@optional @Required @Description(
 		"File to read; relative paths resolve against WORKSPACE_DIR.")
 	string path;
+
+	/// Upload the file instead of carrying it inline: its bytes are POSTed to
+	/// `upload.url` and the event reports `uploaded`, `bytes` and `sha256` in place of
+	/// `content`. For files past the inline cap.
+	@optional @Description("Upload the file to a URL instead of inlining its content.")
+	WatchUpload upload;
 }

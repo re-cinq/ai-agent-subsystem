@@ -1,5 +1,6 @@
 module agentcore.tools.initcontext;
 
+import agentcore.crds.input_file : InputFile;
 import agentcore.crds.repo_ref : RepoRef;
 
 /// What the init container provisions, built from the env the controller injects
@@ -36,4 +37,11 @@ struct InitContext
 	/// from is named after a Kubernetes secret key, so a shell cannot read it — see
 	/// ConversationTool.steps.
 	string conversationAuth;
+	/// The run's `files` (`AGENT_FILES`) — the FilesTool downloads each into the
+	/// workspace after the clones.
+	InputFile[] files;
+	/// Each file's header block, index-aligned with `files` and resolved by the init via
+	/// getenv for the same reason as `conversationAuth`. Empty for a file without
+	/// `headers_secret`.
+	string[] fileHeaders;
 }

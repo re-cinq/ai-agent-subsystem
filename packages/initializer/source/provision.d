@@ -19,7 +19,7 @@ private extern (C) int lchown(scope const char* path, uid_t owner, gid_t group) 
 import agentcore.crds.enums : SinkType;
 import agentcore.core.env : defaultWorkspace, envConversationAuth,
 	envConversationAuthValue, envConversationId,
-	envConversationSource, envGitCredentialUrl, envModel,
+	envConversationSource, envFiles, envGitCredentialUrl, envModel,
 	envRepos, envSkills, envSkillsSource, envWorkspace;
 import agentcore.vendors.select : agentForModel;
 import agentcore.output.event : EventSource, sourceFromEnv;
@@ -32,6 +32,7 @@ import agentcore.output.output : sinksFromEnv;
 import agentcore.pkgmanager.packagemanager : packageFor;
 import agentcore.pkgmanager.packagemanagerselect : packageManagerByName;
 import agentcore.tools.agent_tool : AgentTool;
+import agentcore.tools.files_tool : fileHeadersEnv, parseInputFiles;
 import agentcore.tools.repos : parseRepos;
 import agentcore.tools.skills : parseSkills;
 import agentcore.tools.tool : Tool;
@@ -62,6 +63,11 @@ InitContext contextFromEnv()
 	// identifier — no child of `sh -c` can ever read it. getenv has no such rule.
 	ctx.conversationAuth = ctx.conversationAuthEnv.length
 		? environment.get(ctx.conversationAuthEnv, "") : "";
+	ctx.files = parseInputFiles(environment.get(envFiles, ""));
+	// Each file's header block, resolved here for the same reason as the conversation
+	// credential: its variable is named after a secret key a shell may not be able to read.
+	foreach (file; ctx.files)
+		ctx.fileHeaders ~= file.headersSecret.length ? environment.get(file.headersSecret, "") : "";
 	return ctx;
 }
 
@@ -76,6 +82,31 @@ unittest
 		environment.remove(envGitCredentialUrl);
 
 	contextFromEnv().gitCredentialUrl.should.equal("https://broker.example.com/api/github-credentials");
+}
+
+unittest
+{
+	// The run's input files reach the context, each with its header block resolved
+	// from the dashed secret-key variable no shell could read.
+	import agentcore.crds.input_file : InputFile;
+
+	environment[envFiles] = `[{"path":"a.md","url":"https://files.example/a"},`
+		~ `{"path":"b.md","url":"https://files.example/b","headers_secret":"files-auth"}]`;
+	environment["files-auth"] = "Authorization: Bearer t0k";
+	scope (exit)
+	{
+		environment.remove(envFiles);
+		environment.remove("files-auth");
+	}
+
+	const ctx = contextFromEnv();
+
+	ctx.files.should.equal([
+		InputFile("a.md", "https://files.example/a"),
+		InputFile("b.md", "https://files.example/b", "files-auth"),
+	]);
+	ctx.fileHeaders.should.equal(["", "Authorization: Bearer t0k"]);
+	stepEnv(ctx).should.equal([fileHeadersEnv(1): "Authorization: Bearer t0k"]);
 }
 
 /// Provision the agent's environment: install any missing prerequisites, then run
@@ -222,15 +253,18 @@ string detectPackageManager()
 	return "";
 }
 
-/// Values a step needs that only THIS process can read: the conversation
-/// credential, whose variable is named after a Kubernetes secret key and is
-/// therefore invisible to any shell. Empty when no credential is configured.
-private string[string] stepEnv(InitContext ctx)
+/// Values a step needs that only THIS process can read: the conversation credential
+/// and the input files' header blocks, whose variables are named after Kubernetes
+/// secret keys and are therefore invisible to any shell. Empty when none is configured.
+private string[string] stepEnv(in InitContext ctx)
 {
 	string[string] env;
 
 	if (ctx.conversationAuth.length)
 		env[envConversationAuthValue] = ctx.conversationAuth;
+	foreach (i, headers; ctx.fileHeaders)
+		if (headers.length)
+			env[fileHeadersEnv(i)] = headers;
 
 	return env;
 }

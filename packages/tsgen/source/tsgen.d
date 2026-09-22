@@ -28,6 +28,8 @@ import agentcore.crds.agent_resources : AgentResources;
 import agentcore.crds.output_selector : OutputSelector;
 import agentcore.crds.output_sink : OutputSink;
 import agentcore.crds.output_watch : OutputWatch;
+import agentcore.crds.watch_upload : WatchUpload;
+import agentcore.crds.input_file : InputFile;
 import agentcore.crds.output_spec : OutputSpec;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 import agentcore.crds.agent_definition : AgentDefinition;
@@ -44,8 +46,8 @@ private alias AllEnums = AliasSeq!(PermissionMode, McpTransport, OutputFormat,
 /// The structs emitted as TypeScript interfaces (dependency-first for readability;
 /// TS does not require forward declaration).
 private alias AllStructs = AliasSeq!(ObjectMeta, EnvVar, SecretRef, McpServer, RepoRef,
-	ConversationRef, AgentResources, OutputSelector, OutputSink, OutputWatch, OutputSpec,
-	AgentDefinitionSpec, AgentDefinition, StationSpec, Station, AgentSpec, AgentStatus, Agent);
+	ConversationRef, AgentResources, OutputSelector, OutputSink, WatchUpload, OutputWatch, OutputSpec,
+	AgentDefinitionSpec, AgentDefinition, StationSpec, Station, InputFile, AgentSpec, AgentStatus, Agent);
 
 /// The TypeScript type expression for D type `FT`. Mirrors `crdgen.emitType`'s
 /// dispatch: a `Json` preserve-unknown object becomes `unknown`; an enum and a

@@ -18,6 +18,24 @@ the npm package versions.
   `curl -fsSL https://claude.ai/install.sh | bash`.
 
 ### Added
+- **Input files by reference (`spec.files`).** An Agent can list
+  `{path, url, headers_secret?}` entries; the init downloads each over
+  http(s) into `WORKSPACE_DIR` after the repo clones and before the agent
+  starts, creating parent directories. Only the references travel in the CR
+  (as `AGENT_FILES`, on the init container only, with the header secrets they
+  name), so a run's input can exceed etcd's object limit and a download
+  credential never reaches the agent. A path escaping the workspace — by `..`,
+  an absolute path or a symlink in a cloned repo — or a failed download fails
+  the init, naming the path.
+- **Watched files uploaded instead of inlined (`output.watch[].upload`).** A
+  watch with `upload: {url, headers_secret?}` has its file POSTed as
+  `application/octet-stream` to `url`, with `{agent}` and `{event}` expanded
+  per run, and raises
+  `{"kind":"file","event":…,"path":…,"uploaded":true,"bytes":N,"sha256":"…"}`
+  instead of carrying `content`. Uploads are capped at 64 MiB (override with
+  `MAX_UPLOAD_BYTES`) against the inline 128 KiB; a larger file reports
+  `reason:"too-large"` and a rejected or unreachable upload
+  `reason:"upload-failed"`. Watches without `upload` behave as before.
 - **An `installed` lifecycle event for the agent CLI.** Right after the agent
   CLI's install step, the init emits
   `{"phase":"init","status":"installed","tool":"claude","version":"2.1.267","origin":"baked"}`.

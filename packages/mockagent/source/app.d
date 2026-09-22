@@ -23,6 +23,11 @@ module app;
 //                         finishes its work but never exits
 //                 wedge:  emit no terminal event, ignore SIGTERM and hang forever —
 //                         like an agent stuck on a call that never returns
+//                 serve:  not an agent at all — a local HTTP fixture for the init's
+//                         file download. Listens on 127.0.0.1:MOCK_SERVE_PORT, answers
+//                         every request 200 with MOCK_SERVE_BODY, appends each request's
+//                         head to MOCK_SERVE_LOG, and runs until killed. Emits
+//                         `{"listening":1}` once it accepts connections
 
 import std.conv : to;
 import std.process : Config, environment, spawnProcess;
@@ -104,9 +109,49 @@ int main()
 		signal(SIGTERM, SIG_IGN);
 		while (true)
 			Thread.sleep(60.msecs);
+	case "serve":
+		serve();
+		break;
 	default:
 		break;
 	}
 
 	return code;
+}
+
+/// The `serve` mode's HTTP fixture: one request per connection, answered in full.
+private void serve()
+{
+	import std.file : append;
+	import std.socket : InternetAddress, SocketOption, SocketOptionLevel, TcpSocket;
+	import std.string : indexOf;
+
+	const port = environment.get("MOCK_SERVE_PORT", "18200").to!ushort;
+	const body_ = environment.get("MOCK_SERVE_BODY", "served");
+	const log = environment.get("MOCK_SERVE_LOG", "");
+
+	auto listener = new TcpSocket();
+	listener.setOption(SocketOptionLevel.SOCKET, SocketOption.REUSEADDR, true);
+	listener.bind(new InternetAddress("127.0.0.1", port));
+	listener.listen(8);
+	emit(`{"listening":1}`);
+
+	while (true)
+	{
+		auto conn = listener.accept();
+		char[4096] buf;
+		string head;
+		while (head.indexOf("\r\n\r\n") < 0)
+		{
+			const n = conn.receive(buf[]);
+			if (n <= 0)
+				break;
+			head ~= buf[0 .. cast(size_t) n].idup;
+		}
+		if (log.length)
+			append(log, head);
+		conn.send("HTTP/1.1 200 OK\r\nContent-Length: " ~ body_.length.to!string
+				~ "\r\nConnection: close\r\n\r\n" ~ body_);
+		conn.close();
+	}
 }

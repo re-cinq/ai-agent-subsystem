@@ -20,6 +20,10 @@ flowchart LR
   agent process.
 - **`taskId`**: optional external id for correlation.
 - **`targetRepo`** / **`branch`**: optional repo (`owner/name`) and git branch metadata.
+- **`files`**: optional per-run input files, by reference: `{path, url, headers_secret?}`. The init
+  container downloads each into the workspace before the agent starts, so a run can be handed a
+  document without its contents ever sitting in the CR. The recipe says what the agent does; `files`
+  and `parameters` are what *this* run does it to.
 
 Agents are usually created with `generateName` (for example `bug-fixer-run-`) so Kubernetes assigns
 a unique name per run.
