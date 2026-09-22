@@ -63,8 +63,10 @@ Typed notifications raised by both the init container and the supervisor. Tagged
 | --- | --- | --- |
 | `kind` | string | Always `"lifecycle"`. |
 | `phase` | enum | `init` (setup container) or `agent` (supervisor). |
-| `status` | enum | `started`, `installing`, `running`, `succeeded`, or `failed`. |
+| `status` | enum | `started`, `installing`, `running`, `installed`, `succeeded`, or `failed`. `installed` is init-only: an agent CLI is in place, reported right after its tool's steps. |
 | `tool` | string | Optional. The tool or package-manager involved (e.g. `apt`). |
+| `version` | string | Optional, on `installed`. The agent CLI's version, as its own `--version` reports it. Absent when the CLI could not say. |
+| `origin` | string | Optional, on `installed`. Where the CLI came from: `baked` (copied from the agent image, no network), `downloaded` (the vendor's installer), or `present` (already on `PATH`, nothing installed). |
 | `reason` | string | Optional. A short failure slug — e.g. `not-found` (agent binary missing), `spawn` (process failed to start). |
 | `exitCode` | int | Optional. The agent process exit code. `0` is present and meaningful; it is not treated as empty. |
 
@@ -73,6 +75,7 @@ Empty optional fields are omitted. Examples:
 ```json
 { "kind": "lifecycle", "phase": "init", "status": "started" }
 { "kind": "lifecycle", "phase": "init", "status": "installing", "tool": "apt" }
+{ "kind": "lifecycle", "phase": "init", "status": "installed", "tool": "claude", "version": "2.1.267", "origin": "baked" }
 { "kind": "lifecycle", "phase": "agent", "status": "started" }
 { "kind": "lifecycle", "phase": "agent", "status": "succeeded", "exitCode": 0 }
 { "kind": "lifecycle", "phase": "agent", "status": "failed", "reason": "not-found" }

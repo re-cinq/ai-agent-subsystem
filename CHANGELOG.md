@@ -6,6 +6,25 @@ the npm package versions.
 
 ## Unreleased
 
+### Changed
+- **The Claude CLI is baked into the agent image, pinned.** The image now
+  carries one Claude Code release (build arg `CLAUDE_CLI_VERSION`, with its
+  `CLAUDE_CLI_SHA256` checked at build time; also the image label
+  `io.github.re-cinq.ai-agent.claude-cli.version`), and the init copies it into
+  the run's `$HOME/.local/bin` instead of downloading the latest release on every
+  run. That removes the network fetch that dominated a Claude run's init, and
+  every run of one image runs the same CLI; bumping it is an image release. An
+  image without the baked copy still falls back to
+  `curl -fsSL https://claude.ai/install.sh | bash`.
+
+### Added
+- **An `installed` lifecycle event for the agent CLI.** Right after the agent
+  CLI's install step, the init emits
+  `{"phase":"init","status":"installed","tool":"claude","version":"2.1.267","origin":"baked"}`.
+  `origin` is `baked`, `downloaded`, or `present` (already on `PATH`). `version`
+  is what the CLI's own `--version` reports, and is omitted when it cannot say.
+  Only Claude reports so far.
+
 ## v0.10.14
 
 ### Added
