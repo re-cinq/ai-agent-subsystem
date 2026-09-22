@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.11.1
+
 ### Fixed
 - **An upload survives its receiver's rollout.** A watched file's upload that cannot
   connect, or is answered 408, 429 or 5xx, is sent again up to five times with
