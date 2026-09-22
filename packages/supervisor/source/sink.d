@@ -7,7 +7,7 @@ import agentcore.core.log : logError;
 import agentcore.crds.output_sink : OutputSink;
 import agentcore.core.env : envConversationAuth;
 import agentcore.output.output : emitEvent, headerLines, sinkHeaders;
-import agentcore.output.retry : retryPolicyFromEnv, withRetry;
+import agentcore.output.retry : RetryPolicy, retryPolicyFromEnv, withRetry;
 
 import std.conv : to;
 import std.process : environment;
@@ -15,6 +15,8 @@ import std.string : indexOf, strip;
 import vibe.core.core : sleep;
 import vibe.http.client : requestHTTP, HTTPClientRequest, HTTPClientResponse;
 import vibe.http.common : HTTPMethod;
+
+version (unittest) import fluent.asserts;
 
 /// Emit one event: wrap `payload` in the run's envelope, echo it to stdout (pod logs),
 /// and fan it out to every configured sink with vibe's HTTP client. A failing sink is
@@ -115,31 +117,73 @@ void postConversation(string url, const(ubyte)[] archive) nothrow
 		logError("[conversation] save failed: " ~ e.msg);
 }
 
+/// What one upload attempt came to: delivered, refused for good, or worth another try.
+enum UploadAttempt
+{
+	delivered,
+	refused,
+	retry,
+}
+
+/// A 2xx delivered the file; any other 4xx will be refused again, since the same bytes
+/// get the same answer; a timeout, a throttle or a 5xx is the receiver, not the file.
+UploadAttempt uploadAttemptFor(int status) @safe pure nothrow
+{
+	if (status >= 200 && status < 300)
+		return UploadAttempt.delivered;
+	const transient = status == 408 || status == 429 || status >= 500;
+	return transient ? UploadAttempt.retry : UploadAttempt.refused;
+}
+
+unittest
+{
+	uploadAttemptFor(200).should.equal(UploadAttempt.delivered);
+	uploadAttemptFor(404).should.equal(UploadAttempt.refused);
+	uploadAttemptFor(400).should.equal(UploadAttempt.refused);
+	uploadAttemptFor(429).should.equal(UploadAttempt.retry);
+	uploadAttemptFor(503).should.equal(UploadAttempt.retry);
+}
+
+/// Longer than a sink's: the receiver may be mid-rollout, when a connection can reach a
+/// replica that is shutting down for a few seconds, and a lost upload costs the run
+/// its artifact rather than one line of telemetry.
+private enum uploadRetry = RetryPolicy(5, 1000, 8000);
+
 /// POST one watched file's bytes to its upload url, with the header block its
-/// `headers_secret` names resolved the way a sink's is. True on a 2xx. A rejection is
+/// `headers_secret` names resolved the way a sink's is. True on a 2xx. A connection
+/// error or a transient status is retried with backoff; a refusal is not. A failure is
 /// logged by status only — never the body, which is the agent's artifact, nor the
-/// headers, which carry the credential. Not retried: the file event reports the
-/// failure, which is what a consumer acts on.
+/// headers, which carry the credential — and the file event reports it.
 bool postUpload(string url, const(ubyte)[] body_, string headersSecret) nothrow
+{
+	auto last = UploadAttempt.retry;
+	withRetry(uploadRetry, () {
+		last = uploadOnce(url, body_, headersSecret);
+		return last != UploadAttempt.retry;
+	}, ms => napMs(ms));
+	return last == UploadAttempt.delivered;
+}
+
+private UploadAttempt uploadOnce(string url, const(ubyte)[] body_, string headersSecret) nothrow
 {
 	try
 	{
-		bool ok;
+		auto attempt = UploadAttempt.retry;
 		requestHTTP(url, (scope HTTPClientRequest req) {
 			req.method = HTTPMethod.POST;
 			setHeaders(req, sinkHeaders(headersSecret));
 			req.writeBody(body_, "application/octet-stream");
 		}, (scope HTTPClientResponse res) {
-			ok = res.statusCode >= 200 && res.statusCode < 300;
-			if (!ok)
+			attempt = uploadAttemptFor(res.statusCode);
+			if (attempt != UploadAttempt.delivered)
 				logError("[watch] upload rejected: " ~ res.statusCode.to!string);
 			res.dropBody();
 		});
-		return ok;
+		return attempt;
 	}
 	catch (Exception e)
 	{
 		logError("[watch] upload failed: " ~ e.msg);
-		return false;
+		return UploadAttempt.retry;
 	}
 }

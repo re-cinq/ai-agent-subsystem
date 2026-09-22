@@ -6,6 +6,13 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+- **An upload survives its receiver's rollout.** A watched file's upload that cannot
+  connect, or is answered 408, 429 or 5xx, is sent again up to five times with
+  backoff (1 s doubling to 8 s); any other non-2xx is a refusal and is sent once. It
+  used to be sent once whatever happened, so a receiver restarting as the run ended
+  lost the run its artifact.
+
 ## v0.11.0
 
 ### Changed

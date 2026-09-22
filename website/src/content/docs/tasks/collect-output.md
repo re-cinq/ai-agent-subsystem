@@ -116,7 +116,8 @@ output:
 serves every run. The body is `application/octet-stream`, and `headers_secret` names an
 `agent-secrets` key holding the header block, as for a sink. Uploads are capped at 64 MiB by
 default (`MAX_UPLOAD_BYTES` in `resources.env` overrides it); past the cap the event reports
-`too-large`, and a non-2xx or unreachable upload reports `upload-failed`.
+`too-large`. An unreachable or failing receiver (408, 429, 5xx) is retried with backoff for about
+fifteen seconds, and an upload that is refused or never gets through reports `upload-failed`.
 
 Together with an Agent's [input `files`](./launch-an-agent.md#hand-the-run-input-files), this makes
 a round trip by reference: the init downloads `notes/brief.md` into the workspace, the agent writes

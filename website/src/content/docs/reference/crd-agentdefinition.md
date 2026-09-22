@@ -67,8 +67,8 @@ output:
 ```
 
 Uploads are capped at 64 MiB by default; set `MAX_UPLOAD_BYTES` (bytes) in `resources.env` to change
-it. A larger file is not sent and reports `reason: "too-large"`; a non-2xx or unreachable upload
-reports `reason: "upload-failed"`. See [file events](./notification-api.md#file-events).
+it. A larger file is not sent and reports `reason: "too-large"`; an upload that is refused, or stays
+unreachable or failing through its retries, reports `reason: "upload-failed"`. See [file events](./notification-api.md#file-events).
 
 The events delivered to these `sinks` — their envelope, lifecycle and `stream-json` payloads,
 and the HTTP delivery contract — are documented in the
