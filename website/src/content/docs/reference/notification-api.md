@@ -99,7 +99,7 @@ This exists because the subsystem streams what an agent *says*: an agent whose d
 | `uploaded` | bool | Only for a watch with [`upload`](./crd-agentdefinition.md#specoutputwatchupload): `true` once the upload URL accepted the bytes (2xx). |
 | `bytes` | int | With `uploaded`: the size of the uploaded file. |
 | `sha256` | string | With `uploaded`: the lowercase hex SHA-256 of the uploaded bytes, so a consumer can check what it stored. |
-| `reason` | string | Optional. Why there is no content: `missing`, `too-large`, `unreadable`, or `upload-failed` (the upload URL answered non-2xx or was unreachable). |
+| `reason` | string | Optional. Why there is no content: `missing`, `too-large`, `unreadable`, or `upload-failed` (the upload URL refused the file, or stayed unreachable or failing through every retry). |
 
 ```json
 { "kind": "file", "event": "report.ready", "path": "/workspace/out/report.json", "content": "{\"ok\":true}" }
@@ -113,8 +113,11 @@ The size caps differ by delivery. **Inline** content is capped at **128 KiB**, b
 stream, so its cap is **64 MiB** by default, overridable with `MAX_UPLOAD_BYTES` (bytes) in the
 recipe's `resources.env`; the supervisor reads the file into memory to hash and send it. Either cap
 exceeded reports `too-large`. The upload URL's `{agent}` and `{event}` placeholders expand to the
-run's Agent name and the watch's event name. A failed upload is not retried; the event reports it,
-and the supervisor logs only the HTTP status — never the body or the header.
+run's Agent name and the watch's event name. An upload that cannot connect, or is answered 408,
+429 or 5xx, is sent again up to five times with backoff from one second doubling to eight, which
+outlasts a receiver's rollout; any other non-2xx is a refusal and is sent once, since the same bytes
+get the same answer. The event reports what the last attempt came to, and the supervisor logs only
+the HTTP status — never the body or the header.
 
 Two guarantees a consumer can rely on:
 

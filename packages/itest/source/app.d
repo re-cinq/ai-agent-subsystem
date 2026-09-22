@@ -174,6 +174,7 @@ int main(string[] args)
 	watchedFileMissing();
 	uploadedFile();
 	uploadRejected();
+	uploadRetried();
 	uploadTooLarge();
 	conversationSaved();
 	conversationNotSaved();
@@ -457,10 +458,11 @@ private void watchedFileMissing()
 	check("missing artifact carries no content", !emitted(r.lines, `"content"`));
 }
 
-/// Run the mock with an uploading watch against a one-request HTTP fixture on `port`
-/// answering `status`; the request it received (empty when none came) and the run.
-private Result uploadRun(ushort port, string status, string artifactBody, string[string] extra,
-	out Request received)
+/// Run the mock with an uploading watch against an HTTP fixture on `port` answering
+/// one request per entry of `statuses`, in order; the last request it received (empty
+/// when none came) and the run.
+private Result uploadRun(ushort port, string[] statuses, string artifactBody,
+	string[string] extra, out Request received)
 {
 	const root = buildPath(tempDir, "itest-upload");
 	const artifact = buildPath(root, "out", "report.md");
@@ -490,9 +492,12 @@ private Result uploadRun(ushort port, string status, string artifactBody, string
 	// Only an upload that is actually attempted reaches the fixture; an over-cap file
 	// never does, so the wait must not outlast a short window.
 	auto readable = new SocketSet(1);
-	readable.add(listener);
-	if (Socket.select(readable, null, null, status.length ? postDeadline : 3.seconds) > 0)
+	foreach (status; statuses.length ? statuses : [""])
 	{
+		readable.reset();
+		readable.add(listener);
+		if (Socket.select(readable, null, null, status.length ? postDeadline : 3.seconds) <= 0)
+			break;
 		auto conn = listener.accept();
 		received = readRequest(conn);
 		conn.send("HTTP/1.1 " ~ status ~ "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
@@ -511,7 +516,7 @@ private void uploadedFile()
 {
 	writeln("watched file uploaded by reference");
 	Request req;
-	auto r = uploadRun(18_102, "201 Created", "report body", null, req);
+	auto r = uploadRun(18_102, ["201 Created"], "report body", null, req);
 
 	check("run completes (exit 0)", r.code == 0);
 	check("upload POSTed to the expanded url",
@@ -527,17 +532,32 @@ private void uploadedFile()
 	check("credential never reaches the stream", !emitted(r.lines, "upload-t0ken"));
 }
 
-/// A non-2xx upload still raises the event, saying why, and logs only the status.
+/// A refused upload still raises the event, saying why, and logs only the status. A
+/// refusal is final: the same bytes would get the same answer, so it is sent once.
 private void uploadRejected()
 {
 	writeln("rejected upload reports a reason");
 	Request req;
-	auto r = uploadRun(18_103, "500 Internal Server Error", "report body", null, req);
+	auto r = uploadRun(18_103, ["400 Bad Request", "201 Created"], "report body", null, req);
 
 	check("run completes (exit 0)", r.code == 0);
 	check("rejected upload says why", emitted(r.lines, `"reason":"upload-failed"`));
 	check("rejected upload claims no upload", !emitted(r.lines, `"uploaded"`));
-	check("rejection logged with its status", r.err.canFind("upload rejected: 500"));
+	check("rejection logged with its status", r.err.canFind("upload rejected: 400"));
+}
+
+/// A receiver that is briefly unavailable (a rollout) gets the upload again once it is
+/// back, and the event says uploaded.
+private void uploadRetried()
+{
+	writeln("upload retried past a transient failure");
+	Request req;
+	auto r = uploadRun(18_105, ["503 Service Unavailable", "201 Created"], "report body", null, req);
+
+	check("run completes (exit 0)", r.code == 0);
+	check("retried upload carries the file's bytes", req.body_ == "report body");
+	check("retried upload says uploaded", emitted(r.lines, `"uploaded":true`));
+	check("transient failure logged with its status", r.err.canFind("upload rejected: 503"));
 }
 
 /// A file past MAX_UPLOAD_BYTES is never sent and reports `too-large`.
@@ -545,7 +565,7 @@ private void uploadTooLarge()
 {
 	writeln("over-cap upload reports too-large");
 	Request req;
-	auto r = uploadRun(18_104, "", "report body", ["MAX_UPLOAD_BYTES": "4"], req);
+	auto r = uploadRun(18_104, [], "report body", ["MAX_UPLOAD_BYTES": "4"], req);
 
 	check("run completes (exit 0)", r.code == 0);
 	check("over-cap file says too-large", emitted(r.lines, `"reason":"too-large"`));
