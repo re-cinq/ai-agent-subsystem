@@ -20,6 +20,8 @@ ARG BUILDER_IMAGE=rockylinux:9
 ARG RUNTIME_IMAGE=debian:bookworm-slim
 ARG LDC_VERSION=1.40.0
 ARG LDC_SHA256=0da61ed2ea96583aa0ccbeb00f8d78983b23d1e87b84a6f2098eb12059475b27
+ARG CLAUDE_CLI_VERSION=2.1.267
+ARG CLAUDE_CLI_SHA256=0399c793ff571d5946ef923d80b4f330d05ac4b6842a6b0775468f5d389403c0
 
 FROM ${BUILDER_IMAGE} AS builder
 ARG LDC_VERSION
@@ -55,6 +57,24 @@ RUN set -eu; \
 	apt-get install -y --no-install-recommends \
 		ca-certificates git curl coreutils libssl3; \
 	rm -rf /var/lib/apt/lists/*
+# The pinned, checksum-verified Claude CLI (the native glibc build: the Station
+# bases are glibc, as the supervisor already requires). Before the binaries below
+# so a code change does not re-download it. The build fails unless the CLI runs
+# here and reports exactly the pinned version.
+ARG CLAUDE_CLI_VERSION
+ARG CLAUDE_CLI_SHA256
+LABEL io.github.re-cinq.ai-agent.claude-cli.version="${CLAUDE_CLI_VERSION}"
+RUN set -eu; \
+	cli=/usr/local/lib/ai-agent/claude; \
+	mkdir -p /usr/local/lib/ai-agent; \
+	curl -fsSL -o "$cli" \
+		"https://downloads.claude.ai/claude-code-releases/${CLAUDE_CLI_VERSION}/linux-x64/claude"; \
+	echo "${CLAUDE_CLI_SHA256}  $cli" | sha256sum -c -; \
+	chmod 0755 "$cli"; \
+	scratch="$(mktemp -d)"; \
+	reported="$(HOME="$scratch" "$cli" --version | cut -d' ' -f1)"; \
+	rm -rf "$scratch"; \
+	test "$reported" = "${CLAUDE_CLI_VERSION}"
 COPY --from=builder /src/packages/initializer/ai-agent-init /usr/local/bin/ai-agent-init
 COPY --from=builder /src/packages/supervisor/ai-agent-supervisor /usr/local/lib/ai-agent/ai-agent-supervisor
 RUN chmod +x /usr/local/bin/ai-agent-init /usr/local/lib/ai-agent/ai-agent-supervisor

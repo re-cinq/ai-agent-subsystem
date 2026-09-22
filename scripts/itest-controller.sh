@@ -174,8 +174,8 @@ echo "== Scenario B: credential path (agent-secrets -> ANTHROPIC_API_KEY -> agen
 # unless the value it sees equals the one the Secret carried, so Succeeded proves the
 # whole chain. Cross-channel by design: AGENT_EXPECT_API_KEY arrives as a literal env,
 # ANTHROPIC_API_KEY via the Secret -> equality is a real check, not a tautology. Keep
-# model gpt-mock: a real claude-* model would make the init container install the real
-# CLI from the network, breaking hermeticity.
+# model gpt-mock: a real claude-* model would run the real Claude CLI baked into the
+# agent image instead of the mock, which calls the API and breaks hermeticity.
 agent=secret-run
 fake_key=sk-ant-itest-FAKE-9f3a
 k -n ai-agents create secret generic agent-secrets --from-literal=ANTHROPIC_API_KEY="$fake_key"

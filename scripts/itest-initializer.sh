@@ -147,5 +147,29 @@ check "canary survives an absolute out-of-workspace path" "$([ -f "$canary/keep.
 run "$work/ws-nest" "$sink" "[{\"name\":\"app\",\"url\":\"file://$origin\",\"path\":\"nested/app\"}]"
 check "nested in-workspace path still clones" "$([ -f "$work/ws-nest/nested/app/README.md" ] && echo 0 || echo 1)"
 
+# 6. The agent CLI's `installed` event names its version and where it came from.
+# A stand-in `claude` already on PATH (as in an image that ships its own) keeps
+# this hermetic: the init neither copies nor downloads, and reports it `present`.
+# The baked-into-the-image path is covered by agentcore unittests and the agent
+# image build, which runs the pinned CLI.
+fake_bin="$work/fake-bin"
+mkdir -p "$fake_bin" "$work/home-claude"
+printf '#!/bin/sh\necho "2.1.267 (Claude Code)"\n' >"$fake_bin/claude"
+chmod +x "$fake_bin/claude"
+sink_cli="$work/sink-cli.jsonl"
+: >"$sink_cli"
+PATH="$fake_bin:$PATH" HOME="$work/home-claude" \
+	AGENT_MODEL=claude-sonnet-4-6 \
+	WORKSPACE_DIR="$work/ws-cli" \
+	AGENT_SINKS="[{\"type\":\"file\",\"path\":\"$sink_cli\"}]" \
+	AGENT_NAME=itest-agent POD_NAME=itest-pod \
+	"$init" >/dev/null
+rc=$?
+check "claude run exits 0" "$([ "$rc" -eq 0 ] && echo 0 || echo 1)"
+check "installed event carries the CLI version" \
+	"$(grep '"status":"installed"' "$sink_cli" | grep '"tool":"claude"' | grep -q '"version":"2.1.267"' && echo 0 || echo 1)"
+check "installed event says the CLI was already present" \
+	"$(grep '"status":"installed"' "$sink_cli" | grep -q '"origin":"present"' && echo 0 || echo 1)"
+
 if [ "$failures" -eq 0 ]; then echo "ALL PASSED"; else echo "$failures CHECK(S) FAILED"; fi
 [ "$failures" -eq 0 ]

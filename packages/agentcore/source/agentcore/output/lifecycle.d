@@ -22,6 +22,7 @@ enum Status : string
 	started = "started",
 	installing = "installing",
 	running = "running",
+	installed = "installed",
 	succeeded = "succeeded",
 	failed = "failed",
 }
@@ -36,6 +37,8 @@ struct LifecycleEvent
 	string tool; /// optional: the tool or package-manager name involved
 	string reason; /// optional: a short failure slug ("home", "spawn", …)
 	Nullable!int exitCode; /// optional: a process exit code
+	string version_; /// optional: the version of the agent CLI an `installed` event reports
+	string origin; /// optional: where that CLI came from ("present", "baked", "downloaded")
 }
 
 /// The compact JSON line for the envelope's `event`: tags `"kind":"lifecycle"` and
@@ -54,6 +57,10 @@ string toJson(in LifecycleEvent e) nothrow
 			o["reason"] = Json(e.reason);
 		if (!e.exitCode.isNull)
 			o["exitCode"] = Json(e.exitCode.get);
+		if (e.version_.length)
+			o["version"] = Json(e.version_);
+		if (e.origin.length)
+			o["origin"] = Json(e.origin);
 		return Json(o).toString();
 	}
 	catch (Exception)
@@ -99,4 +106,17 @@ unittest
 	LifecycleEvent crash = {phase: Phase.agent, status: Status.failed};
 	crash.exitCode = 42;
 	crash.toJson.should.contain(`"exitCode":42`);
+}
+
+unittest
+{
+	// An installed agent CLI reports its version and where it came from
+	LifecycleEvent ev = {phase: Phase.init_, status: Status.installed, tool: "claude"};
+	ev.version_ = "2.1.267";
+	ev.origin = "baked";
+	const json = ev.toJson;
+	json.should.contain(`"status":"installed"`);
+	json.should.contain(`"tool":"claude"`);
+	json.should.contain(`"version":"2.1.267"`);
+	json.should.contain(`"origin":"baked"`);
 }

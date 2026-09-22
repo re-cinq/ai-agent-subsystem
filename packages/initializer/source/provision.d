@@ -4,7 +4,7 @@ import std.algorithm.iteration : filter, map;
 import std.algorithm.searching : canFind;
 import std.array : array, join;
 import std.conv : to;
-import std.process : environment, spawnProcess, wait;
+import std.process : Config, environment, execute, spawnProcess, wait;
 import std.string : toStringz, indexOf;
 
 import core.sys.posix.sys.types : gid_t, uid_t;
@@ -36,6 +36,7 @@ import agentcore.tools.repos : parseRepos;
 import agentcore.tools.skills : parseSkills;
 import agentcore.tools.tool : Tool;
 import agentcore.tools.toolselect : allTools;
+import agentcore.vendors.base.setup : CliReport;
 
 import notify : notify;
 
@@ -101,6 +102,9 @@ int provision(InitContext ctx)
 	foreach (tool; active)
 	{
 		notify(sinks, source, LifecycleEvent(Phase.init_, Status.running, tool.name).toJson);
+		// Where the CLI comes from is only knowable before the steps put it on PATH.
+		const report = cliReportOf(tool);
+		const origin = report is null ? "" : cast(string) report.origin;
 		foreach (step; tool.steps(ctx))
 		{
 			const code = runStep(step, stepEnv(ctx));
@@ -110,6 +114,9 @@ int provision(InitContext ctx)
 						~ redactUrlCredentials(step.join(" ")),
 					failedStep(tool.name, code), code);
 		}
+		if (report !is null)
+			notify(sinks, source,
+				installedEvent(tool.name, cliVersion(report.versionCommand), origin).toJson);
 	}
 
 	// This init runs as root; the agent container runs as agentUid/agentGid (jobspec
@@ -263,6 +270,58 @@ private int fail(const OutputSink[] sinks, in EventSource src, string logMsg, Li
 	logError(logMsg);
 	notify(sinks, src, ev.toJson);
 	return code;
+}
+
+/// The agent CLI report behind `tool`, or null for a tool that installs no CLI or
+/// whose setup reports nothing.
+private const(CliReport) cliReportOf(Tool tool)
+{
+	auto agentTool = cast(AgentTool) tool;
+	return agentTool is null ? null : agentTool.report;
+}
+
+/// Ask the installed CLI for its version. "" when it cannot say — the event then
+/// goes out without one; reporting never fails the init. Only stdout is parsed, so
+/// a warning the CLI prints on stderr cannot pass for its version.
+private string cliVersion(string[] versionCommand)
+{
+	try
+	{
+		const result = execute(versionCommand, null, Config.stderrPassThrough);
+		return result.status == 0 ? versionIn(result.output) : "";
+	}
+	catch (Exception)
+		return "";
+}
+
+/// The version in a CLI's `--version` output: its first word that starts with a
+/// digit (`2.1.267 (Claude Code)`, `codex-cli 0.46.0`). "" when there is none.
+string versionIn(string output) @safe pure
+{
+	import std.ascii : isDigit;
+	import std.string : split;
+
+	foreach (word; output.split)
+		if (word[0].isDigit)
+			return word;
+	return "";
+}
+
+@safe unittest
+{
+	versionIn("2.1.267 (Claude Code)\n").should.equal("2.1.267");
+	versionIn("codex-cli 0.46.0").should.equal("0.46.0");
+	versionIn("no version here").should.equal("");
+	versionIn("").should.equal("");
+}
+
+/// An `installed` init event: the agent CLI `tool` is in HOME at `version`, from `origin`.
+private LifecycleEvent installedEvent(string tool, string version_, string origin)
+{
+	LifecycleEvent ev = {phase: Phase.init_, status: Status.installed, tool: tool};
+	ev.version_ = version_;
+	ev.origin = origin;
+	return ev;
 }
 
 /// A `failed` init event explained by a short reason slug ("home", "install", …).
