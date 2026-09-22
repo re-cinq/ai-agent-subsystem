@@ -23,3 +23,29 @@ interface AgentSetup
 	/// that pre-bake the CLI (e.g. the integration-test mock) are no-ops.
 	string[][] installSteps() const @safe;
 }
+
+/// How the init got a run's agent CLI into HOME, reported on the tool's
+/// `installed` lifecycle event.
+enum CliOrigin : string
+{
+	/// Already on PATH (an image that ships its own CLI): nothing was installed.
+	present = "present",
+	/// Copied from the pinned CLI baked into the agent image: no network fetch.
+	baked = "baked",
+	/// Fetched by the vendor's network installer.
+	downloaded = "downloaded",
+}
+
+/// An `AgentSetup` that can say what it installed — where the CLI came from and
+/// how to ask it for its version — so the init reports both on the tool's
+/// `installed` lifecycle event. Optional: a setup that does not implement it
+/// installs exactly as before and reports nothing.
+interface CliReport
+{
+	/// Where this run's CLI comes from. The init reads it BEFORE the install steps
+	/// run; afterwards the CLI is on PATH whatever its origin.
+	CliOrigin origin() const;
+
+	/// The argv that prints the installed CLI's version.
+	string[] versionCommand() const @safe;
+}

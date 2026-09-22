@@ -18,6 +18,12 @@ enum supervisorPath = "/agent/bin/ai-agent-supervisor";
 /// from here into the bundle at run start.
 enum supervisorStageSource = "/usr/local/lib/ai-agent/ai-agent-supervisor";
 
+/// Where the agent image bakes its pinned Claude CLI (build arg
+/// `CLAUDE_CLI_VERSION`); the init copies it into HOME instead of downloading one.
+/// Off PATH on purpose: the main container runs the Station's own image, so only
+/// the copy in the shared HOME is visible there.
+enum claudeStageSource = "/usr/local/lib/ai-agent/claude";
+
 /// The run's Claude config dir. HOME=/agent, so headless `claude --print` auto-loads
 /// user-scope skills + settings from here (cwd-independent, trust-free) — the init
 /// (SkillsTool) fetches into it. Consumer-agnostic paths; no baked content lives in
