@@ -4,7 +4,7 @@ import std.algorithm.iteration : filter, map;
 import std.algorithm.searching : canFind;
 import std.array : array, join;
 import std.conv : to;
-import std.process : environment, execute, spawnProcess, wait;
+import std.process : Config, environment, execute, spawnProcess, wait;
 import std.string : toStringz, indexOf;
 
 import core.sys.posix.sys.types : gid_t, uid_t;
@@ -281,12 +281,13 @@ private const(CliReport) cliReportOf(Tool tool)
 }
 
 /// Ask the installed CLI for its version. "" when it cannot say — the event then
-/// goes out without one; reporting never fails the init.
+/// goes out without one; reporting never fails the init. Only stdout is parsed, so
+/// a warning the CLI prints on stderr cannot pass for its version.
 private string cliVersion(string[] versionCommand)
 {
 	try
 	{
-		const result = execute(versionCommand);
+		const result = execute(versionCommand, null, Config.stderrPassThrough);
 		return result.status == 0 ? versionIn(result.output) : "";
 	}
 	catch (Exception)
