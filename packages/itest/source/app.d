@@ -13,6 +13,8 @@ module app;
 //   - robustness against an agent that leaves a child holding stdout open
 //   - a wedged agent is force-stopped at the run deadline, still reporting a terminal
 //     event, and the agent's stderr reaches the pod log tagged
+//   - watched files are raised inline, or uploaded by reference to a local HTTP
+//     fixture with the event carrying size + digest
 //
 //   usage: ai-agent-itest <supervisor-bin> <mock-bin>
 
@@ -170,6 +172,9 @@ int main(string[] args)
 	badArgv();
 	watchedFiles();
 	watchedFileMissing();
+	uploadedFile();
+	uploadRejected();
+	uploadTooLarge();
 	conversationSaved();
 	conversationNotSaved();
 
@@ -452,6 +457,109 @@ private void watchedFileMissing()
 	check("missing artifact carries no content", !emitted(r.lines, `"content"`));
 }
 
+/// Run the mock with an uploading watch against a one-request HTTP fixture on `port`
+/// answering `status`; the request it received (empty when none came) and the run.
+private Result uploadRun(ushort port, string status, string artifactBody, string[string] extra,
+	out Request received)
+{
+	const root = buildPath(tempDir, "itest-upload");
+	const artifact = buildPath(root, "out", "report.md");
+	if (artifact.exists)
+		remove(artifact);
+
+	auto listener = new TcpSocket();
+	listener.setOption(SocketOptionLevel.SOCKET, SocketOption.REUSEADDR, true);
+	listener.bind(new InternetAddress("127.0.0.1", port));
+	listener.listen(8);
+
+	string[string] env = [
+		"MOCK_LINES": "1",
+		"MOCK_WRITE_FILE": artifact,
+		"MOCK_WRITE_BODY": artifactBody,
+		"WORKSPACE_DIR": root,
+		"UPLOAD_HEADERS": "Authorization: Bearer upload-t0ken",
+		"AGENT_WATCH": `[{"event":"report.ready","path":"out/report.md","upload":`
+			~ `{"url":"http://127.0.0.1:` ~ port.to!string ~ `/files/{agent}/{event}",`
+			~ `"headers_secret":"UPLOAD_HEADERS"}}]`,
+	];
+	foreach (k, v; extra)
+		env[k] = v;
+	auto pipes = pipeProcess([supervisor, "--", mock], Redirect.stdout | Redirect.stderr,
+		withSource(env));
+
+	// Only an upload that is actually attempted reaches the fixture; an over-cap file
+	// never does, so the wait must not outlast a short window.
+	auto readable = new SocketSet(1);
+	readable.add(listener);
+	if (Socket.select(readable, null, null, status.length ? postDeadline : 3.seconds) > 0)
+	{
+		auto conn = listener.accept();
+		received = readRequest(conn);
+		conn.send("HTTP/1.1 " ~ status ~ "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+		conn.close();
+	}
+	auto r = drain(pipes);
+	listener.close();
+	if (artifact.exists)
+		remove(artifact);
+	return r;
+}
+
+/// output.watch with `upload`: the file's bytes go to the run-expanded url with the
+/// header its secret names, and the event reports the size and digest, not the content.
+private void uploadedFile()
+{
+	writeln("watched file uploaded by reference");
+	Request req;
+	auto r = uploadRun(18_102, "201 Created", "report body", null, req);
+
+	check("run completes (exit 0)", r.code == 0);
+	check("upload POSTed to the expanded url",
+		req.head.startsWith("POST /files/test-agent/report.ready "));
+	check("upload carries the file's bytes", req.body_ == "report body");
+	check("upload is an octet-stream", req.head.toLower.canFind("content-type: application/octet-stream"));
+	check("upload sends the header block", req.head.canFind("Bearer upload-t0ken"));
+	check("event says uploaded", emitted(r.lines, `"uploaded":true`));
+	check("event carries the byte count", emitted(r.lines, `"bytes":11`));
+	check("event carries the sha256",
+		emitted(r.lines, `"sha256":"` ~ sha256Hex("report body") ~ `"`));
+	check("event carries no content", !emitted(r.lines, `"content"`));
+	check("credential never reaches the stream", !emitted(r.lines, "upload-t0ken"));
+}
+
+/// A non-2xx upload still raises the event, saying why, and logs only the status.
+private void uploadRejected()
+{
+	writeln("rejected upload reports a reason");
+	Request req;
+	auto r = uploadRun(18_103, "500 Internal Server Error", "report body", null, req);
+
+	check("run completes (exit 0)", r.code == 0);
+	check("rejected upload says why", emitted(r.lines, `"reason":"upload-failed"`));
+	check("rejected upload claims no upload", !emitted(r.lines, `"uploaded"`));
+	check("rejection logged with its status", r.err.canFind("upload rejected: 500"));
+}
+
+/// A file past MAX_UPLOAD_BYTES is never sent and reports `too-large`.
+private void uploadTooLarge()
+{
+	writeln("over-cap upload reports too-large");
+	Request req;
+	auto r = uploadRun(18_104, "", "report body", ["MAX_UPLOAD_BYTES": "4"], req);
+
+	check("run completes (exit 0)", r.code == 0);
+	check("over-cap file says too-large", emitted(r.lines, `"reason":"too-large"`));
+	check("over-cap file never uploaded", req.head.length == 0);
+}
+
+private string sha256Hex(string data)
+{
+	import std.digest : LetterCase, toHexString;
+	import std.digest.sha : sha256Of;
+
+	return toHexString!(LetterCase.lower)(sha256Of(data)).idup;
+}
+
 /// The run's conversation state is archived and POSTed so a later run can continue
 /// it. Exercises the real supervisor against a real HTTP endpoint: a unit test cannot
 /// catch a save that never leaves the process, which is exactly the class of failure
@@ -548,8 +656,21 @@ private void conversationNotSaved()
 	check("no save attempted", !r.err.canFind("[conversation]"));
 }
 
+/// One HTTP request as the fixture received it.
+private struct Request
+{
+	string head; /// request line + headers
+	string body_;
+}
+
 /// Read one HTTP request from `conn` and return its body (Content-Length bytes).
 private string readBody(Socket conn)
+{
+	return readRequest(conn).body_;
+}
+
+/// Read one HTTP request from `conn`: its head, and its Content-Length body.
+private Request readRequest(Socket conn)
 {
 	char[4096] buf;
 	string data;
@@ -565,10 +686,10 @@ private string readBody(Socket conn)
 			const length = contentLength(data[0 .. headerEnd]);
 			const bodyStart = headerEnd + 4;
 			if (data.length - bodyStart >= length)
-				return data[bodyStart .. bodyStart + length];
+				return Request(data[0 .. headerEnd], data[bodyStart .. bodyStart + length]);
 		}
 	}
-	return "";
+	return Request.init;
 }
 
 private size_t contentLength(string headers)

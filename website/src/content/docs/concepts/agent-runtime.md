@@ -13,7 +13,7 @@ agent needs.
 flowchart TB
     subgraph POD["Agent Pod (restartPolicy: Never)"]
         direction TB
-        INIT["initContainer: ai-agent-init"] -->|"clone repos + install CLI + supervisor"| VOL[("emptyDir: /agent")]
+        INIT["initContainer: ai-agent-init"] -->|"clone repos + download files + install CLI + supervisor"| VOL[("emptyDir: /agent")]
         VOL --> MAIN["main container<br/>entrypoint = supervisor"]
         MAIN --> PROC["agent process"]
         CREDS[("credentials volume")] -.-> MAIN
@@ -24,7 +24,7 @@ flowchart TB
 ```
 
 1. **Init container** (`ai-agent-init`) prepares the shared `emptyDir` mounted at `/agent`: it clones
-   the recipe's repos into the workspace, installs the agent CLI (Claude from the pinned copy baked into the agent image),
+   the recipe's repos into the workspace, downloads the Agent's input `files` there, installs the agent CLI (Claude from the pinned copy baked into the agent image),
    and self-bootstraps any missing prerequisites. See [The init container](#the-init-container).
 2. **Main container**: the Station's container, with its command overridden to run the supervisor
    from `/agent`. Because the runtime is glibc-linked, the Station base image must be glibc-based.
@@ -44,6 +44,9 @@ environment variables:
 - `AGENT_PARAMETERS`: the run parameters as JSON, when present.
 - `AGENT_REPOS`: the recipe's `resources.repos` as JSON, for the init container to clone.
 - `WORKSPACE_DIR`: where the init container clones repos (defaults to `/workspace`).
+- `AGENT_FILES`: the Agent's `spec.files` as JSON — **init container only**, together with the
+  `headers_secret` keys those entries name, so a download credential never reaches the agent.
+- `AGENT_WATCH`: the recipe's `output.watch` as JSON (including any `upload`), for the supervisor.
 - `TARGET_REPO` / `BRANCH_NAME`: set when the Agent provides them.
 - `AGENT_NAME` / `STATION_NAME` / `TASK_ID`: the run's identity, stamped onto every event.
 - `POD_NAME` / `POD_NAMESPACE`: the pod's identity, from the downward API.
@@ -62,6 +65,7 @@ itself whether the run needs it:
 | --- | --- | --- |
 | `supervisor` | always | copies the supervisor binary baked into the agent image into `/agent/bin`, so the main container can exec it as PID 1. Idempotent across init retries. |
 | `git` | `resources.repos` is non-empty | clones each repo (full history) into `WORKSPACE_DIR`, checking out its `ref` (branch, tag, or SHA). Re-entrant across init retries. Private repos authenticate with `token_secret` (below). |
+| `files` | the Agent's `spec.files` is non-empty | downloads each file with `curl -fsSL` (http/https only) straight to its path under `WORKSPACE_DIR`, creating parent directories. Runs right after `git`, because a clone replaces its destination and would delete a file written earlier, and before the workspace is handed to the agent's uid, so the files are the agent's. A path escaping the workspace (lexically, or through a symlink in a cloned repo) or a failed download fails the init, naming the path. Path, url and header ride as positional arguments and stdin, never shell text or argv. |
 | the agent CLI (`claude`, `codex`, `gemini`, `opencode`, `exec`) | always; *which* CLI comes from the recipe's `model` (same routing as [pluggable agents](#pluggable-agents)) | installs the one CLI the run's model routes to, via that vendor's official installer — e.g. Claude's `curl -fsSL https://claude.ai/install.sh \| bash`. Picking the installer from the same routing that picks the adapter means "install X" can never drift from "run X". Claude is the exception to the download: the agent image bakes one pinned release (its `CLAUDE_CLI_VERSION` build arg, also the image label `io.github.re-cinq.ai-agent.claude-cli.version`), which the init copies into `$HOME/.local/bin` — no network fetch, and every run of one image runs the same CLI. An image without the baked copy falls back to the installer. The init then emits an `installed` [lifecycle event](../reference/notification-api.md#lifecycle-events) carrying the CLI's `version` and its `origin` (`baked`, `downloaded`, or `present` when the image already had it on `PATH`). |
 | `skills` | always (the repo's own `.claude/skills`); the registry half when `resources.skills_source` is set | stages skills into the run's `$HOME/.claude` so headless `claude --print` auto-loads them user-scope: the cloned repo's own `.claude/skills`, then the registry's `settings.json` (session hooks), then each name in `resources.skills` fetched as `<source>/<name>.tar.gz`. Best-effort — an unreachable registry never fails the run. |
 | `hooks` | `resources.skills_source` is set | fetches `<source>/hooks/<vendor>.tar.gz` for the vendor the model routes to and extracts it relative to `$HOME`. Hooks are vendor-native config (Claude Code `.claude/settings.json`, Codex `.codex/`, Gemini `.gemini/settings.json`, OpenCode its plugin dir), so nothing is translated: one mechanism per vendor, content owned by the registry. After `skills`, so a Claude bundle's `settings.json` wins over the flat one. Best-effort — no bundle for this vendor means no org hooks, not a failed run. |
@@ -136,8 +140,9 @@ The supervisor is the Pod's entrypoint (PID 1). It:
   `status.output`, where a consumer could not tell a crash trace from a malformed event.
 - Reads back any file the recipe declared under [`output.watch`](../reference/crd-agentdefinition.md)
   once the agent exits, raising each as a named `{"kind": "file"}` event on the same sinks — *before*
-  the terminal lifecycle event, so a consumer treating that as end-of-stream still receives it. See
-  the [Notification API](../reference/notification-api.md).
+  the terminal lifecycle event, so a consumer treating that as end-of-stream still receives it. A
+  watch with `upload` has its bytes POSTed to the upload URL instead, and its event carries the
+  size and SHA-256 rather than the content. See the [Notification API](../reference/notification-api.md).
 - Enforces its **own run deadline** (`AGENT_DEADLINE_MS`, injected by the controller a fixed margin
   inside the Job's `activeDeadlineSeconds`). An agent that neither exits nor emits a terminal event
   would otherwise leave the supervisor waiting until the kubelet killed the pod — taking the terminal

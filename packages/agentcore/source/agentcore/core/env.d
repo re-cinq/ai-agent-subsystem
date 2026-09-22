@@ -28,6 +28,19 @@ enum envSelect = "AGENT_SELECT";
 // JSON array of {event, path} the supervisor reads back once the agent exits, each
 // raised as a named `kind:"file"` event carrying the file's contents (#188).
 enum envWatch = "AGENT_WATCH";
+// JSON array of {path, url, headers_secret} the init downloads into the workspace
+// before the agent starts. Set on the init container only: the agent never needs the
+// references, and a header secret they name stays out of the agent's environment.
+enum envFiles = "AGENT_FILES";
+/// Prefix of the shell-safe names the init exports each file's resolved header block
+/// under (`AGENT_FILE_HEADERS_0`, ...), for the same reason as envConversationAuthValue:
+/// the secret key a `headers_secret` names may not be a valid shell identifier.
+enum envFileHeadersPrefix = "AGENT_FILE_HEADERS_";
+// Cap on the bytes the supervisor uploads for one `output.watch` entry with `upload`.
+// Far above the inline cap, because the bytes never ride the event stream; still
+// bounded, because the supervisor reads the file into memory to hash and send it.
+enum envMaxUploadBytes = "MAX_UPLOAD_BYTES";
+enum defaultMaxUploadBytes = 64 * 1024 * 1024;
 // JSON array of skill names the init fetches into $HOME/.claude/skills for this run.
 enum envSkills = "AGENT_SKILLS";
 // Base URL of the skill/settings registry the init fetches skills + settings from.

@@ -11,24 +11,25 @@ import vibe.core.process : pipeProcess, Redirect, ProcessPipes;
 import vibe.stream.operations : readLine;
 
 import std.conv : to;
+import std.functional : toDelegate;
 import std.process : environment;
 
 import agentcore.vendors.select : agentForModel;
 import std.file : exists;
-import agentcore.core.env : defaultExitGraceMs, defaultWorkspace, envConversationPin,
-	envConversationSource, envDeadlineMs, envExitGraceMs,
-	envModel, envSelect, envWatch, envWorkspace;
+import agentcore.core.env : defaultExitGraceMs, defaultMaxUploadBytes, defaultWorkspace,
+	envAgentName, envConversationPin, envConversationSource, envDeadlineMs, envExitGraceMs,
+	envMaxUploadBytes, envModel, envSelect, envWatch, envWorkspace;
 import agentcore.crds.output_sink : OutputSink;
 import agentcore.output.event : EventSource, sourceFromEnv;
 import agentcore.core.exec : findExecutable;
-import agentcore.output.fileevent : parseWatches, readWatched, toJson;
+import agentcore.output.fileevent : parseWatches, readWatched, toJson, uploadWatched;
 import agentcore.output.lifecycle : LifecycleEvent, Phase, Status, toJson;
 import agentcore.core.log : logError;
 import agentcore.output.output : sinksFromEnv;
 import agentcore.output.selectmatcher : parseSelectors, selected;
 import agentcore.output.terminal : terminalFor;
 import archive : collect, tarGz;
-import sink : emit, postConversation;
+import sink : emit, postConversation, postUpload;
 
 /// How often the wait loop polls the agent's exit / terminal-event state.
 private enum pollInterval = 20.msecs;
@@ -210,24 +211,51 @@ int supervise(string[] agentArgv)
 }
 
 /// Read every declared artifact and raise it as a named `kind:"file"` event on the
-/// run's normal sinks. Best-effort by construction: a refused path is skipped, and a
-/// missing or oversized file still raises an event carrying the reason, so a consumer
-/// hears "the agent produced nothing" instead of waiting forever. Never throws — it
-/// runs on the terminal path, where an exception would cost the exit event too.
+/// run's normal sinks — inline, or, for a watch with an `upload`, POSTed to its url
+/// with the event carrying the size and digest instead. Best-effort by construction: a
+/// refused path is skipped, and a missing, oversized or rejected file still raises an
+/// event carrying the reason, so a consumer hears "the agent produced nothing" instead
+/// of waiting forever. Never throws — it runs on the terminal path, where an exception
+/// would cost the exit event too.
 private void emitWatchedFiles(const OutputSink[] sinks, in EventSource source) nothrow
 {
 	try
 	{
 		const workspace = environment.get(envWorkspace, defaultWorkspace);
+		const agent = environment.get(envAgentName, "");
+		const uploadCap = maxUploadBytes(environment.get(envMaxUploadBytes, ""));
 		foreach (watch; parseWatches(environment.get(envWatch, "")))
 		{
-			const ev = readWatched(watch, workspace);
+			const ev = watch.upload.url.length
+				? uploadWatched(watch, workspace, agent, uploadCap, toDelegate(&postUpload))
+				: readWatched(watch, workspace);
 			if (!ev.isNull)
 				emit(sinks, source, ev.get.toJson);
 		}
 	}
 	catch (Exception e)
 		logError("[watch] " ~ e.msg);
+}
+
+/// The upload cap `MAX_UPLOAD_BYTES` asks for, or the default when it is unset or not
+/// a positive number — a typo must not turn every upload into `too-large`.
+ulong maxUploadBytes(string configured) nothrow
+{
+	try
+	{
+		const cap = configured.to!ulong;
+		return cap > 0 ? cap : defaultMaxUploadBytes;
+	}
+	catch (Exception)
+		return defaultMaxUploadBytes;
+}
+
+unittest
+{
+	maxUploadBytes("").should.equal(defaultMaxUploadBytes);
+	maxUploadBytes("1048576").should.equal(1_048_576);
+	maxUploadBytes("0").should.equal(defaultMaxUploadBytes);
+	maxUploadBytes("lots").should.equal(defaultMaxUploadBytes);
 }
 
 /// Archive the vendor's conversation state directory and POST it to the run's

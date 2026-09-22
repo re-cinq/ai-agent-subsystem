@@ -43,7 +43,32 @@ The recipe. It has a `spec` and no `status`.
 | `schema` | JSON Schema | Optional validation of the result. |
 | `select` | [] object | Event filters: `{event(tool_call\|message\|tool_result\|result\|usage), tool?, role?, contains?}`. |
 | `sinks` | [] object | `{type(stdout\|http\|file), url?, headers_secret?, path?}`. |
-| `watch` | [] object | `{event, path}` — files the run is expected to produce; each is raised as a named `kind:"file"` event once the agent exits. Relative paths resolve against `WORKSPACE_DIR`. |
+| `watch` | [] object | `{event, path, upload?}` — files the run is expected to produce; each is raised as a named `kind:"file"` event once the agent exits. Relative paths resolve against `WORKSPACE_DIR`. Inline content is capped at 128 KiB; set `upload` to deliver larger files by reference. |
+
+#### `spec.output.watch[].upload`
+
+Without `upload`, the file's contents ride the event (`content`). With it, the supervisor POSTs the
+file's bytes to a URL and the event carries only its size and digest — for artifacts past the inline
+cap, or that should never pass through the event stream and `status.output`.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `url` | string | *Required.* Where the bytes are POSTed (`Content-Type: application/octet-stream`). `{agent}` expands to the run's Agent name and `{event}` to the watch's event name, each URL-encoded — a watch is declared once per recipe, while its destination is usually per run. |
+| `headers_secret` | string | Optional. A key in the `agent-secrets` Secret holding a header block sent with the upload, resolved exactly as a sink's `headers_secret`. |
+
+```yaml
+output:
+  watch:
+    - event: report.ready
+      path: out/report.md
+      upload:
+        url: https://files.example.com/runs/{agent}/{event}
+        headers_secret: files-auth
+```
+
+Uploads are capped at 64 MiB by default; set `MAX_UPLOAD_BYTES` (bytes) in `resources.env` to change
+it. A larger file is not sent and reports `reason: "too-large"`; a non-2xx or unreachable upload
+reports `reason: "upload-failed"`. See [file events](./notification-api.md#file-events).
 
 The events delivered to these `sinks` — their envelope, lifecycle and `stream-json` payloads,
 and the HTTP delivery contract — are documented in the

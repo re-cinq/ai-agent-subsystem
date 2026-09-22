@@ -84,11 +84,20 @@ export interface OutputSink {
   path?: string;
 }
 
+export interface WatchUpload {
+  /** URL the file is POSTed to; {agent} and {event} are expanded per run. */
+  url: string;
+  /** Secret key holding the header block sent with the upload. */
+  headers_secret?: string;
+}
+
 export interface OutputWatch {
   /** Event name raised when the file is produced. */
   event: string;
   /** File to read; relative paths resolve against WORKSPACE_DIR. */
   path: string;
+  /** Upload the file to a URL instead of inlining its content. */
+  upload?: WatchUpload;
 }
 
 export interface OutputSpec {
@@ -148,6 +157,15 @@ export interface Station {
   spec?: StationSpec;
 }
 
+export interface InputFile {
+  /** Destination, relative to WORKSPACE_DIR; must stay inside it. */
+  path: string;
+  /** http(s) URL the file is downloaded from. */
+  url: string;
+  /** Secret key holding the header block sent with the download. */
+  headers_secret?: string;
+}
+
 /** One run of a recipe in a Station. */
 export interface AgentSpec {
   /** The Station to run in (which selects the recipe). */
@@ -159,6 +177,8 @@ export interface AgentSpec {
   branch?: string;
   /** Per-run values; fill the prompt {placeholder} tokens and pass to the agent. */
   parameters?: Record<string, string>;
+  /** Files downloaded into the workspace before the agent starts; only references travel. */
+  files?: InputFile[];
 }
 
 export interface AgentStatus {

@@ -24,6 +24,33 @@ spec:
 
 `generateName` lets Kubernetes assign a unique name per run.
 
+## Hand the run input files
+
+A run that works on a document — a brief, a dataset, a spec — takes it by reference in `files`.
+The init container downloads each file into the workspace before the agent starts, so the prompt
+can simply point at the path:
+
+```yaml
+apiVersion: agents.re-cinq.com/v1alpha1
+kind: Agent
+metadata:
+  generateName: writer-run-
+spec:
+  stationRef: writer-station
+  parameters:
+    brief: notes/brief.md
+  files:
+    - path: notes/brief.md                             # under WORKSPACE_DIR (/workspace)
+      url: https://files.example.com/runs/42/brief.md
+      headers_secret: files-auth                       # agent-secrets key: "Authorization: Bearer …"
+```
+
+With a recipe prompt such as `Read {brief} and write a report to out/report.md`, the agent finds the
+file at `/workspace/notes/brief.md`. The files are written after any repo clones, so a path may also
+land inside a cloned repo. A download that fails fails the run before the agent starts; the
+[Agent CRD](../reference/crd-agent.md#specfiles) reference has the full rules. To send a produced file
+back the same way, see [collect output](./collect-output.md#large-files-by-upload).
+
 ## What happens
 
 ```mermaid

@@ -4,13 +4,15 @@
 # clone, idempotent retry, lifecycle notifications to a file sink, and a clean
 # non-zero on a bad repo. The Claude installer and package-manager installs are
 # not exercised here (network/root); their argv is covered by agentcore unittests.
-# AGENT_MODEL is a codex model so the Claude tool stays inactive.
+# AGENT_MODEL is a codex model so the Claude tool stays inactive. Input-file
+# downloads are served by the mock agent's `serve` mode, a local HTTP fixture.
 set -uo pipefail
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo"
 
 dub build :initializer >/dev/null
+dub build :mockagent >/dev/null
 
 init="$repo/packages/initializer/ai-agent-init"
 work="$(mktemp -d)"
@@ -170,6 +172,70 @@ check "installed event carries the CLI version" \
 	"$(grep '"status":"installed"' "$sink_cli" | grep '"tool":"claude"' | grep -q '"version":"2.1.267"' && echo 0 || echo 1)"
 check "installed event says the CLI was already present" \
 	"$(grep '"status":"installed"' "$sink_cli" | grep -q '"origin":"present"' && echo 0 || echo 1)"
+
+# 7. Input files: the init downloads each declared file into the workspace AFTER the
+# clones (a clone rm -rf's its destination), creating parent directories and sending
+# the header block its headers_secret names — without the credential reaching a sink.
+serve_log="$work/serve.log"
+serve_out="$work/serve.out"
+: >"$serve_log"
+MOCK_MODE=serve MOCK_SERVE_PORT=18211 MOCK_SERVE_BODY="brief body" MOCK_SERVE_LOG="$serve_log" \
+	"$repo/packages/mockagent/ai-agent-mock" >"$serve_out" 2>/dev/null &
+serve_pid=$!
+trap 'kill "$serve_pid" 2>/dev/null; rm -rf "$work"' EXIT
+for _ in $(seq 50); do grep -q listening "$serve_out" 2>/dev/null && break; sleep 0.1; done
+
+ws_files="$work/ws-files"
+sink_files="$work/sink-files.jsonl"
+: >"$sink_files"
+file_secret="file-t0ken-xyz789"
+env files-auth="Authorization: Bearer $file_secret" \
+	AGENT_MODEL=gpt-5-codex \
+	WORKSPACE_DIR="$ws_files" \
+	AGENT_SINKS="[{\"type\":\"file\",\"path\":\"$sink_files\"}]" \
+	AGENT_NAME=itest-agent POD_NAME=itest-pod \
+	AGENT_REPOS="[{\"name\":\"app\",\"url\":\"file://$origin\"}]" \
+	AGENT_FILES="[{\"path\":\"app/notes/deep/brief.md\",\"url\":\"http://127.0.0.1:18211/brief.md\",\"headers_secret\":\"files-auth\"}]" \
+	"$init" >/dev/null
+rc=$?
+check "input-file run exits 0" "$([ "$rc" -eq 0 ] && echo 0 || echo 1)"
+check "file downloaded to its path, parents created" \
+	"$([ "$(cat "$ws_files/app/notes/deep/brief.md" 2>/dev/null)" = "brief body" ] && echo 0 || echo 1)"
+check "file survives the clone it was written into" "$([ -f "$ws_files/app/README.md" ] && echo 0 || echo 1)"
+check "download sent the header block" "$(grep -q "Authorization: Bearer $file_secret" "$serve_log" && echo 0 || echo 1)"
+check "header credential never leaks to the sink" "$(! grep -q "$file_secret" "$sink_files" && echo 0 || echo 1)"
+
+# 7b. A path escaping the workspace fails the init, naming the path.
+runfiles() { # runfiles <workspace> <files-json> -> sets rc and $err (init stderr)
+	err="$work/files-stderr.log"
+	AGENT_MODEL=gpt-5-codex \
+		WORKSPACE_DIR="$1" \
+		AGENT_NAME=itest-agent POD_NAME=itest-pod \
+		AGENT_FILES="$2" \
+		"$init" >/dev/null 2>"$err"
+	rc=$?
+}
+runfiles "$work/ws-files-esc" "[{\"path\":\"../escaped.md\",\"url\":\"http://127.0.0.1:18211/x\"}]"
+check "escaping file path fails the init" "$([ "$rc" -ne 0 ] && echo 0 || echo 1)"
+check "escaping file path is named in the failure" "$(grep -q "../escaped.md: path escapes the workspace" "$err" && echo 0 || echo 1)"
+check "nothing written outside the workspace" "$([ ! -e "$work/escaped.md" ] && echo 0 || echo 1)"
+
+# 7c. A symlink planted in the workspace cannot carry the write outside it.
+mkdir -p "$work/ws-files-link" "$work/outside"
+ln -s "$work/outside" "$work/ws-files-link/link"
+runfiles "$work/ws-files-link" "[{\"path\":\"link/brief.md\",\"url\":\"http://127.0.0.1:18211/x\"}]"
+check "symlinked-out file path fails the init" "$([ "$rc" -ne 0 ] && echo 0 || echo 1)"
+check "nothing written through the symlink" "$([ ! -e "$work/outside/brief.md" ] && echo 0 || echo 1)"
+
+# 7d. A failed download fails the init, naming the path.
+runfiles "$work/ws-files-fail" "[{\"path\":\"brief.md\",\"url\":\"http://127.0.0.1:1/brief.md\"}]"
+check "failed download fails the init" "$([ "$rc" -ne 0 ] && echo 0 || echo 1)"
+check "failed download names the path" "$(grep -q "brief.md: download failed" "$err" && echo 0 || echo 1)"
+
+# 7e. Only http(s) is fetched: a file:// url cannot copy a local file into the workspace.
+runfiles "$work/ws-files-proto" "[{\"path\":\"copy\",\"url\":\"file://$origin/README.md\"}]"
+check "non-http url fails the init" "$([ "$rc" -ne 0 ] && echo 0 || echo 1)"
+check "non-http url copied nothing" "$([ ! -s "$work/ws-files-proto/copy" ] && echo 0 || echo 1)"
 
 if [ "$failures" -eq 0 ]; then echo "ALL PASSED"; else echo "$failures CHECK(S) FAILED"; fi
 [ "$failures" -eq 0 ]

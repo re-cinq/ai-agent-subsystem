@@ -27,8 +27,13 @@ struct FileEvent
 {
 	string event; /// the recipe-declared event name
 	string path; /// the resolved path the content was read from
-	string content; /// the file's contents, empty when `reason` is set
-	string reason; /// optional: why there is no content ("missing", "too-large", "unreadable")
+	string content; /// the file's contents, empty when `reason` is set or it was uploaded
+	/// optional: why there is no content ("missing", "too-large", "unreadable",
+	/// "upload-failed")
+	string reason;
+	bool uploaded; /// the bytes went to the watch's upload url instead of `content`
+	ulong bytes; /// size of the uploaded file
+	string sha256; /// lowercase hex SHA-256 of the uploaded bytes
 }
 
 /// The compact JSON line for the envelope's `event`. Never throws — it is emitted
@@ -43,6 +48,12 @@ string toJson(in FileEvent e) nothrow
 		o["path"] = Json(e.path);
 		if (e.reason.length)
 			o["reason"] = Json(e.reason);
+		else if (e.uploaded)
+		{
+			o["uploaded"] = Json(true);
+			o["bytes"] = Json(e.bytes);
+			o["sha256"] = Json(e.sha256);
+		}
 		else
 			o["content"] = Json(e.content);
 		return Json(o).toString();
@@ -81,7 +92,7 @@ OutputWatch[] parseWatches(string json)
 /// workspace; and a recipe must not be able to read arbitrary host paths out of the
 /// pod, so an absolute path outside the workspace is rejected too (mirrors the
 /// init's `safeDest`). Null when the path is not allowed.
-Nullable!string resolveWatchedPath(string path, string workspaceDir) nothrow
+Nullable!string resolveWatchedPath(string path, string workspaceDir) @safe nothrow
 {
 	try
 	{
@@ -113,17 +124,79 @@ Nullable!FileEvent readWatched(in OutputWatch watch, string workspaceDir) nothro
 	FileEvent e = {event: watch.event, path: full};
 	try
 	{
-		if (!full.exists || !full.isFile)
+		e.reason = unfitReason(full, maxWatchedFileBytes);
+		if (e.reason.length == 0)
+			e.content = cast(string) full.read();
+	}
+	catch (Exception)
+		e.reason = "unreadable";
+	return nullable(e);
+}
+
+/// Why `full` cannot be delivered under `cap` ("missing", "too-large"), or "" when it
+/// can.
+private string unfitReason(string full, ulong cap)
+{
+	if (!full.exists || !full.isFile)
+		return "missing";
+	if (full.getSize > cap)
+		return "too-large";
+	return "";
+}
+
+/// Sends one upload: POSTs `body_` to `url` with the header block `headersSecret`
+/// resolves to, true on a 2xx. The transport is the caller's, so this module stays
+/// free of HTTP.
+alias UploadPoster = bool delegate(string url, const(ubyte)[] body_, string headersSecret) nothrow;
+
+/// `url` with `{agent}` and `{event}` replaced by the run's Agent name and the watch's
+/// event name, each percent-encoded as a URL component so an event name can never
+/// reshape the URL around it.
+string expandUploadUrl(string url, string agent, string event) nothrow
+{
+	import std.array : replace;
+	import std.uri : encodeComponent;
+
+	try
+		return url.replace("{agent}", encodeComponent(agent))
+			.replace("{event}", encodeComponent(event));
+	catch (Exception)
+		return url;
+}
+
+/// Upload one watched artifact through `post` and describe the outcome as an event
+/// that carries the file's size and SHA-256 in place of its content — the bytes went
+/// to the upload url, not the event stream, so `maxBytes` can sit far above the
+/// inline cap. Like `readWatched`, a missing or oversized file still yields an event
+/// with its `reason`, and so does a rejected upload ("upload-failed"). Null only for
+/// a refused path. Never throws.
+Nullable!FileEvent uploadWatched(in OutputWatch watch, string workspaceDir, string agent,
+	ulong maxBytes, scope UploadPoster post) nothrow
+{
+	import std.digest : LetterCase, toHexString;
+	import std.digest.sha : sha256Of;
+
+	const resolved = resolveWatchedPath(watch.path, workspaceDir);
+	if (resolved.isNull)
+		return Nullable!FileEvent.init;
+
+	const full = resolved.get;
+	FileEvent e = {event: watch.event, path: full};
+	try
+	{
+		e.reason = unfitReason(full, maxBytes);
+		if (e.reason.length)
+			return nullable(e);
+		const bytes = cast(const(ubyte)[]) full.read();
+		if (!post(expandUploadUrl(watch.upload.url, agent, watch.event), bytes,
+				watch.upload.headersSecret))
 		{
-			e.reason = "missing";
+			e.reason = "upload-failed";
 			return nullable(e);
 		}
-		if (full.getSize > maxWatchedFileBytes)
-		{
-			e.reason = "too-large";
-			return nullable(e);
-		}
-		e.content = cast(string) full.read();
+		e.uploaded = true;
+		e.bytes = bytes.length;
+		e.sha256 = toHexString!(LetterCase.lower)(sha256Of(bytes)).idup;
 	}
 	catch (Exception)
 		e.reason = "unreadable";
@@ -216,5 +289,118 @@ unittest
 
 	// a refused path yields no event at all
 	readWatched(OutputWatch("planning.result", "../outside.json"), root).isNull
+		.should.equal(true);
+}
+
+unittest
+{
+	// an uploaded artifact reports its size and digest in place of its content
+	FileEvent e = {event: "report.ready", path: "/workspace/out/report.md"};
+	e.uploaded = true;
+	e.bytes = 5;
+	e.sha256 = "abc";
+	const json = e.toJson;
+	json.should.contain(`"uploaded":true`);
+	json.should.contain(`"bytes":5`);
+	json.should.contain(`"sha256":"abc"`);
+	json.should.not.contain(`"content"`);
+}
+
+unittest
+{
+	// the run's agent and the watch's event fill the placeholders, encoded as components
+	expandUploadUrl("https://files.example/{agent}/{event}", "run-1", "report.ready")
+		.should.equal("https://files.example/run-1/report.ready");
+	expandUploadUrl("https://files.example/{event}", "run-1", "a/b c")
+		.should.equal("https://files.example/a%2Fb%20c");
+	expandUploadUrl("https://files.example/fixed", "run-1", "x")
+		.should.equal("https://files.example/fixed");
+}
+
+version (unittest)
+{
+	import agentcore.crds.watch_upload : WatchUpload;
+
+	/// A throwaway workspace holding `out/report.md` = "hello", removed on `tidy`.
+	private string uploadFixture(string root)
+	{
+		import std.file : mkdirRecurse, write;
+		import std.path : buildPath;
+
+		mkdirRecurse(buildPath(root, "out"));
+		write(buildPath(root, "out", "report.md"), "hello");
+		return root;
+	}
+
+	private void tidy(string root) nothrow
+	{
+		import std.file : rmdirRecurse;
+
+		try
+			rmdirRecurse(root);
+		catch (Exception)
+		{
+		}
+	}
+
+	private OutputWatch uploadWatch(string path)
+	{
+		return OutputWatch("report.ready", path,
+			WatchUpload("https://files.example/{agent}/{event}", "upload-auth"));
+	}
+}
+
+unittest
+{
+	// an upload sends the file's bytes to the expanded url with the watch's header
+	// secret, and the event carries the size and SHA-256 of exactly those bytes
+	const root = uploadFixture(".test-upload");
+	scope (exit)
+		tidy(root);
+
+	string sentUrl, sentSecret;
+	const(ubyte)[] sentBody;
+	const ev = uploadWatched(uploadWatch("out/report.md"), root, "run-1", 1024,
+		(string url, const(ubyte)[] body_, string secret) nothrow {
+			sentUrl = url;
+			sentBody = body_;
+			sentSecret = secret;
+			return true;
+		});
+
+	sentUrl.should.equal("https://files.example/run-1/report.ready");
+	(cast(string) sentBody).should.equal("hello");
+	sentSecret.should.equal("upload-auth");
+	ev.get.uploaded.should.equal(true);
+	ev.get.bytes.should.equal(5);
+	ev.get.sha256.should.equal(
+		"2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+	ev.get.content.should.equal("");
+}
+
+unittest
+{
+	// a rejected upload, an oversized file and a missing one each report why, and none
+	// of them claims an upload
+	const root = uploadFixture(".test-upload-fail");
+	scope (exit)
+		tidy(root);
+
+	bool posted;
+	UploadPoster post = (string url, const(ubyte)[] body_, string secret) nothrow {
+		posted = true;
+		return false;
+	};
+
+	uploadWatched(uploadWatch("out/report.md"), root, "run-1", 1024, post).get.reason
+		.should.equal("upload-failed");
+	posted = false;
+	uploadWatched(uploadWatch("out/report.md"), root, "run-1", 4, post).get.reason
+		.should.equal("too-large");
+	uploadWatched(uploadWatch("out/absent.md"), root, "run-1", 1024, post).get.reason
+		.should.equal("missing");
+	// neither of the last two ever reached the network
+	posted.should.equal(false);
+	uploadWatched(uploadWatch("../outside.md"), root, "run-1", 1024, post).isNull
 		.should.equal(true);
 }

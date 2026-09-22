@@ -48,12 +48,7 @@ private bool postOnce(string url, string line, string headers) nothrow
 		requestHTTP(url,
 			(scope HTTPClientRequest req) {
 				req.method = HTTPMethod.POST;
-				foreach (header; headerLines(headers))
-				{
-					const colon = header.indexOf(':');
-					if (colon > 0)
-						req.headers[header[0 .. colon].strip] = header[colon + 1 .. $].strip;
-				}
+				setHeaders(req, headers);
 				req.writeBody(cast(const(ubyte)[]) line, "application/json");
 			},
 			(scope HTTPClientResponse res) {
@@ -66,6 +61,17 @@ private bool postOnce(string url, string line, string headers) nothrow
 	{
 		logError("[supervisor] http sink attempt failed: " ~ e.msg);
 		return false;
+	}
+}
+
+/// Set each `Name: value` line of a resolved header block on `req`.
+private void setHeaders(scope HTTPClientRequest req, string headers)
+{
+	foreach (line; headerLines(headers))
+	{
+		const colon = line.indexOf(':');
+		if (colon > 0)
+			req.headers[line[0 .. colon].strip] = line[colon + 1 .. $].strip;
 	}
 }
 
@@ -97,12 +103,7 @@ void postConversation(string url, const(ubyte)[] archive) nothrow
 			// AGENT_CONVERSATION_AUTH holds the NAME of the injected secret key, so
 			// resolve it the same way sinkHeaders does rather than treating it as the
 			// credential itself.
-			foreach (line; headerLines(sinkHeaders(environment.get(envConversationAuth, ""))))
-			{
-				const i = line.indexOf(":");
-				if (i > 0)
-					req.headers[line[0 .. i].strip] = line[i + 1 .. $].strip;
-			}
+			setHeaders(req, sinkHeaders(environment.get(envConversationAuth, "")));
 			req.writeBody(archive);
 		}, (scope HTTPClientResponse res) {
 			if (res.statusCode >= 300)
@@ -112,4 +113,33 @@ void postConversation(string url, const(ubyte)[] archive) nothrow
 	}
 	catch (Exception e)
 		logError("[conversation] save failed: " ~ e.msg);
+}
+
+/// POST one watched file's bytes to its upload url, with the header block its
+/// `headers_secret` names resolved the way a sink's is. True on a 2xx. A rejection is
+/// logged by status only — never the body, which is the agent's artifact, nor the
+/// headers, which carry the credential. Not retried: the file event reports the
+/// failure, which is what a consumer acts on.
+bool postUpload(string url, const(ubyte)[] body_, string headersSecret) nothrow
+{
+	try
+	{
+		bool ok;
+		requestHTTP(url, (scope HTTPClientRequest req) {
+			req.method = HTTPMethod.POST;
+			setHeaders(req, sinkHeaders(headersSecret));
+			req.writeBody(body_, "application/octet-stream");
+		}, (scope HTTPClientResponse res) {
+			ok = res.statusCode >= 200 && res.statusCode < 300;
+			if (!ok)
+				logError("[watch] upload rejected: " ~ res.statusCode.to!string);
+			res.dropBody();
+		});
+		return ok;
+	}
+	catch (Exception e)
+	{
+		logError("[watch] upload failed: " ~ e.msg);
+		return false;
+	}
 }

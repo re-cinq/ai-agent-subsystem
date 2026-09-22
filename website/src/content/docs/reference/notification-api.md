@@ -95,13 +95,26 @@ This exists because the subsystem streams what an agent *says*: an agent whose d
 | `kind` | string | Always `"file"`. |
 | `event` | string | The recipe-declared event name, so one run can emit several artifacts. |
 | `path` | string | The resolved path read from. Relative paths resolve against `WORKSPACE_DIR`. |
-| `content` | string | The file's contents. Absent when `reason` is set. |
-| `reason` | string | Optional. Why there is no content: `missing`, `too-large` (>128 KiB), or `unreadable`. |
+| `content` | string | The file's contents. Absent when `reason` is set or the file was uploaded. |
+| `uploaded` | bool | Only for a watch with [`upload`](./crd-agentdefinition.md#specoutputwatchupload): `true` once the upload URL accepted the bytes (2xx). |
+| `bytes` | int | With `uploaded`: the size of the uploaded file. |
+| `sha256` | string | With `uploaded`: the lowercase hex SHA-256 of the uploaded bytes, so a consumer can check what it stored. |
+| `reason` | string | Optional. Why there is no content: `missing`, `too-large`, `unreadable`, or `upload-failed` (the upload URL answered non-2xx or was unreachable). |
 
 ```json
-{ "kind": "file", "event": "planning.result", "path": "/workspace/target/result.json", "content": "{\"gap\":\"found\"}" }
-{ "kind": "file", "event": "planning.result", "path": "/workspace/target/result.json", "reason": "missing" }
+{ "kind": "file", "event": "report.ready", "path": "/workspace/out/report.json", "content": "{\"ok\":true}" }
+{ "kind": "file", "event": "report.ready", "path": "/workspace/out/report.json", "reason": "missing" }
+{ "kind": "file", "event": "report.ready", "path": "/workspace/out/report.md", "uploaded": true, "bytes": 48213, "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08" }
+{ "kind": "file", "event": "report.ready", "path": "/workspace/out/report.md", "reason": "upload-failed" }
 ```
+
+The size caps differ by delivery. **Inline** content is capped at **128 KiB**, below the
+`status.output` cap that would otherwise truncate it mid-JSON. An **uploaded** file never rides the
+stream, so its cap is **64 MiB** by default, overridable with `MAX_UPLOAD_BYTES` (bytes) in the
+recipe's `resources.env`; the supervisor reads the file into memory to hash and send it. Either cap
+exceeded reports `too-large`. The upload URL's `{agent}` and `{event}` placeholders expand to the
+run's Agent name and the watch's event name. A failed upload is not retried; the event reports it,
+and the supervisor logs only the HTTP status — never the body or the header.
 
 Two guarantees a consumer can rely on:
 

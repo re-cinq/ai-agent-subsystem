@@ -1,5 +1,6 @@
 module agentcore.kube.jobspec;
 
+import std.algorithm.sorting : sort;
 import std.conv : to;
 import std.exception : enforce;
 import vibe.data.json;
@@ -12,6 +13,7 @@ import agentcore.crds.output_watch : OutputWatch;
 import agentcore.crds.output_sink : OutputSink;
 import agentcore.crds.enums : SinkType;
 import agentcore.crds.repo_ref : RepoRef;
+import agentcore.crds.input_file : InputFile;
 import agentcore.crds.mcp_server : headerEnvName;
 import agentcore.crds.station : Station;
 import agentcore.crds.serialization : toJson;
@@ -89,7 +91,8 @@ Json buildJob(Agent agent, Station station, AgentDefinition definition, string a
 		ConversationArgs(recipe.resources.conversation.id, recipe.resources.conversation.pin));
 	auto env = runEnv(agent, station, recipe);
 
-	auto template_ = wirePodTemplate(deepCopy(station.spec.template_), commandFor(argv), env, agentImage);
+	auto template_ = wirePodTemplate(deepCopy(station.spec.template_), commandFor(argv), env,
+		initEnv(env, agent.spec.files), agentImage);
 	template_ = withRunMetadata(template_, agent, station);
 
 	const deadlineMinutes = effectiveDeadlineMinutes(station.spec.deadlineMinutes);
@@ -178,7 +181,8 @@ private Json[] commandFor(string[] argv)
 	return command;
 }
 
-private Json wirePodTemplate(Json template_, Json[] command, Json env, string agentImage)
+private Json wirePodTemplate(Json template_, Json[] command, Json env, Json initEnv_,
+	string agentImage)
 {
 	enforce(template_.type == Json.Type.object, "Station template must be an object");
 	auto pod = template_;
@@ -207,7 +211,7 @@ private Json wirePodTemplate(Json template_, Json[] command, Json env, string ag
 	enforce(wired, "Station template has no container named '" ~ agentContainerName ~ "'");
 
 	spec["containers"] = Json(containers);
-	spec["initContainers"] = Json([initContainer(agentImage, env)]);
+	spec["initContainers"] = Json([initContainer(agentImage, initEnv_)]);
 	spec["volumes"] = withBundleVolume(spec);
 	spec["restartPolicy"] = Json("Never");
 	spec["securityContext"] = podSecurity();
@@ -414,16 +418,69 @@ private Json initResources()
 	return Json(resources);
 }
 
+private Json literalEnv(string name, string value)
+{
+	Json[string] entry;
+	entry["name"] = Json(name);
+	entry["value"] = Json(value);
+	return Json(entry);
+}
+
+/// An env entry resolving `key` of the agent-secrets Secret at pod start.
+private Json secretEnv(string name, string key)
+{
+	Json[string] keyRef;
+	keyRef["name"] = Json(agentSecretName);
+	keyRef["key"] = Json(key);
+	keyRef["optional"] = Json(false);
+	Json[string] from;
+	from["secretKeyRef"] = Json(keyRef);
+	Json[string] entry;
+	entry["name"] = Json(name);
+	entry["valueFrom"] = Json(from);
+	return Json(entry);
+}
+
+/// The init container's env: the run env plus what only the init needs — the
+/// run's input-file references (AGENT_FILES) and the header secrets they name. The
+/// agent container never sees either, so a download credential stays out of the
+/// environment the untrusted agent runs in. Each `headers_secret` is injected as an
+/// env var of the same name (the sink convention), replacing any run-env entry of that
+/// name so it always resolves the key it names; a controller-owned name is blanked, as
+/// for sinks, so it can never resolve to the controller's own value.
+private Json initEnv(Json runEnv_, const InputFile[] declared)
+{
+	if (declared.length == 0)
+		return runEnv_;
+
+	auto files = declared.dup;
+	bool[string] headerSecrets;
+	foreach (ref file; files)
+	{
+		if (isReservedEnvName(file.headersSecret))
+			file.headersSecret = "";
+		if (file.headersSecret.length)
+			headerSecrets[file.headersSecret] = true;
+	}
+
+	Json[] env;
+	foreach (entry; runEnv_.get!(Json[]))
+		if (entry["name"].get!string !in headerSecrets)
+			env ~= entry;
+	env ~= literalEnv(envFiles, toJson(files).toString());
+	// Sorted, so the same Agent always renders the same Job.
+	foreach (name; headerSecrets.keys.sort)
+		env ~= secretEnv(name, name);
+	return Json(env);
+}
+
 private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 {
 	Json[] env;
 
 	void strVar(string name, string value)
 	{
-		Json[string] entry;
-		entry["name"] = Json(name);
-		entry["value"] = Json(value);
-		env ~= Json(entry);
+		env ~= literalEnv(name, value);
 	}
 
 	void fieldVar(string name, string fieldPath)
@@ -440,16 +497,7 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 
 	void secretVar(string name, string key)
 	{
-		Json[string] keyRef;
-		keyRef["name"] = Json(agentSecretName);
-		keyRef["key"] = Json(key);
-		keyRef["optional"] = Json(false);
-		Json[string] from;
-		from["secretKeyRef"] = Json(keyRef);
-		Json[string] entry;
-		entry["name"] = Json(name);
-		entry["valueFrom"] = Json(from);
-		env ~= Json(entry);
+		env ~= secretEnv(name, key);
 	}
 
 	// An http sink's `headers_secret` names a key in the agent-secrets Secret holding the
@@ -542,8 +590,22 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 		}
 	if (recipe.output.select.length)
 		strVar(envSelect, selectJson(recipe.output.select));
-	if (recipe.output.watch.length)
-		strVar(envWatch, watchJson(recipe.output.watch));
+	// A watch's upload `headers_secret` resolves in the supervisor exactly as a sink's
+	// does (sinkHeaders), so it is injected the same way and blanked on a reserved name.
+	auto watches = recipe.output.watch.dup;
+	foreach (ref watch; watches)
+	{
+		if (isReservedEnvName(watch.upload.headersSecret))
+			watch.upload.headersSecret = "";
+		const key = watch.upload.headersSecret;
+		if (watch.upload.url.length && key.length && key !in secretsInjected)
+		{
+			secretVar(key, key);
+			secretsInjected[key] = true;
+		}
+	}
+	if (watches.length)
+		strVar(envWatch, watchJson(watches));
 	strVar(envWorkspace, defaultWorkspace);
 	if (agent.spec.parameters.length)
 		strVar(envParameters, parametersJson(agent.spec.parameters));
@@ -589,7 +651,7 @@ bool isReservedEnvName(string name) @safe pure nothrow
 	static immutable string[] reserved = [
 		envSinks, envRepos, envSkills, envSkillsSource, envConversationSource, envConversationId,
 		envConversationPin, envConversationAuth,
-		envSelect, envWatch, envWorkspace, envParameters, envGitCredential, envGitCredentialUrl, envTargetRepo,
+		envSelect, envWatch, envFiles, envWorkspace, envParameters, envGitCredential, envGitCredentialUrl, envTargetRepo,
 		envBranch, envModel, envAgentName, envStationName, envTaskId, envPodName,
 		envPodNamespace, envDeadlineMs, homeEnv, pathEnv,
 	];
@@ -656,6 +718,11 @@ version (unittest)
 			if (container["name"].get!string == agentContainerName)
 				return container;
 		assert(false, "no agent container");
+	}
+
+	private Json initContainerOf(Json job)
+	{
+		return job["spec"]["template"]["spec"]["initContainers"][0];
 	}
 
 	private string envValue(Json container, string name)
@@ -1139,6 +1206,111 @@ unittest
 {
 	// AGENT_WATCH is controller-owned: a recipe env var of that name cannot shadow it.
 	isReservedEnvName("AGENT_WATCH").should.equal(true);
+}
+
+unittest
+{
+	// A run's input files reach the init container as AGENT_FILES — references only,
+	// in the CRD's own wire shape — and never the agent container, which has no use
+	// for them.
+	import agentcore.crds.serialization : fromJson;
+
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	agent.spec.files = [InputFile("notes/brief.md", "https://files.example/brief.md")];
+
+	auto job = buildJob(agent, station, definition, "img");
+
+	const files = parseJsonString(envValue(initContainerOf(job), "AGENT_FILES"));
+	files.length.should.equal(1);
+	fromJson!InputFile(files[0]).should.equal(
+		InputFile("notes/brief.md", "https://files.example/brief.md"));
+	envValue(agentContainer(job), "AGENT_FILES").should.equal("");
+	// The init still gets the whole run env beside it.
+	envValue(initContainerOf(job), "AGENT_NAME").should.equal("bug-fixer-run-1");
+}
+
+unittest
+{
+	// A file's headers_secret is injected into the init container only, under the key's
+	// own name, so the download authenticates without the agent ever holding the header.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	agent.spec.files = [
+		InputFile("a.md", "https://files.example/a", "files-auth"),
+		InputFile("b.md", "https://files.example/b", "files-auth"),
+	];
+
+	auto job = buildJob(agent, station, definition, "img");
+
+	envSecretKey(initContainerOf(job), "files-auth").should.equal("files-auth");
+	envSecretKey(agentContainer(job), "files-auth").should.equal("");
+	int entries;
+	foreach (entry; initContainerOf(job)["env"].get!(Json[]))
+		if (entry["name"].get!string == "files-auth")
+			entries++;
+	entries.should.equal(1);
+}
+
+unittest
+{
+	// A headers_secret reusing a controller-owned name is blanked on the wire, so the
+	// init can never send the controller's own value as a download header.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	agent.spec.files = [InputFile("a.md", "https://files.example/a", "AGENT_SINKS")];
+
+	auto init = initContainerOf(buildJob(agent, station, definition, "img"));
+
+	parseJsonString(envValue(init, "AGENT_FILES"))[0]["headers_secret"].get!string
+		.should.equal("");
+	envSecretKey(init, "AGENT_SINKS").should.equal("");
+}
+
+unittest
+{
+	// A run with no input files adds nothing to the init container's env.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+
+	auto job = buildJob(agent, station, definition, "img");
+
+	envValue(initContainerOf(job), "AGENT_FILES").should.equal("");
+	initContainerOf(job)["env"].should.equal(agentContainer(job)["env"]);
+	isReservedEnvName("AGENT_FILES").should.equal(true);
+}
+
+unittest
+{
+	// A watch's upload rides AGENT_WATCH with the watch, and its headers_secret is
+	// injected as a sink's is, so the supervisor resolves the upload's auth header.
+	import agentcore.crds.watch_upload : WatchUpload;
+	import agentcore.output.fileevent : parseWatches;
+
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.output.watch = [
+		OutputWatch("report.ready", "out/report.md",
+			WatchUpload("https://files.example/{agent}/{event}", "upload-auth")),
+	];
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img"));
+
+	auto watches = parseWatches(envValue(container, "AGENT_WATCH"));
+	watches.length.should.equal(1);
+	watches[0].upload.should.equal(
+		WatchUpload("https://files.example/{agent}/{event}", "upload-auth"));
+	envSecretKey(container, "upload-auth").should.equal("upload-auth");
 }
 
 unittest
