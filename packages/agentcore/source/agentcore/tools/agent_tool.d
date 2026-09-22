@@ -2,7 +2,7 @@ module agentcore.tools.agent_tool;
 
 import agentcore.tools.initcontext : InitContext;
 import agentcore.tools.tool : Tool;
-import agentcore.vendors.base.setup : AgentSetup;
+import agentcore.vendors.base.setup : AgentSetup, CliReport;
 
 /// Adapts the run's selected `AgentSetup` into the init container's `Tool`
 /// pipeline: it installs the one agent CLI the run's model routes to. The setup is
@@ -31,6 +31,13 @@ final class AgentTool : Tool
 	{
 		return setup.installSteps;
 	}
+
+	/// What the installed CLI reports about itself, or null when its setup reports
+	/// nothing.
+	const(CliReport) report() const @safe
+	{
+		return cast(const CliReport) setup;
+	}
 }
 
 version (unittest) import fluent.asserts;
@@ -53,4 +60,8 @@ version (unittest) import agentcore.vendors.select : agentSetupForModel;
 	auto codex = new AgentTool(agentSetupForModel(ctx.model));
 	codex.name.should.equal("codex");
 	codex.steps(ctx).length.should.equal(1);
+
+	// Claude reports its version and origin; a setup without a report, none.
+	(claude.report !is null).should.equal(true);
+	(codex.report is null).should.equal(true);
 }
