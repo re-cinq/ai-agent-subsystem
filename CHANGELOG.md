@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.11.0
+
 ### Changed
 - **The Claude CLI is baked into the agent image, pinned.** The image now
   carries one Claude Code release (build arg `CLAUDE_CLI_VERSION`, with its
