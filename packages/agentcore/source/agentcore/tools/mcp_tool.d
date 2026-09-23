@@ -1,6 +1,26 @@
 module agentcore.tools.mcp_tool;
 
+import agentcore.crds.mcp_server : McpServer;
 import agentcore.tools.initcontext : InitContext;
+
+/// Parse the JSON array of MCP servers the controller serialized into
+/// `AGENT_MCP_SERVERS` — the CRD struct itself, so no field is dropped at this seam. A
+/// malformed document yields no servers rather than throwing, like `AGENT_FILES`.
+McpServer[] parseMcpServers(string json)
+{
+	import vibe.data.json : Json, parseJsonString;
+	import agentcore.crds.serialization : fromJson;
+
+	if (json.length == 0)
+		return null;
+	McpServer[] servers;
+	try
+		foreach (entry; parseJsonString(json).get!(Json[]))
+			servers ~= fromJson!McpServer(entry);
+	catch (Exception)
+		return null;
+	return servers;
+}
 import agentcore.tools.tool : Tool;
 import agentcore.vendors.base.setup : AgentSetup, McpSettings;
 

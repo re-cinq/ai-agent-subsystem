@@ -533,6 +533,11 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 			secretsInjected[mcpEnv] = true;
 		}
 	}
+	// The servers themselves, for a vendor whose CLI reads them from a settings file the
+	// init writes (gemini-cli has no MCP flag). Names and URLs only: the credential is
+	// the env var above, which the CLI expands when it loads the file.
+	if (recipe.resources.mcpServers.length)
+		strVar(envMcpServers, toJson(recipe.resources.mcpServers).toString());
 	strVar(envRepos, reposJson(recipe.resources.repos));
 	// The recipe's skill names + registry URL — the init fetches each named skill and
 	// the settings from `<skillsSource>/...` into $HOME/.claude so headless claude
@@ -651,7 +656,7 @@ bool isReservedEnvName(string name) @safe pure nothrow
 	static immutable string[] reserved = [
 		envSinks, envRepos, envSkills, envSkillsSource, envConversationSource, envConversationId,
 		envConversationPin, envConversationAuth,
-		envSelect, envWatch, envFiles, envWorkspace, envParameters, envGitCredential, envGitCredentialUrl, envTargetRepo,
+		envSelect, envWatch, envFiles, envMcpServers, envWorkspace, envParameters, envGitCredential, envGitCredentialUrl, envTargetRepo,
 		envBranch, envModel, envAgentName, envStationName, envTaskId, envPodName,
 		envPodNamespace, envDeadlineMs, homeEnv, pathEnv,
 	];
@@ -1357,6 +1362,31 @@ unittest
 	auto container = agentContainer(buildJob(agent, station, definition, "img"));
 
 	envSecretKey(container, "TOOLS_MCP_AUTH").should.equal("tools-mcp-auth");
+}
+
+unittest
+{
+	// The recipe's mcp_servers reach the init container as AGENT_MCP_SERVERS, in the
+	// CRD's own wire shape, so the init can write them into the settings of a vendor
+	// whose CLI takes no MCP flag. The secret travels by name only. Controller-owned:
+	// a recipe env var of that name cannot shadow it.
+	import agentcore.crds.mcp_server : McpServer;
+	import agentcore.crds.enums : McpTransport;
+	import agentcore.crds.serialization : fromJson;
+
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	auto tools = McpServer("tools", McpTransport.http, "", null, "https://tools-mcp/mcp", "tools-mcp-auth");
+	definition.spec.resources.mcpServers = [tools];
+
+	auto job = buildJob(agent, station, definition, "img");
+
+	const servers = parseJsonString(envValue(initContainerOf(job), "AGENT_MCP_SERVERS"));
+	servers.length.should.equal(1);
+	fromJson!McpServer(servers[0]).should.equal(tools);
+	isReservedEnvName("AGENT_MCP_SERVERS").should.equal(true);
 }
 
 unittest

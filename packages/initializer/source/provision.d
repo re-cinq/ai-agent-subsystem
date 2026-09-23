@@ -19,7 +19,7 @@ private extern (C) int lchown(scope const char* path, uid_t owner, gid_t group) 
 import agentcore.crds.enums : SinkType;
 import agentcore.core.env : defaultWorkspace, envConversationAuth,
 	envConversationAuthValue, envConversationId,
-	envConversationSource, envFiles, envGitCredentialUrl, envModel,
+	envConversationSource, envFiles, envGitCredentialUrl, envMcpServers, envModel,
 	envRepos, envSkills, envSkillsSource, envWorkspace;
 import agentcore.vendors.select : agentForModel;
 import agentcore.output.event : EventSource, sourceFromEnv;
@@ -33,6 +33,7 @@ import agentcore.pkgmanager.packagemanager : packageFor;
 import agentcore.pkgmanager.packagemanagerselect : packageManagerByName;
 import agentcore.tools.agent_tool : AgentTool;
 import agentcore.tools.files_tool : fileHeadersEnv, parseInputFiles;
+import agentcore.tools.mcp_tool : parseMcpServers;
 import agentcore.tools.repos : parseRepos;
 import agentcore.tools.skills : parseSkills;
 import agentcore.tools.tool : Tool;
@@ -68,6 +69,7 @@ InitContext contextFromEnv()
 	// credential: its variable is named after a secret key a shell may not be able to read.
 	foreach (file; ctx.files)
 		ctx.fileHeaders ~= file.headersSecret.length ? environment.get(file.headersSecret, "") : "";
+	ctx.mcpServers = parseMcpServers(environment.get(envMcpServers, ""));
 	return ctx;
 }
 
@@ -107,6 +109,22 @@ unittest
 	]);
 	ctx.fileHeaders.should.equal(["", "Authorization: Bearer t0k"]);
 	stepEnv(ctx).should.equal([fileHeadersEnv(1): "Authorization: Bearer t0k"]);
+}
+
+unittest
+{
+	// The recipe's MCP servers reach the context the init's mcp tool reads, as the
+	// controller serialized them: names and URLs, the secret by name only.
+	import agentcore.crds.enums : McpTransport;
+	import agentcore.crds.mcp_server : McpServer;
+
+	environment[envMcpServers] = `[{"name":"tools","transport":"http",`
+		~ `"url":"https://tools-mcp/mcp","headers_secret":"tools-mcp-auth"}]`;
+	scope (exit)
+		environment.remove(envMcpServers);
+	contextFromEnv().mcpServers.should.equal([
+		McpServer("tools", McpTransport.http, "", null, "https://tools-mcp/mcp", "tools-mcp-auth"),
+	]);
 }
 
 /// Provision the agent's environment: install any missing prerequisites, then run
