@@ -51,6 +51,9 @@ Without `upload`, the file's contents ride the event (`content`). With it, the s
 file's bytes to a URL and the event carries only its size and digest — for artifacts past the inline
 cap, or that should never pass through the event stream and `status.output`.
 
+Every upload also carries `X-Agent-Exit-Code`, the agent's exit code: the file is read after the
+agent exits, whatever the outcome, so a receiver can tell a failed run's file from a result.
+
 | Field | Type | Notes |
 | --- | --- | --- |
 | `url` | string | *Required.* Where the bytes are POSTed (`Content-Type: application/octet-stream`). `{agent}` expands to the run's Agent name and `{event}` to the watch's event name, each URL-encoded — a watch is declared once per recipe, while its destination is usually per run. |
