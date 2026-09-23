@@ -11,7 +11,6 @@ import vibe.core.process : pipeProcess, Redirect, ProcessPipes;
 import vibe.stream.operations : readLine;
 
 import std.conv : to;
-import std.functional : toDelegate;
 import std.process : environment;
 
 import agentcore.vendors.select : agentForModel;
@@ -192,7 +191,7 @@ int supervise(string[] agentArgv)
 	// treats agent/succeeded|failed as end-of-stream must still receive them. The agent
 	// has exited and the workspace volume is still mounted, so this is the only point
 	// where a file it produced can be read at all (#188).
-	emitWatchedFiles(sinks, source);
+	emitWatchedFiles(sinks, source, code);
 	// Save this run's conversation so a later round can continue it. Before the
 	// terminal event for the same reason as the artifacts: a consumer that stops
 	// there must not miss it, and the state dir only exists while this pod does.
@@ -217,7 +216,7 @@ int supervise(string[] agentArgv)
 /// event carrying the reason, so a consumer hears "the agent produced nothing" instead
 /// of waiting forever. Never throws — it runs on the terminal path, where an exception
 /// would cost the exit event too.
-private void emitWatchedFiles(const OutputSink[] sinks, in EventSource source) nothrow
+private void emitWatchedFiles(const OutputSink[] sinks, in EventSource source, int exitCode) nothrow
 {
 	try
 	{
@@ -227,7 +226,8 @@ private void emitWatchedFiles(const OutputSink[] sinks, in EventSource source) n
 		foreach (watch; parseWatches(environment.get(envWatch, "")))
 		{
 			const ev = watch.upload.url.length
-				? uploadWatched(watch, workspace, agent, uploadCap, toDelegate(&postUpload))
+				? uploadWatched(watch, workspace, agent, uploadCap,
+					(url, body_, secret) => postUpload(url, body_, secret, exitCode))
 				: readWatched(watch, workspace);
 			if (!ev.isNull)
 				emit(sinks, source, ev.get.toJson);

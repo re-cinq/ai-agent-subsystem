@@ -144,34 +144,51 @@ unittest
 	uploadAttemptFor(503).should.equal(UploadAttempt.retry);
 }
 
+unittest
+{
+	// The secret's block rides unchanged, and the exit code follows it on its own line.
+	headerLines(uploadHeaders("Authorization: Bearer t", 42))
+		.should.equal(["Authorization: Bearer t", "X-Agent-Exit-Code: 42"]);
+	headerLines(uploadHeaders("", 0)).should.equal(["X-Agent-Exit-Code: 0"]);
+}
+
+/// The header block an upload is sent with: the one its `headers_secret` resolves to,
+/// plus the agent's exit code, so a receiver can tell a failed run's file from a result.
+string uploadHeaders(string secretBlock, int exitCode) @safe nothrow
+{
+	return secretBlock ~ "\nX-Agent-Exit-Code: " ~ exitCode.to!string;
+}
+
 /// Longer than a sink's: the receiver may be mid-rollout, when a connection can reach a
 /// replica that is shutting down for a few seconds, and a lost upload costs the run
 /// its artifact rather than one line of telemetry.
 private enum uploadRetry = RetryPolicy(5, 1000, 8000);
 
 /// POST one watched file's bytes to its upload url, with the header block its
-/// `headers_secret` names resolved the way a sink's is. True on a 2xx. A connection
-/// error or a transient status is retried with backoff; a refusal is not. A failure is
-/// logged by status only — never the body, which is the agent's artifact, nor the
-/// headers, which carry the credential — and the file event reports it.
-bool postUpload(string url, const(ubyte)[] body_, string headersSecret) nothrow
+/// `headers_secret` names resolved the way a sink's is, and the agent's `exitCode`.
+/// True on a 2xx. A connection error or a transient status is retried with backoff; a
+/// refusal is not. A failure is logged by status only — never the body, which is the
+/// agent's artifact, nor the headers, which carry the credential — and the file event
+/// reports it.
+bool postUpload(string url, const(ubyte)[] body_, string headersSecret, int exitCode) nothrow
 {
+	const headers = uploadHeaders(sinkHeaders(headersSecret), exitCode);
 	auto last = UploadAttempt.retry;
 	withRetry(uploadRetry, () {
-		last = uploadOnce(url, body_, headersSecret);
+		last = uploadOnce(url, body_, headers);
 		return last != UploadAttempt.retry;
 	}, ms => napMs(ms));
 	return last == UploadAttempt.delivered;
 }
 
-private UploadAttempt uploadOnce(string url, const(ubyte)[] body_, string headersSecret) nothrow
+private UploadAttempt uploadOnce(string url, const(ubyte)[] body_, string headers) nothrow
 {
 	try
 	{
 		auto attempt = UploadAttempt.retry;
 		requestHTTP(url, (scope HTTPClientRequest req) {
 			req.method = HTTPMethod.POST;
-			setHeaders(req, sinkHeaders(headersSecret));
+			setHeaders(req, headers);
 			req.writeBody(body_, "application/octet-stream");
 		}, (scope HTTPClientResponse res) {
 			attempt = uploadAttemptFor(res.statusCode);

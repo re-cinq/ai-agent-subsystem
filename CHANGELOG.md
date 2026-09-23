@@ -6,6 +6,12 @@ the npm package versions.
 
 ## Unreleased
 
+### Added
+- **An upload says how the agent exited.** A watched file's upload now carries
+  `X-Agent-Exit-Code` with the agent's exit code. The file is read after the agent
+  exits, whatever the outcome, so without it a receiver took a failed run's untouched
+  file for its result.
+
 ### Fixed
 - **A continued Gemini conversation runs instead of exiting 42.** The adapter passed the
   caller's conversation id to `--resume`, but gemini-cli only resumes a session id it
