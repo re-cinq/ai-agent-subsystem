@@ -60,4 +60,7 @@ interface McpSettings
 
 	/// The argv steps that hand `servers` to this vendor's CLI. Empty when there are none.
 	string[][] mcpSteps(in McpServer[] servers) const @safe;
+
+	/// Env the agent process needs to find what `mcpSteps` wrote.
+	string[string] mcpEnv() const @safe;
 }

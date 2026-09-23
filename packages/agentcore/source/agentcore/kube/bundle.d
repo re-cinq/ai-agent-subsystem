@@ -32,9 +32,11 @@ enum claudeConfigDir = "/agent/.claude";
 enum claudeSkillsDir = "/agent/.claude/skills";
 enum claudeSettingsPath = "/agent/.claude/settings.json";
 
-/// The run's user-scope Gemini CLI settings. gemini-cli reads its MCP servers from
-/// this file, not from its argv, so the init (McpTool) merges them in here.
-enum geminiSettingsPath = "/agent/.gemini/settings.json";
+/// Where the init (McpTool) writes a recipe's MCP servers for gemini-cli, which reads
+/// them from its settings rather than its argv. Deliberately outside `.gemini` — the
+/// user settings a hook bundle owns, and the directory a conversation snapshot saves
+/// and restores whole — so the file is the subsystem's alone and always this run's.
+enum geminiMcpSettingsPath = "/agent/.ai-agent/gemini-settings.json";
 
 version (unittest) import fluent.asserts;
 

@@ -34,13 +34,12 @@ Tool[] allTools(in InitContext ctx) @safe
 	// Then the registry's hook bundle for the vendor the model routes to, after
 	// skills so its vendor-native config wins over the flat settings.json.
 	tools ~= new HooksTool(setup.name);
-	// Last: restore a previous run's state into the vendor's own state dir, after the
+	// Then restore a previous run's state into the vendor's own state dir, after the
 	// CLI is installed (so the directory it owns exists) and after skills, which write
 	// elsewhere under the same $HOME.
 	tools ~= new ConversationTool;
-	// Then the recipe's MCP servers, for a vendor that reads them from its settings:
-	// merged into what the hook bundle wrote, and after the restore so a restored state
-	// directory cannot overwrite them.
+	// Last, the recipe's MCP servers for a vendor that reads them from a settings file:
+	// written to a file of the subsystem's own, after everything else under $HOME.
 	tools ~= new McpTool(setup);
 	return tools;
 }
@@ -60,8 +59,7 @@ version (unittest) import fluent.asserts;
 	tools[4].name.should.equal("skills");
 	tools[5].name.should.equal("hooks");
 	tools[6].name.should.equal("conversation");
-	// Last, after the hook bundle it merges into and after the restore, whose state
-	// directory would otherwise overwrite what it wrote.
+	// Last: the MCP settings the agent CLI reads when it starts.
 	tools[7].name.should.equal("mcp");
 
 	// The hook bundle is keyed to the same vendor the CLI install routes to.

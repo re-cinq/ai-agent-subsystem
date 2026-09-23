@@ -55,7 +55,7 @@ RUN set -eu; \
 	export DEBIAN_FRONTEND=noninteractive; \
 	apt-get update; \
 	apt-get install -y --no-install-recommends \
-		ca-certificates git curl coreutils jq libssl3; \
+		ca-certificates git curl coreutils libssl3; \
 	rm -rf /var/lib/apt/lists/*
 # The pinned, checksum-verified Claude CLI (the native glibc build: the Station
 # bases are glibc, as the supervisor already requires). Before the binaries below

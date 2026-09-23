@@ -2,6 +2,8 @@ module agentcore.tools.mcp_tool;
 
 import agentcore.crds.mcp_server : McpServer;
 import agentcore.tools.initcontext : InitContext;
+import agentcore.tools.tool : Tool;
+import agentcore.vendors.base.setup : AgentSetup, McpSettings;
 
 /// Parse the JSON array of MCP servers the controller serialized into
 /// `AGENT_MCP_SERVERS` — the CRD struct itself, so no field is dropped at this seam. A
@@ -21,8 +23,6 @@ McpServer[] parseMcpServers(string json)
 		return null;
 	return servers;
 }
-import agentcore.tools.tool : Tool;
-import agentcore.vendors.base.setup : AgentSetup, McpSettings;
 
 /// Hand the recipe's `mcp_servers` to a vendor CLI that reads them from a settings
 /// file rather than its argv.
@@ -42,7 +42,7 @@ final class McpTool : Tool
 
 	override string[] requires() const @safe
 	{
-		return ["sh", "jq"];
+		return ["sh"];
 	}
 
 	/// Only a vendor that implements `McpSettings` gets steps: one whose adapter passes
@@ -59,7 +59,7 @@ version (unittest)
 	import fluent.asserts;
 	import agentcore.crds.enums : McpTransport;
 	import agentcore.crds.mcp_server : McpServer;
-	import agentcore.kube.bundle : geminiSettingsPath;
+	import agentcore.kube.bundle : geminiMcpSettingsPath;
 	import agentcore.vendors.select : agentSetupForModel;
 
 	private InitContext withServers(string model)
@@ -83,7 +83,7 @@ unittest
 	// A Gemini run gets the step that writes its servers into gemini-cli's settings.
 	const steps = stepsFor(withServers("gemini-3.1-pro-preview"));
 	steps.length.should.equal(1);
-	steps[0][$ - 1].should.equal(geminiSettingsPath);
+	steps[0][$ - 1].should.equal(geminiMcpSettingsPath);
 }
 
 unittest
@@ -94,4 +94,11 @@ unittest
 	InitContext none;
 	none.model = "gemini-3.1-pro-preview";
 	stepsFor(none).length.should.equal(0);
+}
+
+@safe unittest
+{
+	// The step only creates a directory and writes a file: a plain shell is all it needs,
+	// so a custom init image is never sent to its package manager for it.
+	(new McpTool(agentSetupForModel("gemini-3.1-pro-preview"))).requires.should.equal(["sh"]);
 }

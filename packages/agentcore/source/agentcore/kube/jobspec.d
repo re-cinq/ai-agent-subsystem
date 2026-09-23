@@ -17,7 +17,8 @@ import agentcore.crds.input_file : InputFile;
 import agentcore.crds.mcp_server : headerEnvName;
 import agentcore.crds.station : Station;
 import agentcore.crds.serialization : toJson;
-import agentcore.vendors.select : agentForModel;
+import agentcore.vendors.select : agentForModel, agentSetupForModel;
+import agentcore.vendors.base.setup : McpSettings;
 import agentcore.vendors.base.agent : ConversationArgs;
 import agentcore.kube.bundle : bundleRoot, supervisorPath;
 import agentcore.core.env;
@@ -537,7 +538,13 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 	// init writes (gemini-cli has no MCP flag). Names and URLs only: the credential is
 	// the env var above, which the CLI expands when it loads the file.
 	if (recipe.resources.mcpServers.length)
+	{
 		strVar(envMcpServers, toJson(recipe.resources.mcpServers).toString());
+		// And whatever that vendor's CLI needs in order to find the file the init wrote.
+		if (auto settings = cast(const McpSettings) agentSetupForModel(recipe.model))
+			foreach (name, value; settings.mcpEnv)
+				strVar(name, value);
+	}
 	strVar(envRepos, reposJson(recipe.resources.repos));
 	// The recipe's skill names + registry URL — the init fetches each named skill and
 	// the settings from `<skillsSource>/...` into $HOME/.claude so headless claude
@@ -1387,6 +1394,32 @@ unittest
 	servers.length.should.equal(1);
 	fromJson!McpServer(servers[0]).should.equal(tools);
 	isReservedEnvName("AGENT_MCP_SERVERS").should.equal(true);
+}
+
+unittest
+{
+	// A vendor that reads MCP servers from a settings file the init writes names the env
+	// its CLI needs to find that file; the agent container carries it only for that
+	// vendor, and only when the recipe declares servers.
+	import agentcore.crds.mcp_server : McpServer;
+	import agentcore.crds.enums : McpTransport;
+	import agentcore.kube.bundle : geminiMcpSettingsPath;
+
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.resources.mcpServers = [
+		McpServer("tools", McpTransport.http, "", null, "https://tools-mcp/mcp", "tools-mcp-auth"),
+	];
+
+	definition.spec.model = "gemini-3.1-pro-preview";
+	envValue(agentContainer(buildJob(agent, station, definition, "img")),
+		"GEMINI_CLI_SYSTEM_SETTINGS_PATH").should.equal(geminiMcpSettingsPath);
+
+	definition.spec.model = "claude-sonnet-4-6";
+	envValue(agentContainer(buildJob(agent, station, definition, "img")),
+		"GEMINI_CLI_SYSTEM_SETTINGS_PATH").should.equal("");
 }
 
 unittest
