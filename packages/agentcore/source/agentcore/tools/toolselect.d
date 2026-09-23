@@ -6,6 +6,7 @@ import agentcore.tools.initcontext : InitContext;
 import agentcore.tools.conversation_tool : ConversationTool;
 import agentcore.tools.files_tool : FilesTool;
 import agentcore.tools.hooks_tool : HooksTool;
+import agentcore.tools.mcp_tool : McpTool;
 import agentcore.tools.skills_tool : SkillsTool;
 import agentcore.tools.supervisor_tool : SupervisorTool;
 import agentcore.tools.tool : Tool;
@@ -37,6 +38,10 @@ Tool[] allTools(in InitContext ctx) @safe
 	// CLI is installed (so the directory it owns exists) and after skills, which write
 	// elsewhere under the same $HOME.
 	tools ~= new ConversationTool;
+	// Then the recipe's MCP servers, for a vendor that reads them from its settings:
+	// merged into what the hook bundle wrote, and after the restore so a restored state
+	// directory cannot overwrite them.
+	tools ~= new McpTool(setup);
 	return tools;
 }
 
@@ -47,7 +52,7 @@ version (unittest) import fluent.asserts;
 	InitContext ctx;
 	ctx.model = "claude-sonnet-4-6";
 	auto tools = allTools(ctx);
-	tools.length.should.equal(7);
+	tools.length.should.equal(8);
 	tools[0].name.should.equal("supervisor");
 	tools[1].name.should.equal("git");
 	tools[2].name.should.equal("files");
@@ -55,6 +60,9 @@ version (unittest) import fluent.asserts;
 	tools[4].name.should.equal("skills");
 	tools[5].name.should.equal("hooks");
 	tools[6].name.should.equal("conversation");
+	// Last, after the hook bundle it merges into and after the restore, whose state
+	// directory would otherwise overwrite what it wrote.
+	tools[7].name.should.equal("mcp");
 
 	// The hook bundle is keyed to the same vendor the CLI install routes to.
 	import std.algorithm.searching : canFind;

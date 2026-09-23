@@ -1,6 +1,7 @@
 module agentcore.tools.initcontext;
 
 import agentcore.crds.input_file : InputFile;
+import agentcore.crds.mcp_server : McpServer;
 import agentcore.crds.repo_ref : RepoRef;
 
 /// What the init container provisions, built from the env the controller injects
@@ -44,4 +45,7 @@ struct InitContext
 	/// getenv for the same reason as `conversationAuth`. Empty for a file without
 	/// `headers_secret`.
 	string[] fileHeaders;
+	/// The recipe's `mcp_servers` (`AGENT_MCP_SERVERS`), for a vendor whose CLI reads
+	/// them from a settings file the init has to write. Carries secret NAMES only.
+	McpServer[] mcpServers;
 }
