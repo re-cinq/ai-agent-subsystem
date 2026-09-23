@@ -6,6 +6,21 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+- **A Gemini run's MCP servers reach the CLI.** v0.11.2 wrote them to a file named by
+  `GEMINI_CLI_SYSTEM_SETTINGS_PATH`, and gemini-cli refused it: its system scope must
+  live in a root-owned directory, which the uid-1000 pod cannot arrange, so every
+  Gemini run logged `Security Warning: Skipping system settings file` and started with
+  no tools (#245). The init now merges `mcpServers` into the CLI's user settings,
+  `/agent/.gemini/settings.json`, which is read without that check, by re-entering its
+  own binary (`ai-agent-init mcp-settings <file> <servers>`: the slim init image has no
+  jq, node or python). Every other key in the file survives, so a hook bundle's hooks and
+  what the CLI persisted stay; `mcpServers` is replaced whole on every Gemini run, an
+  empty object when the recipe declares none, so a server restored with a continued
+  conversation never outlives its secret. The agent container no longer carries
+  `GEMINI_CLI_SYSTEM_SETTINGS_PATH`, and a Station image's own `/etc/gemini-cli/settings.json`
+  is loaded again.
+
 ## v0.11.2
 
 ### Fixed

@@ -58,9 +58,7 @@ interface McpSettings
 {
 	import agentcore.crds.mcp_server : McpServer;
 
-	/// The argv steps that hand `servers` to this vendor's CLI. Empty when there are none.
+	/// The argv steps that hand `servers` to this vendor's CLI — also when there are
+	/// none, if a server left behind by a previous run would otherwise be read.
 	string[][] mcpSteps(in McpServer[] servers) const @safe;
-
-	/// Env the agent process needs to find what `mcpSteps` wrote.
-	string[string] mcpEnv() const @safe;
 }
