@@ -6,6 +6,15 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+- **A continued Gemini conversation runs instead of exiting 42.** The adapter passed the
+  caller's conversation id to `--resume`, but gemini-cli only resumes a session id it
+  issued itself, and it has no pin flag that combines with `--resume`. So every
+  continued Gemini run exited with `FATAL_INPUT_ERROR` (42) before its first turn, with
+  nothing on the transcript. It now resumes `latest`: the restored `.gemini` holds only
+  the conversation being continued, and when nothing was restored `latest` starts
+  fresh with a warning, which keeps the restore best-effort.
+
 ## v0.11.3
 
 ### Fixed
