@@ -58,9 +58,9 @@ string mergeMcpSettings(string existing, string mcpServersJson) @safe
 	try
 		settings = parseJSON(existing);
 	catch (Exception)
-		settings = JSONValue.emptyObject;
+		settings = parseJSON("{}");
 	if (settings.type != JSONType.object)
-		settings = JSONValue.emptyObject;
+		settings = parseJSON("{}");
 	settings["mcpServers"] = parseJSON(mcpServersJson);
 	return settings.toString(JSONOptions.doNotEscapeSlashes);
 }
