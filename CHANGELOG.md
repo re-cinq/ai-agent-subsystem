@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.11.2
+
 ### Fixed
 - **A Gemini run gets the recipe's MCP servers.** `resources.mcp_servers` reached
   only the Claude adapter, which renders them into `--mcp-config`; gemini-cli has no
