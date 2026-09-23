@@ -6,6 +6,7 @@ import agentcore.tools.initcontext : InitContext;
 import agentcore.tools.conversation_tool : ConversationTool;
 import agentcore.tools.files_tool : FilesTool;
 import agentcore.tools.hooks_tool : HooksTool;
+import agentcore.tools.mcp_tool : McpTool;
 import agentcore.tools.skills_tool : SkillsTool;
 import agentcore.tools.supervisor_tool : SupervisorTool;
 import agentcore.tools.tool : Tool;
@@ -33,10 +34,13 @@ Tool[] allTools(in InitContext ctx) @safe
 	// Then the registry's hook bundle for the vendor the model routes to, after
 	// skills so its vendor-native config wins over the flat settings.json.
 	tools ~= new HooksTool(setup.name);
-	// Last: restore a previous run's state into the vendor's own state dir, after the
+	// Then restore a previous run's state into the vendor's own state dir, after the
 	// CLI is installed (so the directory it owns exists) and after skills, which write
 	// elsewhere under the same $HOME.
 	tools ~= new ConversationTool;
+	// Last, the recipe's MCP servers for a vendor that reads them from a settings file:
+	// written to a file of the subsystem's own, after everything else under $HOME.
+	tools ~= new McpTool(setup);
 	return tools;
 }
 
@@ -47,7 +51,7 @@ version (unittest) import fluent.asserts;
 	InitContext ctx;
 	ctx.model = "claude-sonnet-4-6";
 	auto tools = allTools(ctx);
-	tools.length.should.equal(7);
+	tools.length.should.equal(8);
 	tools[0].name.should.equal("supervisor");
 	tools[1].name.should.equal("git");
 	tools[2].name.should.equal("files");
@@ -55,6 +59,8 @@ version (unittest) import fluent.asserts;
 	tools[4].name.should.equal("skills");
 	tools[5].name.should.equal("hooks");
 	tools[6].name.should.equal("conversation");
+	// Last: the MCP settings the agent CLI reads when it starts.
+	tools[7].name.should.equal("mcp");
 
 	// The hook bundle is keyed to the same vendor the CLI install routes to.
 	import std.algorithm.searching : canFind;

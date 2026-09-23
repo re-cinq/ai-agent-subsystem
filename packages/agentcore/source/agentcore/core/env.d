@@ -36,6 +36,10 @@ enum envFiles = "AGENT_FILES";
 /// under (`AGENT_FILE_HEADERS_0`, ...), for the same reason as envConversationAuthValue:
 /// the secret key a `headers_secret` names may not be a valid shell identifier.
 enum envFileHeadersPrefix = "AGENT_FILE_HEADERS_";
+// JSON array of the recipe's `mcp_servers`, for the init to write into the settings
+// of a vendor whose CLI takes no MCP flag. Secret NAMES only: the credential a
+// `headers_secret` names is injected on its own and expanded by the CLI at load.
+enum envMcpServers = "AGENT_MCP_SERVERS";
 // Cap on the bytes the supervisor uploads for one `output.watch` entry with `upload`.
 // Far above the inline cap, because the bytes never ride the event stream; still
 // bounded, because the supervisor reads the file into memory to hash and send it.
