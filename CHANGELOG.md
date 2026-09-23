@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.11.3
+
 ### Fixed
 - **A Gemini run's MCP servers reach the CLI.** v0.11.2 wrote them to a file named by
   `GEMINI_CLI_SYSTEM_SETTINGS_PATH`, and gemini-cli refused it: its system scope must
