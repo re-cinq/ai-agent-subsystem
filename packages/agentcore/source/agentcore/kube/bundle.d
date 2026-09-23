@@ -32,6 +32,10 @@ enum claudeConfigDir = "/agent/.claude";
 enum claudeSkillsDir = "/agent/.claude/skills";
 enum claudeSettingsPath = "/agent/.claude/settings.json";
 
+/// The run's user-scope Gemini CLI settings. gemini-cli reads its MCP servers from
+/// this file, not from its argv, so the init (McpTool) merges them in here.
+enum geminiSettingsPath = "/agent/.gemini/settings.json";
+
 version (unittest) import fluent.asserts;
 
 @safe unittest

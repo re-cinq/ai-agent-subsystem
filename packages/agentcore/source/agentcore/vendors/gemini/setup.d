@@ -1,6 +1,9 @@
 module agentcore.vendors.gemini.setup;
 
-import agentcore.vendors.base.setup : AgentSetup;
+import agentcore.crds.mcp_server : McpServer;
+import agentcore.kube.bundle : geminiSettingsPath;
+import agentcore.vendors.base.setup : AgentSetup, McpSettings;
+import agentcore.vendors.gemini.mcp : geminiMcpServersJson;
 
 /// Install the Gemini CLI from its npm tarball, without npm. Gemini ships no
 /// curl installer — the URL v0.10.8 used (dl.google.com/gemini/install.sh)
@@ -14,8 +17,25 @@ import agentcore.vendors.base.setup : AgentSetup;
 /// the container that actually has node — gemini-cli needs node >= 20 there
 /// regardless of how it is installed. Guarded by `command -v` so a pre-baked
 /// CLI or an init-container retry is a no-op.
-final class GeminiSetup : AgentSetup
+final class GeminiSetup : AgentSetup, McpSettings
 {
+	/// gemini-cli has no flag for MCP servers; it reads them from `mcpServers` in its
+	/// settings. A registry hook bundle may already have written that file, so the
+	/// servers are merged in with jq rather than written over it. `$1` is the rendered
+	/// servers and `$2` the file: nothing from the recipe enters the script text.
+	override string[][] mcpSteps(in McpServer[] servers) const @safe
+	{
+		if (!servers.length)
+			return [];
+		return [[
+			"sh", "-c",
+			`mkdir -p "$(dirname "$2")" && { [ -s "$2" ] || printf '{}' > "$2"; }`
+				~ ` && jq --argjson servers "$1" '.mcpServers = ((.mcpServers // {}) + $servers)'`
+				~ ` "$2" > "$2.tmp" && mv "$2.tmp" "$2"`,
+			"sh", geminiMcpServersJson(servers), geminiSettingsPath,
+		]];
+	}
+
 	override string name() const @safe
 	{
 		return "gemini";
@@ -61,4 +81,68 @@ version (unittest) import std.algorithm.searching : canFind;
 	steps[0][4].canFind("tar -xz").should.equal(true);
 	steps[0][4].canFind("bundle/gemini.js").should.equal(true);
 	steps[0][4].canFind("command -v gemini").should.equal(true);
+}
+
+version (unittest)
+{
+	import std.file : exists, mkdirRecurse, readText, rmdirRecurse, tempDir, write;
+	import std.json : parseJSON;
+	import std.path : buildPath;
+	import std.process : execute;
+	import agentcore.crds.enums : McpTransport;
+
+	private const McpServer[] tools = [
+		McpServer("tools", McpTransport.http, "", null, "https://tools-mcp/mcp", "tools-mcp-auth"),
+	];
+
+	/// Run `step` as the init would, but against `path` instead of the bundle's file.
+	private void runAgainst(const string[] step, string path)
+	{
+		const ran = execute(step[0 .. $ - 1] ~ path);
+		ran.status.should.equal(0);
+	}
+}
+
+@safe unittest
+{
+	// One step, the servers riding a positional argument and never the script text, so
+	// nothing from the recipe is spliced into shell. No servers, no step.
+	const steps = (new GeminiSetup).mcpSteps(tools);
+	steps.length.should.equal(1);
+	steps[0][0 .. 2].should.equal(["sh", "-c"]);
+	steps[0][2].canFind("tools-mcp").should.equal(false);
+	steps[0][$ - 2].canFind("https://tools-mcp/mcp").should.equal(true);
+	steps[0][$ - 1].should.equal(geminiSettingsPath);
+	(new GeminiSetup).mcpSteps([]).length.should.equal(0);
+}
+
+unittest
+{
+	// The step merges into whatever the registry's hook bundle already put in the file:
+	// its hooks and its own MCP servers survive, the recipe's servers are added, and
+	// the credential is the `${NAME}` reference gemini-cli expands, never a value.
+	const dir = buildPath(tempDir, "ai-agent-gemini-mcp-merge");
+	scope (exit) if (dir.exists) rmdirRecurse(dir);
+	mkdirRecurse(dir);
+	const path = buildPath(dir, "settings.json");
+	write(path, `{"hooks":{"BeforeTool":[]},"mcpServers":{"org":{"url":"https://org/sse"}}}`);
+
+	runAgainst((new GeminiSetup).mcpSteps(tools)[0], path);
+
+	auto settings = parseJSON(readText(path));
+	settings["hooks"].toString.should.equal(`{"BeforeTool":[]}`);
+	settings["mcpServers"]["org"]["url"].str.should.equal("https://org/sse");
+	settings["mcpServers"]["tools"]["headers"]["Authorization"].str.should.equal("${TOOLS_MCP_AUTH}");
+}
+
+unittest
+{
+	// A run with no hook bundle has neither the directory nor the file yet.
+	const dir = buildPath(tempDir, "ai-agent-gemini-mcp-fresh");
+	scope (exit) if (dir.exists) rmdirRecurse(dir);
+	const path = buildPath(dir, ".gemini", "settings.json");
+
+	runAgainst((new GeminiSetup).mcpSteps(tools)[0], path);
+
+	parseJSON(readText(path))["mcpServers"]["tools"]["httpUrl"].str.should.equal("https://tools-mcp/mcp");
 }

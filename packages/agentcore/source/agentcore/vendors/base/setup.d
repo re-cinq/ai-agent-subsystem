@@ -49,3 +49,15 @@ interface CliReport
 	/// The argv that prints the installed CLI's version.
 	string[] versionCommand() const @safe;
 }
+
+/// An `AgentSetup` whose CLI reads a recipe's `mcp_servers` from a settings file
+/// rather than its argv, so the init has to write them there before the agent starts.
+/// Optional: a vendor whose adapter passes them on the command line (Claude's
+/// `--mcp-config`) does not implement it.
+interface McpSettings
+{
+	import agentcore.crds.mcp_server : McpServer;
+
+	/// The argv steps that hand `servers` to this vendor's CLI. Empty when there are none.
+	string[][] mcpSteps(in McpServer[] servers) const @safe;
+}
