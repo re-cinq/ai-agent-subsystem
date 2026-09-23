@@ -18,7 +18,6 @@ import agentcore.crds.mcp_server : headerEnvName;
 import agentcore.crds.station : Station;
 import agentcore.crds.serialization : toJson;
 import agentcore.vendors.select : agentForModel, agentSetupForModel;
-import agentcore.vendors.base.setup : McpSettings;
 import agentcore.vendors.base.agent : ConversationArgs;
 import agentcore.kube.bundle : bundleRoot, supervisorPath;
 import agentcore.core.env;
@@ -537,20 +536,8 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 	// The servers themselves, for a vendor whose CLI reads them from a settings file the
 	// init writes (gemini-cli has no MCP flag). Names and URLs only: the credential is
 	// the env var above, which the CLI expands when it loads the file.
-	// Names this run's MCP settings own; a recipe env var or secret reusing one is
-	// dropped below like a reserved name, or it would win last-wins in the kubelet.
-	bool[string] mcpOwned;
 	if (recipe.resources.mcpServers.length)
-	{
 		strVar(envMcpServers, toJson(recipe.resources.mcpServers).toString());
-		// And whatever that vendor's CLI needs in order to find the file the init wrote.
-		if (auto settings = cast(const McpSettings) agentSetupForModel(recipe.model))
-			foreach (name, value; settings.mcpEnv)
-			{
-				strVar(name, value);
-				mcpOwned[name] = true;
-			}
-	}
 	strVar(envRepos, reposJson(recipe.resources.repos));
 	// The recipe's skill names + registry URL — the init fetches each named skill and
 	// the settings from `<skillsSource>/...` into $HOME/.claude so headless claude
@@ -646,11 +633,10 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 	// output (AGENT_SINKS), spoofing run identity (AGENT_NAME), or breaking the workspace.
 	// Skip any such collision so the controller's value always wins.
 	foreach (variable; recipe.resources.env)
-		if (!isReservedEnvName(variable.name) && variable.name !in mcpOwned)
+		if (!isReservedEnvName(variable.name))
 			strVar(variable.name, variable.value);
 	foreach (secret; recipe.resources.secrets)
-		if (!isReservedEnvName(secret.name) && secret.name !in secretsInjected
-			&& secret.name !in mcpOwned)
+		if (!isReservedEnvName(secret.name) && secret.name !in secretsInjected)
 		{
 			secretVar(secret.name, secret.ref_);
 			secretsInjected[secret.name] = true;
@@ -1416,57 +1402,29 @@ unittest
 
 unittest
 {
-	// A vendor that reads MCP servers from a settings file the init writes names the env
-	// its CLI needs to find that file; the agent container carries it only for that
-	// vendor, and only when the recipe declares servers.
-	import agentcore.crds.mcp_server : McpServer;
-	import agentcore.crds.enums : McpTransport;
-	import agentcore.kube.bundle : geminiMcpSettingsPath;
-
-	Agent agent;
-	Station station;
-	AgentDefinition definition;
-	fixtures(agent, station, definition);
-	definition.spec.resources.mcpServers = [
-		McpServer("tools", McpTransport.http, "", null, "https://tools-mcp/mcp", "tools-mcp-auth"),
-	];
-
-	definition.spec.model = "gemini-3.1-pro-preview";
-	envValue(agentContainer(buildJob(agent, station, definition, "img")),
-		"GEMINI_CLI_SYSTEM_SETTINGS_PATH").should.equal(geminiMcpSettingsPath);
-
-	definition.spec.model = "claude-sonnet-4-6";
-	envValue(agentContainer(buildJob(agent, station, definition, "img")),
-		"GEMINI_CLI_SYSTEM_SETTINGS_PATH").should.equal("");
-}
-
-unittest
-{
-	// The env a vendor needs to find its MCP settings is the controller's for that run:
-	// a recipe env var of the same name would win last-wins in the kubelet and point the
-	// CLI away from the file the init wrote, so the recipe's entry is dropped. A recipe
-	// without servers keeps its own value.
+	// gemini-cli finds the file the init merged into on its own (its user settings under
+	// $HOME): the container carries no `GEMINI_CLI_SYSTEM_SETTINGS_PATH`, which v0.11.2
+	// set and the CLI refused for a directory uid 1000 owns. A recipe env var of that
+	// name is the recipe's business.
 	import agentcore.crds.mcp_server : McpServer;
 	import agentcore.crds.enums : McpTransport;
 	import agentcore.crds.env_var : EnvVar;
-	import agentcore.kube.bundle : geminiMcpSettingsPath;
 
 	Agent agent;
 	Station station;
 	AgentDefinition definition;
 	fixtures(agent, station, definition);
 	definition.spec.model = "gemini-3.1-pro-preview";
-	definition.spec.resources.env = [EnvVar("GEMINI_CLI_SYSTEM_SETTINGS_PATH", "/x")];
 	definition.spec.resources.mcpServers = [
 		McpServer("tools", McpTransport.http, "", null, "https://tools-mcp/mcp", "tools-mcp-auth"),
 	];
 
-	const withServers = agentContainer(buildJob(agent, station, definition, "img"));
-	envValues(withServers, "GEMINI_CLI_SYSTEM_SETTINGS_PATH").should.equal([geminiMcpSettingsPath]);
+	envValues(agentContainer(buildJob(agent, station, definition, "img")),
+		"GEMINI_CLI_SYSTEM_SETTINGS_PATH").length.should.equal(0);
 
-	definition.spec.resources.mcpServers = null;
-	const without = agentContainer(buildJob(agent, station, definition, "img"));
-	envValues(without, "GEMINI_CLI_SYSTEM_SETTINGS_PATH").should.equal(["/x"]);
+	definition.spec.resources.env = [EnvVar("GEMINI_CLI_SYSTEM_SETTINGS_PATH", "/x")];
+	envValues(agentContainer(buildJob(agent, station, definition, "img")),
+		"GEMINI_CLI_SYSTEM_SETTINGS_PATH").should.equal(["/x"]);
 }
 
 unittest

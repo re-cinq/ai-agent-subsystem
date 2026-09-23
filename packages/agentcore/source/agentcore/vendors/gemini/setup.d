@@ -1,7 +1,7 @@
 module agentcore.vendors.gemini.setup;
 
 import agentcore.crds.mcp_server : McpServer;
-import agentcore.kube.bundle : geminiMcpSettingsPath;
+import agentcore.kube.bundle : geminiMcpSettingsPath, initializerPath;
 import agentcore.vendors.base.setup : AgentSetup, McpSettings;
 import agentcore.vendors.gemini.mcp : geminiMcpServersJson;
 
@@ -20,25 +20,17 @@ import agentcore.vendors.gemini.mcp : geminiMcpServersJson;
 final class GeminiSetup : AgentSetup, McpSettings
 {
 	/// gemini-cli has no flag for MCP servers; it reads them from `mcpServers` in its
-	/// settings. They go into a file of the subsystem's own, written whole each run, and
-	/// gemini-cli is pointed at it as its system scope (`mcpEnv`), which it merges by
-	/// server name over the user scope a hook bundle owns — so nothing is parsed or
-	/// merged here, and nothing a previous run or a restore left behind survives. `$1`
-	/// is the settings document and `$2` the file: nothing from the recipe enters the
+	/// settings. The init re-enters its own binary to merge this run's servers into the
+	/// CLI's user settings file (`initializerPath mcp-settings <file> <servers>`): the
+	/// system scope v0.11.2 used is refused for a directory uid 1000 owns, and the
+	/// slim init image has nothing that can merge JSON in a shell. Emitted for every
+	/// Gemini run, servers or none: a continued conversation restores `.gemini` whole,
+	/// so an empty `mcpServers` is how a server from a previous run stops being read
+	/// with a secret nothing injects any more. The servers ride an argument, never a
 	/// script text.
 	override string[][] mcpSteps(in McpServer[] servers) const @safe
 	{
-		if (!servers.length)
-			return [];
-		return [[
-			"sh", "-c", `mkdir -p "$(dirname "$2")" && printf '%s' "$1" > "$2"`,
-			"sh", `{"mcpServers":` ~ geminiMcpServersJson(servers) ~ `}`, geminiMcpSettingsPath,
-		]];
-	}
-
-	override string[string] mcpEnv() const @safe
-	{
-		return ["GEMINI_CLI_SYSTEM_SETTINGS_PATH": geminiMcpSettingsPath];
+		return [[initializerPath, "mcp-settings", geminiMcpSettingsPath, geminiMcpServersJson(servers)]];
 	}
 
 	override string name() const @safe
@@ -90,74 +82,33 @@ version (unittest) import std.algorithm.searching : canFind;
 
 version (unittest)
 {
-	import std.algorithm.searching : startsWith;
-	import std.file : exists, mkdirRecurse, readText, rmdirRecurse, tempDir, write;
 	import std.json : parseJSON;
-	import std.path : buildPath;
-	import std.process : execute;
 	import agentcore.crds.enums : McpTransport;
 
 	private const McpServer[] tools = [
 		McpServer("tools", McpTransport.http, "", null, "https://tools-mcp/mcp", "tools-mcp-auth"),
 	];
-
-	/// Run `step` as the init would, but against `path` instead of the bundle's file.
-	private void runAgainst(const string[] step, string path)
-	{
-		const ran = execute(step[0 .. $ - 1] ~ path);
-		ran.status.should.equal(0);
-	}
 }
 
 @safe unittest
 {
-	// One step writing a file the subsystem owns outright, outside `.gemini`: a hook
-	// bundle keeps the user settings to itself, and the conversation snapshot (which is
-	// `.gemini`) never carries it or restores an old one over it. The servers ride a
-	// positional argument, never the script text. No servers, no step.
+	// One step that re-enters the init binary against the CLI's user settings file:
+	// the one scope gemini-cli loads for a uid-1000 $HOME. The servers ride a
+	// positional argument as the `mcpServers` object, the credential as the `${NAME}`
+	// reference gemini-cli expands, never a value.
 	const steps = (new GeminiSetup).mcpSteps(tools);
 	steps.length.should.equal(1);
-	steps[0][0 .. 2].should.equal(["sh", "-c"]);
-	steps[0][2].canFind("tools-mcp").should.equal(false);
-	steps[0][$ - 1].should.equal(geminiMcpSettingsPath);
-	steps[0][$ - 1].startsWith("/agent/.gemini/").should.equal(false);
-	(new GeminiSetup).mcpSteps([]).length.should.equal(0);
-}
-
-@safe unittest
-{
-	// gemini-cli loads the file named by GEMINI_CLI_SYSTEM_SETTINGS_PATH as its highest
-	// scope and merges `mcpServers` by name with the user scope, so a bundle's own
-	// servers still reach the CLI beside the recipe's.
-	(new GeminiSetup).mcpEnv.should.equal(["GEMINI_CLI_SYSTEM_SETTINGS_PATH": geminiMcpSettingsPath]);
-}
-
-unittest
-{
-	// A fresh run has neither the directory nor the file; the step creates both, with
-	// the credential as the `${NAME}` reference gemini-cli expands, never a value.
-	const dir = buildPath(tempDir, "ai-agent-gemini-mcp-fresh");
-	scope (exit) if (dir.exists) rmdirRecurse(dir);
-	const path = buildPath(dir, "ai-agent", "gemini-settings.json");
-
-	runAgainst((new GeminiSetup).mcpSteps(tools)[0], path);
-
-	auto servers = parseJSON(readText(path))["mcpServers"];
+	steps[0][0 .. 3].should.equal([initializerPath, "mcp-settings", "/agent/.gemini/settings.json"]);
+	const servers = parseJSON(steps[0][3]);
 	servers["tools"]["httpUrl"].str.should.equal("https://tools-mcp/mcp");
 	servers["tools"]["headers"]["Authorization"].str.should.equal("${TOOLS_MCP_AUTH}");
 }
 
-unittest
+@safe unittest
 {
-	// The file is written whole, never merged: a server a previous recipe declared does
-	// not survive into this run with a secret nothing injects any more.
-	const dir = buildPath(tempDir, "ai-agent-gemini-mcp-stale");
-	scope (exit) if (dir.exists) rmdirRecurse(dir);
-	mkdirRecurse(dir);
-	const path = buildPath(dir, "gemini-settings.json");
-	write(path, `{"mcpServers":{"gone":{"httpUrl":"https://gone/mcp"}}}`);
-
-	runAgainst((new GeminiSetup).mcpSteps(tools)[0], path);
-
-	("gone" in parseJSON(readText(path))["mcpServers"].object).should.equal(null);
+	// No servers still writes: an empty object clears what a restored conversation
+	// brought back from a run that had some.
+	const steps = (new GeminiSetup).mcpSteps([]);
+	steps.length.should.equal(1);
+	steps[0][3].should.equal("{}");
 }
