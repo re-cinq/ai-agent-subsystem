@@ -119,6 +119,11 @@ outlasts a receiver's rollout; any other non-2xx is a refusal and is sent once, 
 get the same answer. The event reports what the last attempt came to, and the supervisor logs only
 the HTTP status — never the body or the header.
 
+Every upload carries **`X-Agent-Exit-Code`**, the agent process's exit code as decimal text (`0` on
+success). The watched file is read after the agent exits, whatever the outcome, so without that
+header a receiver cannot tell a finished result from whatever a failed run happened to leave on
+disk. It is sent on every attempt, alongside any headers `headers_secret` resolves to.
+
 Two guarantees a consumer can rely on:
 
 - **File events precede the terminal event.** They are raised before `agent`/`succeeded`\|`failed`, so a consumer that treats the terminal event as end-of-stream still receives them.

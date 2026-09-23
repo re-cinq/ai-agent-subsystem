@@ -207,6 +207,13 @@ which handles multi-file formats for free.
 | Google Gemini | `.gemini` | no — the CLI assigns its own id |
 | OpenCode, `exec` | — | no |
 
+Gemini resumes by position rather than by id: gemini-cli only accepts a session id it issued
+itself, and it has no pin flag to make the caller's id one, so `--resume <caller id>` exited
+`FATAL_INPUT_ERROR` (42) before the first turn. The adapter passes `--resume latest` instead. That
+is exact here because the restored archive holds only the conversation being continued, and when
+nothing was restored `latest` starts a fresh session with a warning — which keeps the restore
+best-effort rather than turning a missing archive into a failed run.
+
 `pin` is the id this run saves its *own* state as, which makes each run a **fork**: the run it
 continued is left intact and independently resumable, so a caller can go back to an earlier run
 rather than only ever the latest. A vendor whose CLI cannot accept a chosen id reports that by

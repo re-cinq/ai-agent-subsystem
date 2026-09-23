@@ -114,7 +114,9 @@ output:
 
 `{agent}` and `{event}` expand to the run's Agent name and the watch's event name, so one recipe
 serves every run. The body is `application/octet-stream`, and `headers_secret` names an
-`agent-secrets` key holding the header block, as for a sink. Uploads are capped at 64 MiB by
+`agent-secrets` key holding the header block, as for a sink. Each upload also carries
+`X-Agent-Exit-Code`, the agent's exit code — the file is read after the agent exits either way, so
+without it a receiver would store a failed run's leftovers as a result. Uploads are capped at 64 MiB by
 default (`MAX_UPLOAD_BYTES` in `resources.env` overrides it); past the cap the event reports
 `too-large`. An unreachable or failing receiver (408, 429, 5xx) is retried with backoff for about
 fifteen seconds, and an upload that is refused or never gets through reports `upload-failed`.
