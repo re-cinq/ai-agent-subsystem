@@ -51,8 +51,14 @@ final class GeminiAgent : Agent
 		if (recipe.permissionMode == PermissionMode.bypass)
 			cmd ~= "--yolo";
 
+		// The CLI resumes only a session id it issued itself, and an unknown one is
+		// a fatal input error (exit 42, before the first turn) — the caller's id never
+		// is one, since there is no pin. The restored state holds just the
+		// conversation being continued, so `latest` names it; and with nothing
+		// restored, `latest` starts fresh with a warning, keeping the restore
+		// best-effort.
 		if (conv.resume.length)
-			cmd ~= ["--resume", conv.resume];
+			cmd ~= ["--resume", "latest"];
 
 		return cmd;
 	}
@@ -88,7 +94,9 @@ version (unittest) import fluent.asserts;
 @safe unittest
 {
 	AgentDefinitionSpec recipe;
+	// The caller's id is not one the CLI issued, so resuming by it exits 42 before
+	// the first turn; the restored state holds only the conversation being continued.
 	const cmd = (new GeminiAgent).command(recipe, "Task", ConversationArgs("sess-xyz", ""));
-	cmd.should.contain("--resume");
-	cmd.should.contain("sess-xyz");
+	cmd[$ - 2 .. $].should.equal(["--resume", "latest"]);
+	cmd.should.not.contain("sess-xyz");
 }
