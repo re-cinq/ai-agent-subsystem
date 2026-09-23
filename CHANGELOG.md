@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.11.4
+
 ### Added
 - **An upload says how the agent exited.** A watched file's upload now carries
   `X-Agent-Exit-Code` with the agent's exit code. The file is read after the agent
