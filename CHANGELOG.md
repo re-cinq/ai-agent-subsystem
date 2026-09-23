@@ -6,6 +6,17 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+- **A Gemini run gets the recipe's MCP servers.** `resources.mcp_servers` reached
+  only the Claude adapter, which renders them into `--mcp-config`; gemini-cli has no
+  such flag, so a Gemini run started with no MCP tools at all while the same recipe on
+  Claude had them. The controller now also passes the servers to the init as
+  `AGENT_MCP_SERVERS` (names and URLs only), and a new `mcp` init tool merges them
+  into `$HOME/.gemini/settings.json` with `jq`, keeping anything a hook bundle wrote
+  there. The `Authorization` header is `${NAME}`, the variable the controller already
+  injects for Claude, which gemini-cli expands when it loads its settings: the token
+  never reaches disk. The agent image now ships `jq`.
+
 ## v0.11.1
 
 ### Fixed
