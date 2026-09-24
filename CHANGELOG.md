@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.11.5
+
 ### Fixed
 - **A clone GitHub refuses moments after the token was minted is tried again.** Fleet-wide,
   an init's broker-authenticated clone intermittently dies on `remote: Repository not
