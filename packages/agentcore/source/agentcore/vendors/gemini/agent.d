@@ -1,6 +1,7 @@
 module agentcore.vendors.gemini.agent;
 
 import agentcore.vendors.base.agent : Agent, ConversationArgs;
+import agentcore.core.env : defaultWorkspace;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 import agentcore.crds.enums : PermissionMode;
 
@@ -46,6 +47,16 @@ final class GeminiAgent : Agent
 			// the workspace is the recipe's own clone, in a container that
 			// exists only for this run.
 			"--skip-trust",
+			// gemini-cli confines its file tools to the directory it runs in — the
+			// repo clone — and refuses everything else: "Path not in workspace:
+			// Attempted path /workspace/plan.md resolves outside the allowed
+			// workspace directories". A run's INPUT FILES land beside that clone,
+			// in the workspace root (a planning pod's ../plan.md is the whole
+			// deliverable), so every read_file and write_file of one was refused
+			// and the agent fell back to shell heredocs. The workspace is this
+			// run's own volume, mounted at a reserved path, so declaring it costs
+			// no reach the agent's shell did not already have.
+			"--include-directories", defaultWorkspace,
 		];
 
 		if (recipe.permissionMode == PermissionMode.bypass)
@@ -81,6 +92,20 @@ version (unittest) import fluent.asserts;
 	cmd.should.not.contain("--yolo");
 	cmd.should.contain("--prompt");
 	cmd.should.contain("Refactor");
+}
+
+@safe unittest
+{
+	// A run's input files live in the workspace BESIDE the clone the CLI runs in
+	// (planning's ../plan.md), and gemini-cli's file tools refuse a path outside
+	// their roots — so the workspace itself is declared as one.
+	import std.algorithm.searching : countUntil;
+
+	const cmd = (new GeminiAgent).command(AgentDefinitionSpec.init, "Task");
+	const at = cmd.countUntil("--include-directories");
+
+	(at >= 0).should.equal(true);
+	cmd[at + 1].should.equal("/workspace");
 }
 
 @safe unittest
