@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.11.6
+
 ### Fixed
 - **A Gemini run can read and write the input files beside its clone.** gemini-cli
   confines its file tools to the directory it runs in, so every `read_file` /
