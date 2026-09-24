@@ -27,6 +27,7 @@ import agentcore.core.exec : findExecutable;
 import agentcore.tools.initcontext : InitContext;
 import agentcore.output.lifecycle : LifecycleEvent, Phase, Status, toJson;
 import agentcore.core.log : logError;
+import agentcore.output.retry : backoffMs, RetryPolicy, shouldRetry;
 import agentcore.crds.output_sink : OutputSink;
 import agentcore.output.output : sinksFromEnv;
 import agentcore.pkgmanager.packagemanager : packageFor;
@@ -36,7 +37,7 @@ import agentcore.tools.files_tool : fileHeadersEnv, parseInputFiles;
 import agentcore.tools.mcp_tool : parseMcpServers;
 import agentcore.tools.repos : parseRepos;
 import agentcore.tools.skills : parseSkills;
-import agentcore.tools.tool : Tool;
+import agentcore.tools.tool : Retryable, Tool;
 import agentcore.tools.toolselect : allTools;
 import agentcore.vendors.base.setup : CliReport;
 
@@ -154,15 +155,12 @@ int provision(InitContext ctx)
 		// Where the CLI comes from is only knowable before the steps put it on PATH.
 		const report = cliReportOf(tool);
 		const origin = report is null ? "" : cast(string) report.origin;
-		foreach (step; tool.steps(ctx))
-		{
-			const code = runStep(step, stepEnv(ctx));
-			if (code != 0)
-				return fail(sinks, source,
-					"[init] " ~ tool.name ~ " step failed (exit " ~ code.to!string ~ "): "
-						~ redactUrlCredentials(step.join(" ")),
-					failedStep(tool.name, code), code);
-		}
+		const outcome = runToolSteps(tool, ctx, (int ms) { napMs(ms); });
+		if (outcome.code != 0)
+			return fail(sinks, source,
+				"[init] " ~ tool.name ~ " step failed (exit " ~ outcome.code.to!string ~ "): "
+					~ redactUrlCredentials(outcome.step),
+				failedStep(tool.name, outcome.code), outcome.code);
 		if (report !is null)
 			notify(sinks, source,
 				installedEvent(tool.name, cliVersion(report.versionCommand), origin).toJson);
@@ -184,6 +182,93 @@ int provision(InitContext ctx)
 	return 0;
 }
 
+version (unittest)
+{
+	import agentcore.output.retry : RetryPolicy;
+
+	/// Fails its one step until its flag file exists, and leaves the flag behind —
+	/// the shape of a clone GitHub refuses once and honors moments later.
+	private final class FlakyTool : Tool, Retryable
+	{
+		private string flag;
+
+		this(string flag) @safe
+		{
+			this.flag = flag;
+		}
+
+		override string name() const @safe
+		{
+			return "flaky";
+		}
+
+		override string[] requires() const @safe
+		{
+			return [];
+		}
+
+		override string[][] steps(in InitContext) const @safe
+		{
+			return [["sh", "-c", "test -f " ~ flag ~ " || { : > " ~ flag ~ "; exit 128; }"]];
+		}
+
+		override RetryPolicy retryPolicy() const @safe
+		{
+			return RetryPolicy(3, 5000, 10000);
+		}
+	}
+
+	private final class BrokenTool : Tool
+	{
+		override string name() const @safe
+		{
+			return "broken";
+		}
+
+		override string[] requires() const @safe
+		{
+			return [];
+		}
+
+		override string[][] steps(in InitContext) const @safe
+		{
+			return [["sh", "-c", "exit 7"]];
+		}
+	}
+}
+
+unittest
+{
+	// A Retryable tool whose step fails once is run whole again after one backoff
+	// and passes — the flag its first try left behind is what the retry finds.
+	import std.conv : to;
+	import std.file : exists, remove, tempDir;
+	import std.process : thisProcessID;
+
+	const flag = tempDir ~ "/agentcore-flaky-" ~ thisProcessID.to!string;
+	scope (exit)
+		if (flag.exists)
+			remove(flag);
+	int[] naps;
+
+	const outcome = runToolSteps(new FlakyTool(flag), InitContext.init, (int ms) { naps ~= ms; });
+
+	outcome.code.should.equal(0);
+	naps.should.equal([5000]);
+}
+
+unittest
+{
+	// A tool that is not Retryable keeps failing fast: its first exit code is final
+	// and nothing sleeps.
+	int[] naps;
+
+	const outcome = runToolSteps(new BrokenTool, InitContext.init, (int ms) { naps ~= ms; });
+
+	outcome.should.equal(ToolOutcome(7, "sh -c exit 7"));
+	naps.length.should.equal(0);
+}
+
 /// Recursively hand `root` (and everything under it) to the agent uid/gid. Symlinks
 /// are re-owned, never followed — a repo can contain hostile links. Missing/empty
 /// roots are fine (nothing to hand over).
@@ -198,6 +283,60 @@ private bool chownTree(string root)
 	foreach (entry; dirEntries(root, SpanMode.depth, false))
 		ok = lchown(entry.name.toStringz, agentUid, agentGid) == 0 && ok;
 	return ok;
+}
+
+/// What running one tool's steps came to: 0 with an empty step on success, or the
+/// first failing step (joined for the log) with its exit code.
+private struct ToolOutcome
+{
+	int code;
+	string step;
+}
+
+/// Run `tool`'s steps in order, stopping at the first failure. A `Retryable` tool's
+/// whole list is then run again, up to its policy's attempts with its backoff slept
+/// through `nap` — its sequences re-establish their own preconditions, so the retry
+/// is the same provisioning a moment later. Every other tool keeps failing fast.
+private ToolOutcome runToolSteps(const Tool tool, in InitContext ctx,
+	scope void delegate(int ms) nap)
+{
+	const policy = retryPolicyOf(tool);
+	for (int attempt = 1;; attempt++)
+	{
+		const outcome = runStepsOnce(tool, ctx);
+		if (outcome.code == 0 || !shouldRetry(attempt, policy))
+			return outcome;
+		logError("[init] " ~ tool.name ~ " step failed (exit " ~ outcome.code.to!string
+			~ "); running the tool again");
+		nap(backoffMs(attempt, policy));
+	}
+}
+
+private ToolOutcome runStepsOnce(const Tool tool, in InitContext ctx)
+{
+	foreach (step; tool.steps(ctx))
+	{
+		const code = runStep(step, stepEnv(ctx));
+		if (code != 0)
+			return ToolOutcome(code, step.join(" "));
+	}
+	return ToolOutcome(0, "");
+}
+
+/// One run and no sleeping for a tool that never declared itself Retryable.
+private RetryPolicy retryPolicyOf(const Tool tool)
+{
+	auto retryable = cast(const Retryable) tool;
+	return retryable is null ? RetryPolicy(1, 0, 0) : retryable.retryPolicy();
+}
+
+/// Blocking sleep between a Retryable tool's runs; the init has nothing else to do.
+private void napMs(int ms)
+{
+	import core.thread : Thread;
+	import core.time : msecs;
+
+	Thread.sleep(ms.msecs);
 }
 
 /// The tools this run needs, in execution order — those whose `steps` are non-empty.

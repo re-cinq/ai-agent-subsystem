@@ -7,8 +7,9 @@ import std.string : indexOf, indexOfAny;
 
 import agentcore.core.env : envGitCredential, envGitCredentialUrl;
 import agentcore.crds.repo_ref : RepoRef;
+import agentcore.output.retry : RetryPolicy;
 import agentcore.tools.initcontext : InitContext;
-import agentcore.tools.tool : Tool;
+import agentcore.tools.tool : Retryable, Tool;
 
 version (unittest) import fluent.asserts;
 
@@ -353,7 +354,7 @@ private bool isEnvName(string s) @safe pure
 /// re-entrant across init-container retries (the shared emptyDir is not wiped
 /// between attempts). A repo url is never passed through a shell; a private repo's
 /// token is read from the environment by the git child, never spliced into argv.
-final class GitTool : Tool
+final class GitTool : Tool, Retryable
 {
 	override string name() const @safe
 	{
@@ -363,6 +364,17 @@ final class GitTool : Tool
 	override string[] requires() const @safe
 	{
 		return ["git", "base64", "curl"];
+	}
+
+	/// Fleet-wide, GitHub intermittently answers a broker-authenticated clone with
+	/// "Repository not found" and honors the same clone seconds later (a token used
+	/// within a moment of minting). Three whole runs, 5s doubling to 10s between
+	/// them, spans that gap; every sequence starts with `rm -rf dest`, which is what
+	/// makes the whole list safe to run again. A genuinely missing repo pays 15s
+	/// more before the same failure.
+	override RetryPolicy retryPolicy() const @safe
+	{
+		return RetryPolicy(3, 5000, 10_000);
 	}
 
 	override string[][] steps(in InitContext ctx) const @safe
@@ -381,6 +393,13 @@ final class GitTool : Tool
 		}
 		return all;
 	}
+}
+
+unittest
+{
+	// The clone GitHub refuses moments after minting its token is run whole again:
+	// three tries, 5s doubling to 10s.
+	(new GitTool).retryPolicy.should.equal(RetryPolicy(3, 5000, 10_000));
 }
 
 unittest
