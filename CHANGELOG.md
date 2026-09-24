@@ -6,6 +6,15 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+- **A clone GitHub refuses moments after the token was minted is tried again.** Fleet-wide,
+  an init's broker-authenticated clone intermittently dies on `remote: Repository not
+  found.` for a repo that exists, and the same clone succeeds seconds later — a token
+  used within a moment of minting. The init now runs the git tool's whole step list
+  again on failure, up to three times with a 5s→10s backoff; each repo's sequence
+  starts with `rm -rf`, which is what makes the rerun safe. Tools that are not
+  declared retryable keep failing fast.
+
 ## v0.11.4
 
 ### Added
