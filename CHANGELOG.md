@@ -6,6 +6,16 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+- **A Gemini run can read and write the input files beside its clone.** gemini-cli
+  confines its file tools to the directory it runs in, so every `read_file` /
+  `write_file` of a run's input file was refused — "Path not in workspace: Attempted
+  path `/workspace/plan.md` resolves outside the allowed workspace directories" — and
+  the agent fell back to shell heredocs to edit its own deliverable. The adapter now
+  passes `--include-directories /workspace`, the reserved mount the run's workspace
+  volume already has, so the files the init downloads are readable and writable as
+  files. Claude was never affected.
+
 ## v0.11.5
 
 ### Fixed
