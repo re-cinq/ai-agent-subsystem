@@ -27,7 +27,7 @@ That is the entire install. To pin a specific release instead of tracking the la
 tag from the [releases page](https://github.com/re-cinq/ai-agent-subsystem/releases):
 
 ```sh
-kubectl apply -f https://github.com/re-cinq/ai-agent-subsystem/releases/download/v0.11.3/install.yaml
+kubectl apply -f https://github.com/re-cinq/ai-agent-subsystem/releases/download/v0.11.6/install.yaml
 ```
 
 Then [verify the deployment](#verify-the-deployment). One thing `install.yaml` cannot ship for you is
@@ -45,7 +45,7 @@ repository root:
 
 ```sh
 REGISTRY=your-registry.example.com/your-project
-TAG=v0.11.3
+TAG=v0.11.6
 
 docker build -f deploy/Dockerfile.controller       -t "$REGISTRY/ai-agent-controller:$TAG" .
 docker build -f scripts/container/Dockerfile.agent -t "$REGISTRY/ai-agent:$TAG"            .
@@ -96,7 +96,7 @@ The controller image `install.yaml` pins is signed in CI with [cosign](https://d
 (keyless, via the GitHub OIDC token). Confirm the signature before trusting a release:
 
 ```sh
-cosign verify ghcr.io/re-cinq/ai-agent-controller@sha256:7730775126e43856f0101ff17d3f0e5c4f784dcc1aece9c464401913349e9c8a \
+cosign verify ghcr.io/re-cinq/ai-agent-controller@sha256:b580a1229c81dfbbc7b91306c0fe362779b5e7599a272ca5f3838e52b1a336f2 \
   --certificate-identity-regexp '^https://github.com/re-cinq/ai-agent-subsystem/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
