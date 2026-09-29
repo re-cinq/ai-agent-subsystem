@@ -263,6 +263,15 @@ unittest
 
 unittest
 {
+	// A run's own model is read off its spec; a spec without one leaves it empty.
+	parseAgent(parseJsonString(`{"metadata":{"name":"r"},"spec":{"stationRef":"s","model":"gemini-2.5-pro"}}`))
+		.spec.model.should.equal("gemini-2.5-pro");
+	parseAgent(parseJsonString(`{"metadata":{"name":"r"},"spec":{"stationRef":"s"}}`))
+		.spec.model.should.equal("");
+}
+
+unittest
+{
 	// No status -> phase defaults to Pending.
 	parseAgent(parseJsonString(`{"metadata":{"name":"fresh"},"spec":{"stationRef":"s"}}`))
 		.status.phase.should.equal(Phase.pending);

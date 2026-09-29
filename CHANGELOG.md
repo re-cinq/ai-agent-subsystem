@@ -6,6 +6,13 @@ the npm package versions.
 
 ## Unreleased
 
+### Added
+- **An Agent can override its definition's model for one run.** `spec.model` on an
+  Agent replaces the AgentDefinition's `model` for that run everywhere the model is
+  used: the vendor it selects (a `gemini-*` model runs gemini-cli), the CLI's model
+  flag and the run's env. A caller that needs one run on a different model no longer
+  needs a second recipe. Omitted, the definition's model applies as before.
+
 ## v0.11.6
 
 ### Fixed

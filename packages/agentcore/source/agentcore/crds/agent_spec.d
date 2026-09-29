@@ -13,6 +13,9 @@ struct AgentSpec
 	@optional @Description("External id for correlation.")
 	string taskId;
 
+	@optional @Description("Model id for this run; overrides the AgentDefinition's model.")
+	string model;
+
 	@optional @Description("GitHub repo in owner/name form.")
 	string targetRepo;
 
