@@ -19,6 +19,9 @@ flowchart LR
 - **`parameters`**: a string map used to fill the recipe's `{placeholder}` tokens and passed to the
   agent process.
 - **`taskId`**: optional external id for correlation.
+- **`model`**: optional model id for this run only. It overrides the recipe's `model` everywhere
+  that model is used, including which agent CLI the run selects, so a caller that needs one run on a
+  different model does not need a second recipe. Omitted, the recipe's model applies.
 - **`targetRepo`** / **`branch`**: optional repo (`owner/name`) and git branch metadata.
 - **`files`**: optional per-run input files, by reference: `{path, url, headers_secret?}`. The init
   container downloads each into the workspace before the agent starts, so a run can be handed a

@@ -172,6 +172,8 @@ export interface AgentSpec {
   stationRef: string;
   /** External id for correlation. */
   taskId?: string;
+  /** Model id for this run; overrides the AgentDefinition's model. */
+  model?: string;
   /** GitHub repo in owner/name form. */
   targetRepo?: string;
   branch?: string;

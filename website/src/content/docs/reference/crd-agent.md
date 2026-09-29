@@ -15,6 +15,7 @@ One run. It has a `spec` (your desired run) and a `status` (owned by the control
 | `stationRef` | string | *Required.* Station to run in (which selects the recipe). |
 | `parameters` | map[string]string | Per-run values; fill the prompt `{placeholder}` tokens and pass to the agent. |
 | `taskId` | string | Optional external id for correlation. |
+| `model` | string | Optional model id for this run; overrides the AgentDefinition's `model`, including which agent CLI runs (e.g. a `gemini-*` model runs gemini-cli). Omitted, the definition's model applies. |
 | `targetRepo` | string | Optional repo in `owner/name` form. |
 | `branch` | string | Optional git branch. |
 | `files` | [] object | `{path, url, headers_secret?}` — files the init downloads into the workspace before the agent starts. Only the references travel; see [below](#specfiles). |

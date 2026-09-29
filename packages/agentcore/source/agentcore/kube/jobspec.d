@@ -81,6 +81,10 @@ enum agentSecretName = "agent-secrets";
 Json buildJob(Agent agent, Station station, AgentDefinition definition, string agentImage)
 {
 	auto recipe = definition.spec;
+	// The run's own model wins over the recipe's, resolved once here so the vendor
+	// choice, the CLI's model flag and the init's env all see the same model.
+	if (agent.spec.model.length)
+		recipe.model = agent.spec.model;
 	const prompt = renderPrompt(recipe.prompt, agent.spec.parameters);
 	// The conversation to continue rides into the argv: the adapter decides whether it
 	// is a flag or a subcommand, and adds a pin when its CLI supports one.
@@ -1425,6 +1429,47 @@ unittest
 	definition.spec.resources.env = [EnvVar("GEMINI_CLI_SYSTEM_SETTINGS_PATH", "/x")];
 	envValues(agentContainer(buildJob(agent, station, definition, "img")),
 		"GEMINI_CLI_SYSTEM_SETTINGS_PATH").should.equal(["/x"]);
+}
+
+unittest
+{
+	// An Agent's own model replaces the definition's for that run everywhere the model
+	// matters: it picks the vendor CLI, rides in its argv, and reaches the init as env.
+	import std.algorithm : canFind, map;
+	import std.array : array;
+
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	agent.spec.model = "gemini-3.1-pro-preview";
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img"));
+	auto argv = container["command"].get!(Json[]).map!(arg => arg.get!string).array;
+
+	argv[2].should.equal("gemini");
+	argv.canFind("gemini-3.1-pro-preview").should.equal(true);
+	envValue(container, envModel).should.equal("gemini-3.1-pro-preview");
+	definition.spec.model.should.equal("claude-sonnet-4-6");
+}
+
+unittest
+{
+	// An Agent that names no model runs on its definition's.
+	import std.algorithm : canFind, map;
+	import std.array : array;
+
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img"));
+	auto argv = container["command"].get!(Json[]).map!(arg => arg.get!string).array;
+
+	argv[2].should.equal("claude");
+	argv.canFind("claude-sonnet-4-6").should.equal(true);
+	envValue(container, envModel).should.equal("claude-sonnet-4-6");
 }
 
 unittest

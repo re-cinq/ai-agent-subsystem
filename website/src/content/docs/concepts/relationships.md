@@ -36,6 +36,7 @@ erDiagram
     Agent {
         string stationRef "where to run"
         map parameters "fill the prompt"
+        string model "overrides the recipe model"
         string targetRepo "owner/name"
         string branch "git branch"
         enum phase "Pending Running Succeeded Failed"
