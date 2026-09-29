@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.11.7
+
 ### Added
 - **An Agent can override its definition's model for one run.** `spec.model` on an
   Agent replaces the AgentDefinition's `model` for that run everywhere the model is
