@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.11.8
+
 ### Fixed
 - **A Gemini run waits up to 10 minutes for a model's first byte, not 60 seconds.**
   gemini-cli gives every request 60 s to start answering, and a thinking model on a large
