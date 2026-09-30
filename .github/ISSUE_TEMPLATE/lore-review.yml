@@ -1,0 +1,17 @@
+name: "Lore: Review"
+description: "Ask Lore to review a PR against conventions"
+labels: ["lore", "lore:review"]
+body:
+  - type: input
+    id: pr_number
+    attributes:
+      label: PR number
+      description: The pull request number to review
+      placeholder: "42"
+    validations:
+      required: true
+  - type: textarea
+    id: focus
+    attributes:
+      label: Review focus (optional)
+      description: Any specific areas to pay attention to
