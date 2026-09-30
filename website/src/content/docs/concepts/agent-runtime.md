@@ -72,6 +72,14 @@ itself whether the run needs it:
 | `conversation` | `resources.conversation` names both a `source` and an `id`, and the vendor has a state directory | restores the prior run's state archive into the vendor's own state dir under `$HOME`, so the agent resumes that conversation instead of starting fresh. Best-effort: a missing archive leaves the run with a fresh conversation. See [continuing a conversation](#continuing-a-conversation). |
 | `mcp` | the model routes to a vendor whose CLI reads MCP servers from a settings file rather than a flag (today Gemini) | merges `resources.mcp_servers` into the CLI's user settings as `mcpServers`, replacing that key whole and leaving every other key alone. For Gemini that is `/agent/.gemini/settings.json`, with `httpUrl` for http, `url` for sse and `command` + `args` for stdio; the step re-enters the init binary (`ai-agent-init mcp-settings <file> <servers>`), since the slim init image has nothing that can merge JSON. The user scope is the one gemini-cli loads without its root-ownership check, which its system scope (`GEMINI_CLI_SYSTEM_SETTINGS_PATH`, what v0.11.2 used) applies and a uid-1000 pod cannot pass. The tool runs last, after the hook bundle and a restored conversation have landed in `.gemini`, so a bundle's hooks in that file survive and a server a previous run declared is replaced — with an empty `mcpServers` when this recipe declares none, so it never outlives its secret. A `headers_secret` becomes an `Authorization` value of `${NAME}`, the same shell-safe variable Claude's `--mcp-config` references; the CLI expands it from the pod env when it loads the file, so the credential never reaches disk. Claude needs no step: its adapter passes the servers on the command line. A headless Gemini run can only call the tools under `permission_mode: bypass` (`--yolo`), since the Gemini adapter maps no allowed-tools list. A failed write fails the init. |
 
+**Gemini request timeout.** gemini-cli gives each request 60 seconds to start answering, and a thinking model on a large
+context can take longer; the request then fails with `fetch failed` and the CLI resends the same
+context after a backoff. The one setting that changes that limit is an experiment flag
+(`DEFAULT_REQUEST_TIMEOUT`, in seconds), which the CLI reads from a local file when `GEMINI_EXP`
+names one. So the `mcp` init tool writes `/agent/.gemini/experiments.json` with that flag at 600 s,
+and the Gemini agent container gets `GEMINI_EXP` pointing at it. To use your own file or value,
+set `GEMINI_EXP` in the definition's `resources.env`; that entry replaces the default.
+
 A repo's `token_secret` names the **environment variable** holding its access token (the controller
 populates it from the secret store, the same way [secrets](./agentdefinition.md) become env
 vars). The clone authenticates through a git credential helper that reads that variable **by name**

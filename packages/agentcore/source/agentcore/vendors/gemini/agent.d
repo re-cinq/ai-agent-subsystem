@@ -1,12 +1,13 @@
 module agentcore.vendors.gemini.agent;
 
-import agentcore.vendors.base.agent : Agent, ConversationArgs;
+import agentcore.kube.bundle : geminiExperimentsPath;
+import agentcore.vendors.base.agent : Agent, AgentEnv, ConversationArgs;
 import agentcore.core.env : defaultWorkspace;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 import agentcore.crds.enums : PermissionMode;
 
 /// @google/gemini-cli adapter. Maps the recipe to `gemini --prompt … --output-format stream-json`.
-final class GeminiAgent : Agent
+final class GeminiAgent : Agent, AgentEnv
 {
 	/// Un-hide the interface's no-conversation convenience overload, which this
 	/// class's own `command` would otherwise shadow.
@@ -15,6 +16,14 @@ final class GeminiAgent : Agent
 	override string name() const @safe
 	{
 		return "gemini";
+	}
+
+	/// `GEMINI_EXP` names a local experiments file, which gemini-cli reads before it
+	/// asks any experiments server. The init writes it (`GeminiSetup.mcpSteps`) with
+	/// a longer request timeout than the CLI's own 60 s.
+	override string[string] env() const @safe
+	{
+		return ["GEMINI_EXP": geminiExperimentsPath];
 	}
 
 	/// Gemini CLI assigns its own session id — the launch command has no pin flag,
@@ -106,6 +115,12 @@ version (unittest) import fluent.asserts;
 
 	(at >= 0).should.equal(true);
 	cmd[at + 1].should.equal("/workspace");
+}
+
+@safe unittest
+{
+	// The env var that points gemini-cli at the experiments file the init writes.
+	(new GeminiAgent).env.should.equal(["GEMINI_EXP": "/agent/.gemini/experiments.json"]);
 }
 
 @safe unittest

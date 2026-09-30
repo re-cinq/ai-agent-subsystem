@@ -6,6 +6,16 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+- **A Gemini run waits up to 10 minutes for a model's first byte, not 60 seconds.**
+  gemini-cli gives every request 60 s to start answering, and a thinking model on a large
+  context often needs longer: the request failed with `fetch failed sending request` and the
+  CLI resent the same context after a backoff, so one run sat through a dozen failures over
+  many minutes. The init now writes `$HOME/.gemini/experiments.json` — the CLI's default
+  request-timeout experiment flag set to 600 s — and the Gemini pod carries
+  `GEMINI_EXP=/agent/.gemini/experiments.json`, the local experiments file the CLI reads.
+  An `env` entry for `GEMINI_EXP` in the definition's `resources` replaces the default.
+
 ## v0.11.7
 
 ### Added
