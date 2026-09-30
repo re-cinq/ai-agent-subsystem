@@ -58,3 +58,12 @@ interface Agent
 		return command(recipe, renderedPrompt, ConversationArgs.init);
 	}
 }
+
+/// An `Agent` whose CLI needs environment variables the recipe does not carry. Optional:
+/// a vendor with nothing to add does not implement it. These are DEFAULTS: a variable
+/// of the same name in the recipe's `resources.env` replaces them.
+interface AgentEnv
+{
+	/// Variable name to value, added to the agent container's env.
+	string[string] env() const @safe;
+}

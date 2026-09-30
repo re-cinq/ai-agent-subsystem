@@ -1,5 +1,6 @@
 module agentcore.kube.jobspec;
 
+import std.algorithm.searching : canFind;
 import std.algorithm.sorting : sort;
 import std.conv : to;
 import std.exception : enforce;
@@ -18,7 +19,7 @@ import agentcore.crds.mcp_server : headerEnvName;
 import agentcore.crds.station : Station;
 import agentcore.crds.serialization : toJson;
 import agentcore.vendors.select : agentForModel, agentSetupForModel;
-import agentcore.vendors.base.agent : ConversationArgs;
+import agentcore.vendors.base.agent : AgentEnv, ConversationArgs;
 import agentcore.kube.bundle : bundleRoot, supervisorPath;
 import agentcore.core.env;
 import agentcore.kube.jobs : jobNameFor, safeName;
@@ -93,7 +94,7 @@ Json buildJob(Agent agent, Station station, AgentDefinition definition, string a
 	// independently resumable, which is what makes rewinding to an earlier run possible.
 	auto argv = vendor.command(recipe, prompt,
 		ConversationArgs(recipe.resources.conversation.id, recipe.resources.conversation.pin));
-	auto env = runEnv(agent, station, recipe);
+	auto env = runEnv(agent, station, recipe, vendorEnv(cast(Object) vendor));
 
 	auto template_ = wirePodTemplate(deepCopy(station.spec.template_), commandFor(argv), env,
 		initEnv(env, agent.spec.files), agentImage);
@@ -478,7 +479,15 @@ private Json initEnv(Json runEnv_, const InputFile[] declared)
 	return Json(env);
 }
 
-private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
+/// The env the vendor's CLI needs by default; empty for a vendor that adds none.
+private string[string] vendorEnv(const Object vendor) @safe
+{
+	auto withEnv = cast(const AgentEnv) vendor;
+	return withEnv is null ? null : withEnv.env;
+}
+
+private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe,
+	const string[string] vendorDefaults)
 {
 	Json[] env;
 
@@ -636,6 +645,11 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe)
 	// name would emit a duplicate the kubelet resolves last-wins — silently redirecting
 	// output (AGENT_SINKS), spoofing run identity (AGENT_NAME), or breaking the workspace.
 	// Skip any such collision so the controller's value always wins.
+	// The vendor's defaults come first and only for a name the recipe leaves unset, so
+	// an operator's own value (say, their own GEMINI_EXP file) is the one the pod gets.
+	foreach (name; vendorDefaults.keys.sort)
+		if (!recipe.resources.env.canFind!(variable => variable.name == name))
+			strVar(name, vendorDefaults[name]);
 	foreach (variable; recipe.resources.env)
 		if (!isReservedEnvName(variable.name))
 			strVar(variable.name, variable.value);
@@ -1429,6 +1443,32 @@ unittest
 	definition.spec.resources.env = [EnvVar("GEMINI_CLI_SYSTEM_SETTINGS_PATH", "/x")];
 	envValues(agentContainer(buildJob(agent, station, definition, "img")),
 		"GEMINI_CLI_SYSTEM_SETTINGS_PATH").should.equal(["/x"]);
+}
+
+unittest
+{
+	// gemini-cli reads its experiments file (a longer request timeout) from the path
+	// GEMINI_EXP names; a definition's own GEMINI_EXP replaces the default, and other
+	// vendors carry none.
+	import agentcore.crds.env_var : EnvVar;
+
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+
+	definition.spec.model = "gemini-3.1-pro-preview";
+	envValues(agentContainer(buildJob(agent, station, definition, "img")), "GEMINI_EXP")
+		.should.equal(["/agent/.gemini/experiments.json"]);
+
+	definition.spec.resources.env = [EnvVar("GEMINI_EXP", "/custom/exp.json")];
+	envValues(agentContainer(buildJob(agent, station, definition, "img")), "GEMINI_EXP")
+		.should.equal(["/custom/exp.json"]);
+
+	definition.spec.model = "claude-sonnet-4-6";
+	definition.spec.resources.env = null;
+	envValues(agentContainer(buildJob(agent, station, definition, "img")), "GEMINI_EXP")
+		.length.should.equal(0);
 }
 
 unittest

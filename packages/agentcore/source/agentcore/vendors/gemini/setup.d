@@ -1,8 +1,9 @@
 module agentcore.vendors.gemini.setup;
 
 import agentcore.crds.mcp_server : McpServer;
-import agentcore.kube.bundle : geminiMcpSettingsPath, initializerPath;
+import agentcore.kube.bundle : geminiExperimentsPath, geminiMcpSettingsPath, initializerPath;
 import agentcore.vendors.base.setup : AgentSetup, McpSettings;
+import agentcore.vendors.gemini.experiments : geminiExperimentsJson;
 import agentcore.vendors.gemini.mcp : geminiMcpServersJson;
 
 /// Install the Gemini CLI from its npm tarball, without npm. Gemini ships no
@@ -28,9 +29,19 @@ final class GeminiSetup : AgentSetup, McpSettings
 	/// so an empty `mcpServers` is how a server from a previous run stops being read
 	/// with a secret nothing injects any more. The servers ride an argument, never a
 	/// script text.
+	///
+	/// The second step writes the experiments file `GEMINI_EXP` names (see
+	/// `GeminiAgent.env`). It rides this tool because it must land last, after a
+	/// restored conversation: the restore extracts a previous run's `.gemini` over
+	/// the directory, and a stale file from it would otherwise win. Path and JSON
+	/// are positional arguments, never script text.
 	override string[][] mcpSteps(in McpServer[] servers) const @safe
 	{
-		return [[initializerPath, "mcp-settings", geminiMcpSettingsPath, geminiMcpServersJson(servers)]];
+		return [
+			[initializerPath, "mcp-settings", geminiMcpSettingsPath, geminiMcpServersJson(servers)],
+			["bash", "-c", `mkdir -p "$(dirname "$1")" && printf '%s\n' "$2" > "$1"`,
+				"write-experiments", geminiExperimentsPath, geminiExperimentsJson],
+		];
 	}
 
 	override string name() const @safe
@@ -97,7 +108,7 @@ version (unittest)
 	// positional argument as the `mcpServers` object, the credential as the `${NAME}`
 	// reference gemini-cli expands, never a value.
 	const steps = (new GeminiSetup).mcpSteps(tools);
-	steps.length.should.equal(1);
+	steps.length.should.equal(2);
 	steps[0][0 .. 3].should.equal([initializerPath, "mcp-settings", "/agent/.gemini/settings.json"]);
 	const servers = parseJSON(steps[0][3]);
 	servers["tools"]["httpUrl"].str.should.equal("https://tools-mcp/mcp");
@@ -109,6 +120,18 @@ version (unittest)
 	// No servers still writes: an empty object clears what a restored conversation
 	// brought back from a run that had some.
 	const steps = (new GeminiSetup).mcpSteps([]);
-	steps.length.should.equal(1);
+	steps.length.should.equal(2);
 	steps[0][3].should.equal("{}");
+}
+
+@safe unittest
+{
+	// The experiments file is written on every run, servers or none, with exactly the
+	// document gemini-cli reads through `GEMINI_EXP`: a 600 s request timeout.
+	const steps = (new GeminiSetup).mcpSteps([]);
+	steps[1][0 .. 2].should.equal(["bash", "-c"]);
+	steps[1][$ - 2 .. $].should.equal([
+		"/agent/.gemini/experiments.json",
+		`{"flags":[{"flagId":45773134,"intValue":"600"}]}`,
+	]);
 }

@@ -41,6 +41,11 @@ enum claudeSettingsPath = "/agent/.claude/settings.json";
 /// (the mcp tool runs last), so the init rewrites only `mcpServers`, never the file.
 enum geminiMcpSettingsPath = "/agent/.gemini/settings.json";
 
+/// Where the init writes gemini-cli's experiments file and where the agent's
+/// `GEMINI_EXP` points: under the shared `$HOME`, so the init's write is the agent's
+/// read.
+enum geminiExperimentsPath = "/agent/.gemini/experiments.json";
+
 /// The init binary itself, baked into the agent image, which a step re-enters for work
 /// the init image's shell cannot do (a JSON merge: slim has no jq, node or python).
 enum initializerPath = "/usr/local/bin/ai-agent-init";
