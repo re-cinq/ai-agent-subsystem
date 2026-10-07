@@ -17,4 +17,4 @@ resources:
 # and pins the AGENT_IMAGE the controller injects, in controller.yaml.
 images:
   - name: ghcr.io/re-cinq/ai-agent-controller
-    digest: sha256:e3c4ff1281938ec4c6accbb59929c4d323c7d89b8a1833ce71087a08548b9b8c
+    digest: sha256:9ace03655be0a51071fe82ead875cc2288571717c3a7ab8170d25d317abe1396
