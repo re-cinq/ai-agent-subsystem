@@ -6,6 +6,16 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+- **A Gemini run under `permission_mode: bypass` can run every tool, whatever its approval
+  mode.** `--yolo` left gemini-cli's built-in rules in charge of everything yolo did not cover:
+  headless, they deny every shell command when the approval mode is not yolo, and plan mode,
+  which the model may enter by itself, denies everything. A run saw `git diff` fail with
+  `Tool execution denied by policy.`. The init now writes `$HOME/.gemini/bypass-policy.toml`,
+  which allows every tool and denies only `ask_user`, and a bypass run's command loads it with
+  `--policy` at user tier, above every built-in rule, together with `$HOME/.gemini/policies`, so a
+  hook bundle's own policy files still apply. An `auto` run is unchanged.
+
 ## v0.11.8
 
 ### Fixed

@@ -1,6 +1,6 @@
 module agentcore.vendors.gemini.agent;
 
-import agentcore.kube.bundle : geminiExperimentsPath;
+import agentcore.kube.bundle : geminiBypassPolicyPath, geminiExperimentsPath, geminiUserPoliciesDir;
 import agentcore.vendors.base.agent : Agent, AgentEnv, ConversationArgs;
 import agentcore.core.env : defaultWorkspace;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
@@ -68,8 +68,12 @@ final class GeminiAgent : Agent, AgentEnv
 			"--include-directories", defaultWorkspace,
 		];
 
+		// --yolo leaves the CLI's own rules in charge of what yolo does not cover, so
+		// bypass also loads the init's policy that allows every tool in every mode
+		// (`geminiBypassPolicyToml`). --policy replaces the user policies directory,
+		// so that directory is named again and a hook bundle's policies still load.
 		if (recipe.permissionMode == PermissionMode.bypass)
-			cmd ~= "--yolo";
+			cmd ~= ["--yolo", "--policy", geminiBypassPolicyPath, "--policy", geminiUserPoliciesDir];
 
 		// The CLI resumes only a session id it issued itself, and an unknown one is
 		// a fatal input error (exit 42, before the first turn) — the caller's id never
@@ -129,6 +133,32 @@ version (unittest) import fluent.asserts;
 	recipe.permissionMode = PermissionMode.bypass;
 	const cmd = (new GeminiAgent).command(recipe, "Task");
 	cmd.should.contain("--yolo");
+}
+
+@safe unittest
+{
+	// --yolo alone does not keep bypass's promise: headless, gemini-cli's own rules deny
+	// every shell command whenever yolo does not apply, and plan mode denies everything.
+	// The init's bypass policy allows every tool at user tier; --policy replaces the
+	// user policies directory, so it is named again beside the file.
+	import std.algorithm.searching : countUntil;
+
+	AgentDefinitionSpec recipe;
+	recipe.permissionMode = PermissionMode.bypass;
+	const cmd = (new GeminiAgent).command(recipe, "Task");
+	const at = cmd.countUntil("--policy");
+
+	cmd[at .. at + 4].should.equal([
+		"--policy", "/agent/.gemini/bypass-policy.toml",
+		"--policy", "/agent/.gemini/policies",
+	]);
+}
+
+@safe unittest
+{
+	// Under auto the CLI keeps its own rules: nothing widens what it may run.
+	const cmd = (new GeminiAgent).command(AgentDefinitionSpec.init, "Task");
+	cmd.should.not.contain("--policy");
 }
 
 @safe unittest
