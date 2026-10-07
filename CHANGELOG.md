@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.11.9
+
 ### Fixed
 - **A Gemini run under `permission_mode: bypass` can run every tool, whatever its approval
   mode.** `--yolo` left gemini-cli's built-in rules in charge of everything yolo did not cover:
