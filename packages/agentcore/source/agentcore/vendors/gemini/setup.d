@@ -42,7 +42,7 @@ final class GeminiSetup : AgentSetup, McpSettings
 	/// inert unless a bypass run's command names it with `--policy` (`GeminiAgent`).
 	override string[][] mcpSteps(in McpServer[] servers) const @safe
 	{
-		enum write = `mkdir -p "$(dirname "$1")" && printf '%s\n' "$2" > "$1"`;
+If `gemini-cli` crashes when a `--policy` directory does not exist and no hook bundle provided one, you may want to ensure it exists before the CLI starts by adding `mkdir -p /agent/.gemini/policies` to the init steps.
 
 		return [
 			[initializerPath, "mcp-settings", geminiMcpSettingsPath, geminiMcpServersJson(servers)],
