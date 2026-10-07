@@ -1,10 +1,12 @@
 module agentcore.vendors.gemini.setup;
 
 import agentcore.crds.mcp_server : McpServer;
-import agentcore.kube.bundle : geminiExperimentsPath, geminiMcpSettingsPath, initializerPath;
+import agentcore.kube.bundle : geminiBypassPolicyPath, geminiExperimentsPath, geminiMcpSettingsPath,
+	initializerPath;
 import agentcore.vendors.base.setup : AgentSetup, McpSettings;
 import agentcore.vendors.gemini.experiments : geminiExperimentsJson;
 import agentcore.vendors.gemini.mcp : geminiMcpServersJson;
+import agentcore.vendors.gemini.policy : geminiBypassPolicyToml;
 
 /// Install the Gemini CLI from its npm tarball, without npm. Gemini ships no
 /// curl installer — the URL v0.10.8 used (dl.google.com/gemini/install.sh)
@@ -35,12 +37,17 @@ final class GeminiSetup : AgentSetup, McpSettings
 	/// restored conversation: the restore extracts a previous run's `.gemini` over
 	/// the directory, and a stale file from it would otherwise win. Path and JSON
 	/// are positional arguments, never script text.
+	///
+	/// The third writes the bypass policy the same way and for the same reason. It is
+	/// inert unless a bypass run's command names it with `--policy` (`GeminiAgent`).
 	override string[][] mcpSteps(in McpServer[] servers) const @safe
 	{
+		enum write = `mkdir -p "$(dirname "$1")" && printf '%s\n' "$2" > "$1"`;
+
 		return [
 			[initializerPath, "mcp-settings", geminiMcpSettingsPath, geminiMcpServersJson(servers)],
-			["bash", "-c", `mkdir -p "$(dirname "$1")" && printf '%s\n' "$2" > "$1"`,
-				"write-experiments", geminiExperimentsPath, geminiExperimentsJson],
+			["bash", "-c", write, "write-experiments", geminiExperimentsPath, geminiExperimentsJson],
+			["bash", "-c", write, "write-policy", geminiBypassPolicyPath, geminiBypassPolicyToml],
 		];
 	}
 
@@ -108,7 +115,7 @@ version (unittest)
 	// positional argument as the `mcpServers` object, the credential as the `${NAME}`
 	// reference gemini-cli expands, never a value.
 	const steps = (new GeminiSetup).mcpSteps(tools);
-	steps.length.should.equal(2);
+	steps.length.should.equal(3);
 	steps[0][0 .. 3].should.equal([initializerPath, "mcp-settings", "/agent/.gemini/settings.json"]);
 	const servers = parseJSON(steps[0][3]);
 	servers["tools"]["httpUrl"].str.should.equal("https://tools-mcp/mcp");
@@ -120,7 +127,7 @@ version (unittest)
 	// No servers still writes: an empty object clears what a restored conversation
 	// brought back from a run that had some.
 	const steps = (new GeminiSetup).mcpSteps([]);
-	steps.length.should.equal(2);
+	steps.length.should.equal(3);
 	steps[0][3].should.equal("{}");
 }
 
@@ -133,5 +140,18 @@ version (unittest)
 	steps[1][$ - 2 .. $].should.equal([
 		"/agent/.gemini/experiments.json",
 		`{"flags":[{"flagId":45773134,"intValue":"600"}]}`,
+	]);
+}
+
+@safe unittest
+{
+	// The bypass policy is written on every run, after a restored conversation, so a
+	// stale copy never wins; only a bypass run's command names it (`GeminiAgent`).
+	const steps = (new GeminiSetup).mcpSteps([]);
+	steps[2][0 .. 2].should.equal(["bash", "-c"]);
+	steps[2][$ - 2 .. $].should.equal([
+		"/agent/.gemini/bypass-policy.toml",
+		"[[rule]]\ntoolName = \"*\"\ndecision = \"allow\"\npriority = 100\nallowRedirection = true\n\n"
+			~ "[[rule]]\ntoolName = \"ask_user\"\ndecision = \"deny\"\npriority = 200",
 	]);
 }

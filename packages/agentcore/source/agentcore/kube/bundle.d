@@ -46,6 +46,11 @@ enum geminiMcpSettingsPath = "/agent/.gemini/settings.json";
 /// read.
 enum geminiExperimentsPath = "/agent/.gemini/experiments.json";
 
+/// Where the init writes the policy a bypass run's gemini-cli loads (`--policy`), and
+/// the user policies directory the CLI reads unless `--policy` names others instead.
+enum geminiBypassPolicyPath = "/agent/.gemini/bypass-policy.toml";
+enum geminiUserPoliciesDir = "/agent/.gemini/policies";
+
 /// The init binary itself, baked into the agent image, which a step re-enters for work
 /// the init image's shell cannot do (a JSON merge: slim has no jq, node or python).
 enum initializerPath = "/usr/local/bin/ai-agent-init";

@@ -85,7 +85,7 @@ unittest
 {
 	// A Gemini run gets the step that merges its servers into gemini-cli's settings.
 	const steps = stepsFor(withServers("gemini-3.1-pro-preview"));
-	steps.length.should.equal(2);
+	steps.length.should.equal(3);
 	steps[0].canFind(geminiMcpSettingsPath).should.equal(true);
 	steps[0][$ - 1].canFind("tools-mcp").should.equal(true);
 }

@@ -23,7 +23,8 @@ flowchart LR
 - **`allowed_tools` / `disallowed_tools`**: permission rules, e.g. `Bash(npm run test:*)` or
   `Bash(rm *)`.
 - **`permission_mode`**: `auto` (the default) enforces the allow/deny lists; `bypass` grants all
-  tools.
+  tools. On Gemini that takes `--yolo` and a policy that allows every tool in every approval mode
+  (see [Gemini under bypass](agent-runtime.md)).
 - **`max_turns`**: optional cap on agentic turns; omit for uncapped.
 - **`resources`**: what the run needs available to it — `env`, `secrets` (env-var name plus an
   allowlisted secret-store key), `mcp_servers`, `repos`, `skills` / `skills_source` (skills fetched
