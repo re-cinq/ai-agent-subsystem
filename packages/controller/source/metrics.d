@@ -1,6 +1,7 @@
 module metrics;
 
 import std.array : Appender, appender;
+import std.exception : assumeWontThrow;
 import std.format : format;
 
 /// In-process Prometheus metrics for the controller, rendered as text exposition
@@ -16,6 +17,17 @@ private enum Kind
 	counter,
 	gauge,
 	summary,
+	histogram,
+}
+
+/// Cumulative bucket counts under fixed upper bounds, with the sum and count
+/// Prometheus expects beside them.
+private struct HistogramState
+{
+	const(double)[] bounds;
+	double[] counts;
+	double sum = 0;
+	double count = 0;
 }
 
 private struct Declared
@@ -33,6 +45,20 @@ private double[string] counterValues;
 private double[string] gaugeValues;
 private double[string] summarySum;
 private double[string] summaryCount;
+private HistogramState[string] histograms;
+
+/// Upper bounds that double from `first`: a minute to about two hours for a run,
+/// a second to about eight minutes for the wait before one.
+private double[] doublingBounds(double first, size_t steps) pure nothrow
+{
+	auto bounds = new double[steps];
+	foreach (step, ref bound; bounds)
+		bound = first * (1 << step);
+	return bounds;
+}
+
+private immutable double[] runDurationBounds = doublingBounds(60, 8);
+private immutable double[] runQueueBounds = doublingBounds(1, 10);
 
 /// Count a reconcile attempt by result ("success" or "error") and record its
 /// wall-clock duration. Together these give reconcile rate, error rate and latency.
@@ -67,6 +93,44 @@ void recordWatchReconnect() nothrow
 void recordResync() nothrow
 {
 	addCounter("controller_resyncs_total", "Full namespace resyncs (paginated LIST).", "");
+}
+
+/// Count a run that reached a terminal phase, by phase and exit code.
+void recordRunCompleted(string phase, int exitCode) nothrow
+{
+	addCounter("controller_runs_completed_total", "Runs that reached a terminal phase, by phase and exit code.",
+		`phase="` ~ phase ~ `",exit_code="` ~ exitCodeText(exitCode) ~ `"`);
+}
+
+/// Record how long a run ran from `startedAt` to the terminal patch. Only a run
+/// that started has a duration: one failed for a missing reference never ran.
+void recordRunDuration(string phase, double durationSeconds) nothrow
+{
+	observeBucketed("controller_run_duration_seconds", "Seconds a run took from its start to its terminal phase, by phase.",
+		`phase="` ~ phase ~ `"`, runDurationBounds, durationSeconds);
+}
+
+/// Count a run that ended with a reason, by its kind: a missing reference, a failed
+/// Job, a success whose output could not be recovered, or a preemption under the
+/// Replace policy (the one ending with no terminal status of its own). The reason
+/// text itself stays in the Agent's status; as a label it would be one series per message.
+void recordRunFailure(string kind) nothrow
+{
+	addCounter("controller_run_failures_total", "Runs that ended with a failure reason, by kind.",
+		`kind="` ~ kind ~ `"`);
+}
+
+/// Record how long a run waited from its creation to its Job being created.
+void recordRunQueued(double waitSeconds) nothrow
+{
+	observeBucketed("controller_run_queue_seconds", "Seconds a run waited from creation to its start.", "",
+		runQueueBounds, waitSeconds);
+}
+
+// `format` is not nothrow by type, though formatting an int cannot fail.
+private string exitCodeText(int exitCode) nothrow
+{
+	return assumeWontThrow(format("%d", exitCode));
 }
 
 /// Set the number of Agents currently observed in a given phase.
@@ -128,6 +192,30 @@ private void observe(string name, string help, string labels, double seconds) no
 	}
 }
 
+private void observeBucketed(string name, string help, string labels, immutable double[] bounds, double value) nothrow
+{
+	try
+	{
+		declared[name] = Declared(Kind.histogram, help);
+		const key = seriesKey(name, labels);
+		auto state = key in histograms;
+		if (state is null)
+		{
+			histograms[key] = HistogramState(bounds, new double[bounds.length]);
+			state = key in histograms;
+			state.counts[] = 0;
+		}
+		foreach (i, bound; state.bounds)
+			if (value <= bound)
+				state.counts[i] += 1;
+		state.sum += value;
+		state.count += 1;
+	}
+	catch (Exception)
+	{
+	}
+}
+
 /// Render the whole registry in Prometheus text exposition format.
 string renderMetrics()
 {
@@ -148,9 +236,33 @@ string renderMetrics()
 			emitSeries(sink, name, name ~ "_sum", summarySum);
 			emitSeries(sink, name, name ~ "_count", summaryCount);
 			break;
+		case Kind.histogram:
+			emitHistograms(sink, name);
+			break;
 		}
 	}
 	return sink.data;
+}
+
+/// Prometheus's histogram shape: a cumulative `_bucket` per bound and `+Inf`, then `_sum` and `_count`.
+private void emitHistograms(ref Appender!string sink, string name)
+{
+	foreach (key, state; histograms)
+	{
+		if (keyName(key) != name)
+			continue;
+		const labels = keyLabels(key);
+		foreach (i, bound; state.bounds)
+			sink ~= name ~ "_bucket{" ~ withBound(labels, format("%g", bound)) ~ "} " ~ format("%g", state.counts[i]) ~ "\n";
+		sink ~= name ~ "_bucket{" ~ withBound(labels, "+Inf") ~ "} " ~ format("%g", state.count) ~ "\n";
+		sink ~= (labels.length ? name ~ "_sum{" ~ labels ~ "} " : name ~ "_sum ") ~ format("%g", state.sum) ~ "\n";
+		sink ~= (labels.length ? name ~ "_count{" ~ labels ~ "} " : name ~ "_count ") ~ format("%g", state.count) ~ "\n";
+	}
+}
+
+private string withBound(string labels, string bound)
+{
+	return (labels.length ? labels ~ "," : "") ~ `le="` ~ bound ~ `"`;
 }
 
 private void emitSeries(ref Appender!string sink, string name, string seriesName, double[string] values)
@@ -197,6 +309,8 @@ private string kindText(Kind kind)
 		return "gauge";
 	case Kind.summary:
 		return "summary";
+	case Kind.histogram:
+		return "histogram";
 	}
 }
 
@@ -210,6 +324,7 @@ version (unittest)
 		gaugeValues = null;
 		summarySum = null;
 		summaryCount = null;
+		histograms = null;
 	}
 }
 
@@ -234,4 +349,32 @@ unittest
 	text.should.contain("# TYPE controller_apiserver_request_duration_seconds summary");
 	text.should.contain(`controller_apiserver_request_duration_seconds_count{verb="GET"} 1`);
 	text.should.contain(`controller_apiserver_request_duration_seconds_sum{verb="GET"} 0.02`);
+}
+
+unittest
+{
+	resetMetrics();
+
+	recordRunCompleted("Succeeded", 0);
+	recordRunDuration("Succeeded", 90);
+	recordRunCompleted("Succeeded", 0);
+	recordRunDuration("Succeeded", 500);
+	recordRunCompleted("Failed", 137);
+	recordRunDuration("Failed", 30);
+	recordRunFailure("job_failed");
+	recordRunQueued(3);
+
+	const text = renderMetrics();
+
+	text.should.contain(`controller_runs_completed_total{phase="Succeeded",exit_code="0"} 2`);
+	text.should.contain(`controller_runs_completed_total{phase="Failed",exit_code="137"} 1`);
+	text.should.contain("# TYPE controller_run_duration_seconds histogram");
+	text.should.contain(`controller_run_duration_seconds_bucket{phase="Succeeded",le="60"} 0`);
+	text.should.contain(`controller_run_duration_seconds_bucket{phase="Succeeded",le="120"} 1`);
+	text.should.contain(`controller_run_duration_seconds_bucket{phase="Succeeded",le="+Inf"} 2`);
+	text.should.contain(`controller_run_duration_seconds_sum{phase="Succeeded"} 590`);
+	text.should.contain(`controller_run_duration_seconds_count{phase="Succeeded"} 2`);
+	text.should.contain(`controller_run_failures_total{kind="job_failed"} 1`);
+	text.should.contain(`controller_run_queue_seconds_bucket{le="4"} 1`);
+	text.should.contain("controller_run_queue_seconds_count 1");
 }
