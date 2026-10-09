@@ -125,6 +125,16 @@ concurrency counts and history pruning read the **cache** rather than doing thei
 reconcile, reconcile work is O(changed) even though the poll itself lists. The `/metrics` endpoint
 exposes `controller_resyncs_total` (full LISTs) and `controller_watch_reconnects_total`.
 
+The same endpoint tells how runs go. `controller_agents{phase}` is the number of Agents in each
+phase at the last poll; `controller_runs_completed_total{phase,exit_code}` counts every terminal
+transition; `controller_run_duration_seconds{phase}` is a histogram from `status.startedAt` to the
+terminal patch; `controller_run_queue_seconds` is a histogram of the wait from an Agent's
+`creationTimestamp` to its Job, which is how long it sat behind a Station's concurrency limit; and
+`controller_run_failures_total{kind}` counts the runs that ended with a reason, by kind
+(`missing_ref`, `job_failed`, `output_unavailable`) rather than by message, so the series stay few.
+Every number is the leader's own process state: a restart starts them from zero, which Prometheus
+reads as a counter reset.
+
 ## Leader election
 
 The controller runs **two replicas** for availability, but only **one** reconciles at a time. The

@@ -6,6 +6,16 @@ the npm package versions.
 
 ## Unreleased
 
+### Added
+- **The controller's `/metrics` tells how runs end and how long they take.**
+  `controller_runs_completed_total{phase,exit_code}` counts every terminal transition,
+  `controller_run_duration_seconds{phase}` is a histogram from `startedAt` to the terminal
+  patch, `controller_run_queue_seconds` a histogram of the wait from an Agent's creation to
+  its Job, and `controller_run_failures_total{kind}` counts the runs that ended with a reason,
+  by kind (`missing_ref`, `job_failed`, `output_unavailable`) rather than by message. The
+  reconcile effect now carries the decision it applied, and `ObjectMeta` reads
+  `creationTimestamp`.
+
 ## v0.11.9
 
 ### Fixed

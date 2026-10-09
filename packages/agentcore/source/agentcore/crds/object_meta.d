@@ -10,6 +10,7 @@ struct ObjectMeta
 	@optional string namespace;
 	@optional string uid;
 	@optional string resourceVersion;
+	@optional string creationTimestamp;
 	@optional string[string] labels;
 	@optional string[string] annotations;
 }

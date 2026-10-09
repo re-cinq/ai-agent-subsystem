@@ -9,7 +9,7 @@ import agentcore.kube.jobspec : buildJob;
 import agentcore.kube.jsonbody : statusPatch;
 import agentcore.kube.kubeclient : KubeClient, NotFound, PodResult;
 import agentcore.reconcile.prune : agentsToPrune;
-import agentcore.reconcile.reconcile : ActionKind, coherentExitCode, decide, JobOutcome, JobState;
+import agentcore.reconcile.reconcile : ActionKind, coherentExitCode, decide, Decision, JobOutcome, JobState;
 import agentcore.core.types : Phase;
 
 /// Status reason when the run Job was garbage-collected before the controller could
@@ -32,6 +32,9 @@ struct ReconcileEffect
 {
 	bool startedRun;
 	string preemptedAgent;
+	/// What was decided, so the caller can observe a start or a terminal transition
+	/// (and time it) without re-deriving the state machine.
+	Decision decision;
 }
 
 /**
@@ -85,28 +88,28 @@ ReconcileEffect reconcileAgent(KubeClient client, string ns, Agent agent, string
 	final switch (decision.kind)
 	{
 	case ActionKind.none:
-		return ReconcileEffect.init;
+		return ReconcileEffect(false, "", decision);
 	case ActionKind.startRun:
 		client.createJob(ns, buildJob(agent, station, definition, agentImage));
 		client.patchAgentStatus(ns, agent.metadata.name,
 			statusPatch(decision, jobNameFor(agent.metadata.name), now, agent.metadata.resourceVersion));
-		return ReconcileEffect(true);
+		return ReconcileEffect(true, "", decision);
 	case ActionKind.replaceRun:
 		const preempted = oldestRunningRun(cached, agent.spec.stationRef);
 		client.deleteAgent(ns, preempted, resourceVersionByName(cached, preempted));
 		client.createJob(ns, buildJob(agent, station, definition, agentImage));
 		client.patchAgentStatus(ns, agent.metadata.name,
 			statusPatch(decision, jobNameFor(agent.metadata.name), now, agent.metadata.resourceVersion));
-		return ReconcileEffect(true, preempted);
+		return ReconcileEffect(true, preempted, decision);
 	case ActionKind.failMissingRef:
 		client.patchAgentStatus(ns, agent.metadata.name,
 			statusPatch(decision, "", now, agent.metadata.resourceVersion));
-		return ReconcileEffect.init;
+		return ReconcileEffect(false, "", decision);
 	case ActionKind.complete:
 		client.patchAgentStatus(ns, agent.metadata.name,
 			statusPatch(decision, jobName, now, agent.metadata.resourceVersion));
 		pruneHistory(client, ns, agent.spec.stationRef, cached);
-		return ReconcileEffect.init;
+		return ReconcileEffect(false, "", decision);
 	}
 }
 

@@ -23,6 +23,7 @@ import httpkube : AgentInformerClient, WatchExpired;
 import leaderelection : Leadership;
 import metrics : recordAgentsByPhase, recordReconcile, recordResync, recordWatchReconnect;
 import readiness : Readiness;
+import runmetrics : recordRunEffect;
 
 /// A decoded line from the Agent watch stream.
 struct WatchEvent
@@ -388,8 +389,10 @@ private ReconcileEffect reconcileOne(AgentInformerClient client, string ns, Agen
 	try
 	{
 		logInfo("reconcile %s (phase=%s)", agent.metadata.name, cast(string) agent.status.phase);
-		const effect = reconcileAgent(client, ns, agent, agentImage, nowRfc3339(), cached);
+		const now = nowRfc3339();
+		const effect = reconcileAgent(client, ns, agent, agentImage, now, cached);
 		recordReconcile("success", elapsedSeconds(start));
+		recordRunEffect(agent, effect, now);
 		return effect;
 	}
 	// Contain a single Agent's reconcile — including library-level `Error`s, not just
