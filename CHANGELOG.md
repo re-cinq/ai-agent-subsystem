@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.11.10
+
 ### Added
 - **The controller's `/metrics` tells how runs end and how long they take.**
   `controller_runs_completed_total{phase,exit_code}` counts every terminal transition,
