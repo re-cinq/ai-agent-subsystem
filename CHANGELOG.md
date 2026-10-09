@@ -12,9 +12,11 @@ the npm package versions.
   `controller_run_duration_seconds{phase}` is a histogram from `startedAt` to the terminal
   patch, `controller_run_queue_seconds` a histogram of the wait from an Agent's creation to
   its Job, and `controller_run_failures_total{kind}` counts the runs that ended with a reason,
-  by kind (`missing_ref`, `job_failed`, `output_unavailable`) rather than by message. The
-  reconcile effect now carries the decision it applied, and `ObjectMeta` reads
-  `creationTimestamp`.
+  by kind (`missing_ref`, `job_failed`, `output_unavailable`, `preempted`) rather than by message.
+  A run failed for a missing reference never ran, so it is counted and not timed; a run
+  preempted under the Replace policy is deleted at Running and gets no terminal status, so it
+  appears only under `preempted`. The reconcile effect now carries the decision it applied, and
+  `ObjectMeta` reads `creationTimestamp`.
 
 ## v0.11.9
 

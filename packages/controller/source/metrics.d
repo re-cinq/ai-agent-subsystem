@@ -1,6 +1,7 @@
 module metrics;
 
 import std.array : Appender, appender;
+import std.exception : assumeWontThrow;
 import std.format : format;
 
 /// In-process Prometheus metrics for the controller, rendered as text exposition
@@ -94,19 +95,25 @@ void recordResync() nothrow
 	addCounter("controller_resyncs_total", "Full namespace resyncs (paginated LIST).", "");
 }
 
-/// Count a run that reached a terminal phase, by phase and exit code, and record
-/// how long it ran from `startedAt` to the terminal patch.
-void recordRunCompleted(string phase, int exitCode, double durationSeconds) nothrow
+/// Count a run that reached a terminal phase, by phase and exit code.
+void recordRunCompleted(string phase, int exitCode) nothrow
 {
 	addCounter("controller_runs_completed_total", "Runs that reached a terminal phase, by phase and exit code.",
 		`phase="` ~ phase ~ `",exit_code="` ~ exitCodeText(exitCode) ~ `"`);
+}
+
+/// Record how long a run ran from `startedAt` to the terminal patch. Only a run
+/// that started has a duration: one failed for a missing reference never ran.
+void recordRunDuration(string phase, double durationSeconds) nothrow
+{
 	observeBucketed("controller_run_duration_seconds", "Seconds a run took from its start to its terminal phase, by phase.",
 		`phase="` ~ phase ~ `"`, runDurationBounds, durationSeconds);
 }
 
 /// Count a run that ended with a reason, by its kind: a missing reference, a failed
-/// Job, or a success whose output could not be recovered. The reason text itself
-/// stays in the Agent's status; as a label it would be one series per message.
+/// Job, a success whose output could not be recovered, or a preemption under the
+/// Replace policy (the one ending with no terminal status of its own). The reason
+/// text itself stays in the Agent's status; as a label it would be one series per message.
 void recordRunFailure(string kind) nothrow
 {
 	addCounter("controller_run_failures_total", "Runs that ended with a failure reason, by kind.",
@@ -120,12 +127,10 @@ void recordRunQueued(double waitSeconds) nothrow
 		runQueueBounds, waitSeconds);
 }
 
+// `format` is not nothrow by type, though formatting an int cannot fail.
 private string exitCodeText(int exitCode) nothrow
 {
-	try
-		return format("%d", exitCode);
-	catch (Exception)
-		return "?";
+	return assumeWontThrow(format("%d", exitCode));
 }
 
 /// Set the number of Agents currently observed in a given phase.
@@ -350,9 +355,12 @@ unittest
 {
 	resetMetrics();
 
-	recordRunCompleted("Succeeded", 0, 90);
-	recordRunCompleted("Succeeded", 0, 500);
-	recordRunCompleted("Failed", 137, 30);
+	recordRunCompleted("Succeeded", 0);
+	recordRunDuration("Succeeded", 90);
+	recordRunCompleted("Succeeded", 0);
+	recordRunDuration("Succeeded", 500);
+	recordRunCompleted("Failed", 137);
+	recordRunDuration("Failed", 30);
 	recordRunFailure("job_failed");
 	recordRunQueued(3);
 

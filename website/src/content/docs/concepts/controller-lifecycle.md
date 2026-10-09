@@ -131,7 +131,7 @@ transition; `controller_run_duration_seconds{phase}` is a histogram from `status
 terminal patch; `controller_run_queue_seconds` is a histogram of the wait from an Agent's
 `creationTimestamp` to its Job, which is how long it sat behind a Station's concurrency limit; and
 `controller_run_failures_total{kind}` counts the runs that ended with a reason, by kind
-(`missing_ref`, `job_failed`, `output_unavailable`) rather than by message, so the series stay few.
+(`missing_ref`, `job_failed`, `output_unavailable`, `preempted`) rather than by message, so the series stay few. A run failed for a missing reference is counted and not timed, since it never ran; a run preempted under the Replace policy has no terminal status and appears only under `preempted`.
 Every number is the leader's own process state: a restart starts them from zero, which Prometheus
 reads as a counter reset.
 
