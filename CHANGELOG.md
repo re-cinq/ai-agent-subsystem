@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.11.11
+
 ### Fixed
 - **A Gemini run installs gemini-cli 0.62.0, not whatever npm calls `latest`.** 0.63.0
   added a taint check that runs after the policy: in a headless run it refuses any shell
