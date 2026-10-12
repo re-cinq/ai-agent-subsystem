@@ -8,6 +8,13 @@ import agentcore.vendors.gemini.experiments : geminiExperimentsJson;
 import agentcore.vendors.gemini.mcp : geminiMcpServersJson;
 import agentcore.vendors.gemini.policy : geminiBypassPolicyToml;
 
+/// The gemini-cli release every run installs. Pinned, because a release can change
+/// what a headless run is allowed to do: 0.63.0 refuses, in non-interactive mode, any
+/// shell command whose flags appeared in an earlier command's output (its taint
+/// check runs after the policy, so the bypass policy cannot allow it), which left
+/// runs unable to use `grep -n` or `git -C` a few minutes in. Raise it deliberately.
+enum geminiCliVersion = "0.62.0";
+
 /// Install the Gemini CLI from its npm tarball, without npm. Gemini ships no
 /// curl installer — the URL v0.10.8 used (dl.google.com/gemini/install.sh)
 /// does not exist and 404s every gemini run at init — and the init container
@@ -66,10 +73,8 @@ final class GeminiSetup : AgentSetup, McpSettings
 		return [[
 			"bash", "-o", "pipefail", "-c",
 			`command -v gemini >/dev/null 2>&1 || {
-  ver=$(curl -fsSL https://registry.npmjs.org/@google/gemini-cli/latest | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')
-  test -n "$ver"
   mkdir -p "$HOME/.local/share/gemini-cli" "$HOME/.local/bin"
-  curl -fsSL "https://registry.npmjs.org/@google/gemini-cli/-/gemini-cli-$ver.tgz" | tar -xz -C "$HOME/.local/share/gemini-cli"
+  curl -fsSL "https://registry.npmjs.org/@google/gemini-cli/-/gemini-cli-` ~ geminiCliVersion ~ `.tgz" | tar -xz -C "$HOME/.local/share/gemini-cli"
   printf '#!/usr/bin/env bash\nexec node "$HOME/.local/share/gemini-cli/package/bundle/gemini.js" "$@"\n' > "$HOME/.local/bin/gemini"
   chmod +x "$HOME/.local/bin/gemini"
 }`,
@@ -96,6 +101,15 @@ version (unittest) import std.algorithm.searching : canFind;
 	steps[0][4].canFind("tar -xz").should.equal(true);
 	steps[0][4].canFind("bundle/gemini.js").should.equal(true);
 	steps[0][4].canFind("command -v gemini").should.equal(true);
+}
+
+@safe unittest
+{
+	// The CLI is pinned, never `latest`: a release changes what a headless run may do,
+	// and 0.63.0 started refusing shell calls the bypass policy allows.
+	const script = (new GeminiSetup).installSteps[0][4];
+	script.canFind("/latest").should.equal(false);
+	script.canFind("gemini-cli-0.62.0.tgz").should.equal(true);
 }
 
 version (unittest)

@@ -6,6 +6,14 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+- **A Gemini run installs gemini-cli 0.62.0, not whatever npm calls `latest`.** 0.63.0
+  added a taint check that runs after the policy: in a headless run it refuses any shell
+  command whose flags appeared in an earlier command's output, with "Tool execution
+  denied by policy." The bypass policy cannot allow it. A few minutes into a run,
+  `grep -n`, `git -C` and test runs with `-t` were all refused, while flagless commands
+  still ran. The version is now the `geminiCliVersion` constant, raised on purpose.
+
 ## v0.11.10
 
 ### Added
