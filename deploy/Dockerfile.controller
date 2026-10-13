@@ -5,6 +5,9 @@
 # then a minimal glibc runtime with libssl3 (vibe-d links it dynamically). Runs
 # non-root, matching deploy/controller.yaml's securityContext.
 #
+# Builds for linux/amd64 and linux/arm64: BuildKit's TARGETARCH picks the LDC
+# tarball, and each platform compiles natively (no cross-compile flags).
+#
 # Builder: rockylinux:9 — its glibc (2.34) is the oldest in the runtime/Station
 # matrix (rocky/amazonlinux/debian/ubuntu), so the static-druntime binary it builds
 # runs on every glibc >= 2.34, not just bookworm's 2.36. The OFFICIAL ldc release
@@ -14,26 +17,35 @@
 ARG BUILDER_IMAGE=rockylinux:9
 ARG RUNTIME_IMAGE=debian:bookworm-slim
 ARG LDC_VERSION=1.40.0
-ARG LDC_SHA256=0da61ed2ea96583aa0ccbeb00f8d78983b23d1e87b84a6f2098eb12059475b27
+ARG LDC_SHA256_AMD64=0da61ed2ea96583aa0ccbeb00f8d78983b23d1e87b84a6f2098eb12059475b27
+ARG LDC_SHA256_ARM64=28d183a99ab9f0790f5597c5c125f41338390f8bed5ed3164138958c18479c82
 
 FROM ${BUILDER_IMAGE} AS builder
+ARG TARGETARCH
 ARG LDC_VERSION
-ARG LDC_SHA256
+ARG LDC_SHA256_AMD64
+ARG LDC_SHA256_ARM64
 RUN set -eu; \
 	dnf install -y --setopt=install_weak_deps=False \
 		curl-minimal xz tar gzip gcc glibc-devel zlib-devel openssl-devel libxml2 git ca-certificates; \
 	dnf clean all
 # Pinned, checksum-verified official LDC release tarball — no curl|bash of an
-# unverified installer. The version and hash move together.
+# unverified installer. The version and the per-arch hashes move together.
 RUN set -eu; \
-	tarball="ldc2-${LDC_VERSION}-linux-x86_64.tar.xz"; \
+	case "${TARGETARCH}" in \
+		amd64) ldc_arch=x86_64;  ldc_sha="${LDC_SHA256_AMD64}" ;; \
+		arm64) ldc_arch=aarch64; ldc_sha="${LDC_SHA256_ARM64}" ;; \
+		*) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+	esac; \
+	tarball="ldc2-${LDC_VERSION}-linux-${ldc_arch}.tar.xz"; \
 	curl -fsSL -o "/tmp/${tarball}" \
 		"https://github.com/ldc-developers/ldc/releases/download/v${LDC_VERSION}/${tarball}"; \
-	echo "${LDC_SHA256}  /tmp/${tarball}" | sha256sum -c -; \
+	echo "${ldc_sha}  /tmp/${tarball}" | sha256sum -c -; \
 	mkdir -p /opt/dlang; \
 	tar -C /opt/dlang -xf "/tmp/${tarball}"; \
+	ln -s "/opt/dlang/ldc2-${LDC_VERSION}-linux-${ldc_arch}" /opt/dlang/ldc2; \
 	rm -f "/tmp/${tarball}"
-ENV PATH="/opt/dlang/ldc2-${LDC_VERSION}-linux-x86_64/bin:${PATH}"
+ENV PATH="/opt/dlang/ldc2/bin:${PATH}"
 WORKDIR /src
 COPY . .
 RUN DFLAGS="-link-defaultlib-shared=false -L-lz" dub build :controller --compiler=ldc2

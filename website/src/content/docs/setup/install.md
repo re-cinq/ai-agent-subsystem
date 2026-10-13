@@ -40,19 +40,23 @@ credentials: an agent calls a model provider, so it needs an `agent-secrets` Sec
 You do **not** need this to install — the published images are public. Build your own only when the
 cluster must pull from a private or air-gapped registry of your own.
 
-You need Docker (with Buildx) and a registry your cluster can pull from. Both images build from the
-repository root:
+The published images are multi-arch (linux/amd64 and linux/arm64). You need Docker (with Buildx)
+and a registry your cluster can pull from. Both images build from the repository root, for the
+platforms your nodes run:
 
 ```sh
 REGISTRY=your-registry.example.com/your-project
 TAG=v0.11.10
 
-docker build -f deploy/Dockerfile.controller       -t "$REGISTRY/ai-agent-controller:$TAG" .
-docker build -f scripts/container/Dockerfile.agent -t "$REGISTRY/ai-agent:$TAG"            .
-
-docker push "$REGISTRY/ai-agent-controller:$TAG"
-docker push "$REGISTRY/ai-agent:$TAG"
+docker buildx build --platform linux/amd64,linux/arm64 --push \
+  -f deploy/Dockerfile.controller       -t "$REGISTRY/ai-agent-controller:$TAG" .
+docker buildx build --platform linux/amd64,linux/arm64 --push \
+  -f scripts/container/Dockerfile.agent -t "$REGISTRY/ai-agent:$TAG"            .
 ```
+
+Building a platform other than the host's needs QEMU `binfmt` registered (`docker run --privileged
+--rm tonistiigi/binfmt --install arm64`) or a native builder of that architecture; drop the one you
+do not need from `--platform` to skip it.
 
 Then point the manifests at them. The controller image is set through the kustomize `images:`
 override in `deploy/kustomization.yaml`; the agent runtime is the `AGENT_IMAGE` env in

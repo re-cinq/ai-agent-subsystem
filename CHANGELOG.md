@@ -6,6 +6,14 @@ the npm package versions.
 
 ## Unreleased
 
+### Added
+- **Multi-arch images: `ghcr.io/re-cinq/ai-agent-controller` and `ghcr.io/re-cinq/ai-agent` now
+  ship for linux/arm64 as well as linux/amd64.** Each tag is an OCI index built natively per
+  platform (no emulation) and cosign-signed recursively, so ARM clusters (Graviton, Ampere,
+  Apple-silicon kind/minikube) pull the same digest-pinned `install.yaml`. The Dockerfiles pick
+  the LDC toolchain and Claude CLI binary from `TARGETARCH`, so `docker buildx build --platform
+  linux/amd64,linux/arm64` works for self-hosted registries too.
+
 ## v0.11.11
 
 ### Fixed

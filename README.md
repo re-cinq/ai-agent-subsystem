@@ -36,19 +36,23 @@ With the controller running, define your first recipe from the [`examples/`](exa
 ### Build your own images
 
 Not needed to install — the published images are public. Do this only when your cluster must pull
-from a private or air-gapped registry. You need Docker (with Buildx); both images build from the
-repo root — build them, tag for **your** registry, and push:
+from a private or air-gapped registry. The published images are multi-arch (linux/amd64 and
+linux/arm64). You need Docker (with Buildx); both images build from the repo root — build them for
+the platforms your nodes run, tag for **your** registry, and push:
 
 ```sh
 REGISTRY=your-registry.example.com/your-project   # a registry your cluster can pull from
 TAG=v0.11.10
 
-docker build -f deploy/Dockerfile.controller       -t "$REGISTRY/ai-agent-controller:$TAG" .
-docker build -f scripts/container/Dockerfile.agent -t "$REGISTRY/ai-agent:$TAG"            .
-
-docker push "$REGISTRY/ai-agent-controller:$TAG"
-docker push "$REGISTRY/ai-agent:$TAG"
+docker buildx build --platform linux/amd64,linux/arm64 --push \
+  -f deploy/Dockerfile.controller       -t "$REGISTRY/ai-agent-controller:$TAG" .
+docker buildx build --platform linux/amd64,linux/arm64 --push \
+  -f scripts/container/Dockerfile.agent -t "$REGISTRY/ai-agent:$TAG"            .
 ```
+
+Building a platform other than the host's needs QEMU `binfmt` registered (`docker run --privileged
+--rm tonistiigi/binfmt --install arm64`) or a native builder of that architecture; drop the one you
+do not need from `--platform` to skip it.
 
 Point the manifests at your images. The controller image is set via the kustomize `images:` override
 in [`deploy/kustomization.yaml`](deploy/kustomization.yaml); the agent runtime the controller injects
