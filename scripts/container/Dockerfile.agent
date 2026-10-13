@@ -11,6 +11,9 @@
 #
 #   build args: BUILDER_IMAGE (gets a D toolchain), RUNTIME_IMAGE
 #
+# Builds for linux/amd64 and linux/arm64: BuildKit's TARGETARCH picks the LDC
+# tarball and the Claude CLI binary, and each platform compiles natively.
+#
 # Builder: rockylinux:9 — glibc 2.34, the oldest in the supported matrix
 # (rocky/amazonlinux/debian/ubuntu), so the static-druntime binaries run on every
 # glibc >= 2.34 Station base, not just bookworm's 2.36. The OFFICIAL ldc release
@@ -19,28 +22,38 @@
 ARG BUILDER_IMAGE=rockylinux:9
 ARG RUNTIME_IMAGE=debian:bookworm-slim
 ARG LDC_VERSION=1.40.0
-ARG LDC_SHA256=0da61ed2ea96583aa0ccbeb00f8d78983b23d1e87b84a6f2098eb12059475b27
+ARG LDC_SHA256_AMD64=0da61ed2ea96583aa0ccbeb00f8d78983b23d1e87b84a6f2098eb12059475b27
+ARG LDC_SHA256_ARM64=28d183a99ab9f0790f5597c5c125f41338390f8bed5ed3164138958c18479c82
 ARG CLAUDE_CLI_VERSION=2.1.267
-ARG CLAUDE_CLI_SHA256=0399c793ff571d5946ef923d80b4f330d05ac4b6842a6b0775468f5d389403c0
+ARG CLAUDE_CLI_SHA256_AMD64=0399c793ff571d5946ef923d80b4f330d05ac4b6842a6b0775468f5d389403c0
+ARG CLAUDE_CLI_SHA256_ARM64=226a4e009574044a18bf5495f127806b2a1bfcbf25b3c01608705fafee95fefb
 
 FROM ${BUILDER_IMAGE} AS builder
+ARG TARGETARCH
 ARG LDC_VERSION
-ARG LDC_SHA256
+ARG LDC_SHA256_AMD64
+ARG LDC_SHA256_ARM64
 RUN set -eu; \
 	dnf install -y --setopt=install_weak_deps=False \
 		curl-minimal xz tar gzip gcc glibc-devel zlib-devel openssl-devel libxml2 git ca-certificates; \
 	dnf clean all
 # Pinned, checksum-verified official LDC release tarball — no curl|bash of an
-# unverified installer. The version and hash move together.
+# unverified installer. The version and the per-arch hashes move together.
 RUN set -eu; \
-	tarball="ldc2-${LDC_VERSION}-linux-x86_64.tar.xz"; \
+	case "${TARGETARCH}" in \
+		amd64) ldc_arch=x86_64;  ldc_sha="${LDC_SHA256_AMD64}" ;; \
+		arm64) ldc_arch=aarch64; ldc_sha="${LDC_SHA256_ARM64}" ;; \
+		*) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+	esac; \
+	tarball="ldc2-${LDC_VERSION}-linux-${ldc_arch}.tar.xz"; \
 	curl -fsSL -o "/tmp/${tarball}" \
 		"https://github.com/ldc-developers/ldc/releases/download/v${LDC_VERSION}/${tarball}"; \
-	echo "${LDC_SHA256}  /tmp/${tarball}" | sha256sum -c -; \
+	echo "${ldc_sha}  /tmp/${tarball}" | sha256sum -c -; \
 	mkdir -p /opt/dlang; \
 	tar -C /opt/dlang -xf "/tmp/${tarball}"; \
+	ln -s "/opt/dlang/ldc2-${LDC_VERSION}-linux-${ldc_arch}" /opt/dlang/ldc2; \
 	rm -f "/tmp/${tarball}"
-ENV PATH="/opt/dlang/ldc2-${LDC_VERSION}-linux-x86_64/bin:${PATH}"
+ENV PATH="/opt/dlang/ldc2/bin:${PATH}"
 WORKDIR /src
 COPY . .
 # Static druntime/phobos so each binary is self-contained on a minimal base and,
@@ -60,16 +73,24 @@ RUN set -eu; \
 # The pinned, checksum-verified Claude CLI (the native glibc build: the Station
 # bases are glibc, as the supervisor already requires). Before the binaries below
 # so a code change does not re-download it. The build fails unless the CLI runs
-# here and reports exactly the pinned version.
+# here and reports exactly the pinned version. The hashes come from
+# downloads.claude.ai/claude-code-releases/<version>/manifest.json.
+ARG TARGETARCH
 ARG CLAUDE_CLI_VERSION
-ARG CLAUDE_CLI_SHA256
+ARG CLAUDE_CLI_SHA256_AMD64
+ARG CLAUDE_CLI_SHA256_ARM64
 LABEL io.github.re-cinq.ai-agent.claude-cli.version="${CLAUDE_CLI_VERSION}"
 RUN set -eu; \
+	case "${TARGETARCH}" in \
+		amd64) cli_platform=linux-x64;   cli_sha="${CLAUDE_CLI_SHA256_AMD64}" ;; \
+		arm64) cli_platform=linux-arm64; cli_sha="${CLAUDE_CLI_SHA256_ARM64}" ;; \
+		*) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+	esac; \
 	cli=/usr/local/lib/ai-agent/claude; \
 	mkdir -p /usr/local/lib/ai-agent; \
 	curl -fsSL -o "$cli" \
-		"https://downloads.claude.ai/claude-code-releases/${CLAUDE_CLI_VERSION}/linux-x64/claude"; \
-	echo "${CLAUDE_CLI_SHA256}  $cli" | sha256sum -c -; \
+		"https://downloads.claude.ai/claude-code-releases/${CLAUDE_CLI_VERSION}/${cli_platform}/claude"; \
+	echo "${cli_sha}  $cli" | sha256sum -c -; \
 	chmod 0755 "$cli"; \
 	scratch="$(mktemp -d)"; \
 	reported="$(HOME="$scratch" "$cli" --version | cut -d' ' -f1)"; \

@@ -6,9 +6,15 @@ name: Publish images
 # directly. The agent image is the AGENT_IMAGE the controller injects as each run
 # pod's init container; the controller image backs deploy/controller.yaml.
 #
+# Multi-arch: each image is built natively for linux/amd64 (ubuntu-latest) and
+# linux/arm64 (ubuntu-24.04-arm, free for public repos) — no QEMU, which would
+# make the LDC compile ~10x slower and flaky. Each leg pushes an untagged image by
+# digest; the `merge` job stitches the legs into one OCI index per image, applies
+# the tags, and signs the index. That index digest is the one pinned and verified.
+#
 # Supply chain: each pushed image is signed with cosign (keyless, via the GitHub
 # OIDC token — no stored keys) and carries an SPDX SBOM + SLSA provenance
-# attestation. The immutable digest is written to the run summary.
+# attestation per platform. The immutable digest is written to the run summary.
 #
 # Releases: on a v* tag the `release` job renders deploy/ to a single digest-pinned
 # install.yaml and attaches it to the GitHub Release — the published `kubectl apply
@@ -31,7 +37,7 @@ permissions:
   id-token: write # keyless cosign signing via the GitHub OIDC token
 
 jobs:
-  publish:
+  build:
     # On main, only publish if the CI workflow that triggered us passed AND it ran
     # on this repo's own main branch — a fork PR's CI also emits a workflow_run
     # whose head_branch is the fork's branch name, so without the head_repository
@@ -43,16 +49,19 @@ jobs:
           (github.event.workflow_run.conclusion == 'success' &&
            github.event.workflow_run.head_repository.full_name == github.repository &&
            github.event.workflow_run.head_branch == 'main') }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.platform.os }}
     strategy:
       matrix:
-        include:
-          - image: ghcr.io/re-cinq/ai-agent-controller
+        image:
+          - name: ghcr.io/re-cinq/ai-agent-controller
             file: deploy/Dockerfile.controller
             key: controller
-          - image: ghcr.io/re-cinq/ai-agent
+          - name: ghcr.io/re-cinq/ai-agent
             file: scripts/container/Dockerfile.agent
             key: agent
+        platform:
+          - { os: ubuntu-latest, target: linux/amd64, arch: amd64 }
+          - { os: ubuntu-24.04-arm, target: linux/arm64, arch: arm64 }
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -70,38 +79,97 @@ jobs:
       - id: meta
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
+          images: ${{ matrix.image.name }}
+      # Untagged, pushed by digest only; the merge job applies the tags to the index.
+      - id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ${{ matrix.image.file }}
+          platforms: ${{ matrix.platform.target }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ matrix.image.name }},push-by-digest=true,name-canonical=true,push=true
+          sbom: true # SPDX SBOM attestation, attached to the image
+          provenance: mode=max # SLSA build provenance attestation
+      # Hand each leg's digest to the merge job. A matrix can't set distinct
+      # job outputs (legs share one map, last writer wins), so go via artifacts.
+      - name: Stage the platform digest for the merge job
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: echo "${DIGEST}" > "${{ matrix.platform.arch }}.digest"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: leg-${{ matrix.image.key }}-${{ matrix.platform.arch }}
+          path: ${{ matrix.platform.arch }}.digest
+          retention-days: 1
+
+  # Stitch the per-platform images into one tagged OCI index per image and sign
+  # it. `imagetools create` carries each leg's SBOM/provenance manifests into the
+  # index; `cosign sign --recursive` signs the index AND the per-platform
+  # manifests, so verifying a platform-resolved digest also passes.
+  merge:
+    name: Merge platforms and sign
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - image: ghcr.io/re-cinq/ai-agent-controller
+            key: controller
+          - image: ghcr.io/re-cinq/ai-agent
+            key: agent
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: leg-${{ matrix.key }}-*
+          path: legs
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
           images: ${{ matrix.image }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=tag
             type=sha
-      - id: build
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: .
-          file: ${{ matrix.file }}
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          sbom: true # SPDX SBOM attestation, attached to the image
-          provenance: mode=max # SLSA build provenance attestation
-      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
-      - name: Sign the image by digest (keyless)
+      - id: index
+        name: Create the multi-arch index
         env:
           IMAGE: ${{ matrix.image }}
-          DIGEST: ${{ steps.build.outputs.digest }}
-        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+          META_JSON: ${{ steps.meta.outputs.json }}
+        run: |
+          set -euo pipefail
+          tag_args="$(jq -r '.tags[] | "-t \(.)"' <<<"${META_JSON}")"
+          first_tag="$(jq -r '.tags[0]' <<<"${META_JSON}")"
+          # shellcheck disable=SC2086 # tag_args is a deliberate word list
+          docker buildx imagetools create ${tag_args} \
+            "${IMAGE}@$(cat legs/amd64.digest)" \
+            "${IMAGE}@$(cat legs/arm64.digest)"
+          digest="$(docker buildx imagetools inspect "${first_tag}" --format '{{.Manifest.Digest}}')"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+      - name: Sign the index and its platform manifests by digest (keyless)
+        env:
+          IMAGE: ${{ matrix.image }}
+          DIGEST: ${{ steps.index.outputs.digest }}
+        run: cosign sign --yes --recursive "${IMAGE}@${DIGEST}"
       - name: Record the immutable digest
         env:
           IMAGE: ${{ matrix.image }}
-          DIGEST: ${{ steps.build.outputs.digest }}
-        run: echo "- \`${IMAGE}@${DIGEST}\`" >> "$GITHUB_STEP_SUMMARY"
-      # Hand each leg's digest to the pin job. A matrix can't set distinct
-      # job outputs (legs share one map, last writer wins), so go via artifacts.
+          DIGEST: ${{ steps.index.outputs.digest }}
+        run: echo "- \`${IMAGE}@${DIGEST}\` (linux/amd64, linux/arm64)" >> "$GITHUB_STEP_SUMMARY"
+      # Hand the index digest to the release and pin jobs (artifacts again, same
+      # matrix-output limitation as above).
       - name: Stage the digest for the pin job
         if: startsWith(github.ref, 'refs/tags/v')
         env:
-          DIGEST: ${{ steps.build.outputs.digest }}
+          DIGEST: ${{ steps.index.outputs.digest }}
         run: echo "${DIGEST}" > "${{ matrix.key }}.digest"
       - name: Upload the digest
         if: startsWith(github.ref, 'refs/tags/v')
@@ -118,7 +186,7 @@ jobs:
   # here, but only deploy/ feeds `kubectl kustomize` and this checkout is discarded.
   release:
     name: Render and attach install.yaml
-    needs: publish
+    needs: merge
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -159,7 +227,7 @@ jobs:
   # docs cosign example) for a human to review and merge.
   pin:
     name: Pin deploy/ and docs to released digests
-    needs: publish
+    needs: merge
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
