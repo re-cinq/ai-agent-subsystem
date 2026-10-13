@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.12.0
+
 ### Added
 - **Multi-arch images: `ghcr.io/re-cinq/ai-agent-controller` and `ghcr.io/re-cinq/ai-agent` now
   ship for linux/arm64 as well as linux/amd64.** Each tag is an OCI index built natively per
