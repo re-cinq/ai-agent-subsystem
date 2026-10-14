@@ -9,9 +9,10 @@ import agentcore.reconcile.concurrency : effectiveMaxRuns, oldestRunningRun, sta
 import agentcore.kube.jobs : jobNameFor;
 import agentcore.kube.jobspec : buildJob, runRecipe;
 import agentcore.batch.provider : batchCleanupFinalizer, maxBatchCleanupAttempts, BatchProvider, BatchProviderFor, BatchRequest,
-	BatchState, batchModel, batchVendor;
+	BatchPoll, BatchState, batchModel, batchVendor;
 import agentcore.batch.translate : batchCliEvents;
 import agentcore.core.env : defaultMaxOutputBytes;
+import agentcore.core.log : logError;
 import agentcore.kube.outputcap : capOutput;
 import std.array : join;
 import agentcore.core.prompt : renderPrompt;
@@ -233,7 +234,7 @@ private struct AgentReconcile
 	{
 		const vendor = vendorOf(definition.spec.model);
 		auto batch = provider;
-		const poll = batch.poll(agent.status.batchId);
+		const poll = pollOrPending(batch, agent.status.batchId);
 		batchLines = poll.state == BatchState.pending ? null : batchCliEvents(vendor, poll, agent.metadata.uid);
 		const output = capOutput(batchLines.join("\n"), batchConfig.maxOutputBytes);
 		const decision = batchPolled(poll, output,
@@ -377,6 +378,19 @@ private struct AgentReconcile
 	private void patch(Json statusPatch)
 	{
 		client.patchAgentStatus(ns, agent.metadata.name, statusPatch);
+	}
+}
+
+/// A poll of the batch `id`, or a pending one when polling throws: a provider or HTTP
+/// error is logged and retried on the next pass, so the batch timeout still applies.
+private BatchPoll pollOrPending(BatchProvider batch, string id)
+{
+	try
+		return batch.poll(id);
+	catch (Exception error)
+	{
+		logError("batch " ~ id ~ " poll failed: " ~ error.msg);
+		return BatchPoll(BatchState.pending);
 	}
 }
 
@@ -638,6 +652,7 @@ version (unittest)
 		string[] cancelled;
 		string[] cleaned;
 		bool cleanupThrows;
+		bool pollThrows;
 		FakeKubeClient journal; /// when set, cleanups are logged into its `calls`
 
 		string submit(BatchRequest request)
@@ -648,6 +663,7 @@ version (unittest)
 
 		BatchPoll poll(string id)
 		{
+			enforce(!pollThrows, "provider poll failed");
 			return pollResult;
 		}
 
@@ -1183,6 +1199,34 @@ unittest // pending batch 60 minutes past a 60-minute timeout with onTimeout fai
 		"output":"","failureReason":"batch timed out","completedAt":"2026-06-22T13:00:00Z"}}`)]);
 }
 
+unittest // batch whose poll throws 60 minutes past a 60-minute timeout cancels msgbatch_1 and patches Failed "batch timed out"
+{
+	auto client = batchClient("claude-sonnet-4-6");
+	client.definition.spec.batch.timeoutMinutes = 60;
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	providers.provider.pollThrows = true;
+
+	reconcileAgent(client, "ai-agents", runningBatchAgent("run-b"), "img", "2026-06-22T13:00:00Z", null,
+		BatchConfig(&providers.make));
+
+	providers.provider.cancelled.should.equal(["msgbatch_1"]);
+	client.statusPatches.should.equal([parseJsonString(`{"status":{"phase":"Failed","exitCode":1,
+		"output":"","failureReason":"batch timed out","completedAt":"2026-06-22T13:00:00Z"}}`)]);
+}
+
+unittest // batch whose poll throws before its timeout stays Running with no patch
+{
+	auto client = batchClient("claude-sonnet-4-6");
+	client.definition.spec.batch.timeoutMinutes = 60;
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	providers.provider.pollThrows = true;
+
+	reconcileAgent(client, "ai-agents", runningBatchAgent("run-b"), "img", "2026-06-22T12:05:00Z", null,
+		BatchConfig(&providers.make));
+
+	client.statusPatches.length.should.equal(0);
+}
+
 unittest // timed-out batch with onTimeout fallback cancels msgbatch_1, creates the buildJob Job and patches batchFallback true
 {
 	import agentcore.crds.enums : BatchTimeoutAction;
@@ -1463,17 +1507,74 @@ unittest // pending batch agent with spec.model claude-opus-4-1 submits its requ
 	providers.provider.submitted[0].model.should.equal("claude-opus-4-1");
 }
 
-unittest // pending batch agent with spec.model gemini-2.5-pro fails with batch execution does not support gemini models
+unittest // pending batch agent with spec.model gpt-5-codex fails with batch execution does not support codex models
 {
 	auto client = batchClient("claude-sonnet-4-6");
 	auto providers = FakeBatchProviders(new FakeBatchProvider);
 	auto agent = pendingAgent("run-b", "stn");
-	agent.spec.model = "gemini-2.5-pro";
+	agent.spec.model = "gpt-5-codex";
 
 	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null, BatchConfig(&providers.make));
 
 	client.statusPatches[0]["status"]["failureReason"].get!string.should.equal(
-		"batch execution does not support gemini models");
+		"batch execution does not support codex models");
+}
+
+unittest // pending gemini batch agent submits with the GEMINI_API_KEY secret and patches Running with batchProvider gemini
+{
+	import agentcore.crds.secret_ref : SecretRef;
+
+	auto client = batchClient("gemini-3.1-flash-lite");
+	client.definition.spec.resources.secrets = [SecretRef("GEMINI_API_KEY", "gemini-key")];
+	client.secrets["agent-secrets/gemini-key"] = "gm-test";
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	auto agent = pendingAgent("run-b", "stn");
+	agent.metadata.uid = "uid-7";
+	agent.spec.parameters = ["ticket": "ENG-1"];
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null, BatchConfig(&providers.make));
+
+	providers.vendors.should.equal([Vendor.gemini]);
+	providers.apiKeys.should.equal(["gm-test"]);
+	providers.provider.submitted.should.equal([
+		BatchRequest("gemini-3.1-flash-lite", "Fix ENG-1", Json.undefined, 16_000, "uid-7")
+	]);
+	client.statusPatches.should.equal([parseJsonString(`{"status":{"phase":"Running",
+		"batchId":"msgbatch_1","batchProvider":"gemini","startedAt":"2026-06-22T12:00:00Z"}}`)]);
+}
+
+unittest // running gemini batch agent whose poll succeeded patches Succeeded with the gemini lines and posts them to the http sink
+{
+	import agentcore.batch.gemini : parsePoll, toCliEvents;
+	import agentcore.crds.enums : SinkType;
+	import agentcore.crds.output_sink : OutputSink;
+	import agentcore.crds.secret_ref : SecretRef;
+	import agentcore.output.event : EventSource, wrapEvent;
+	import std.algorithm : map;
+	import std.array : array, join;
+
+	auto client = batchClient("gemini-3.1-flash-lite");
+	client.definition.spec.resources.secrets = [SecretRef("GEMINI_API_KEY", "gemini-key")];
+	client.secrets["agent-secrets/gemini-key"] = "gm-test";
+	client.definition.spec.output.sinks = [OutputSink(SinkType.http, "http://floor/events")];
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	providers.provider.pollResult = parsePoll(parseJsonString(import("batch/gemini-batch-succeeded.json")));
+	FakeSinkPoster poster;
+	auto agent = runningBatchAgent("run-b");
+	agent.status.batchProvider = "gemini";
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:05:00Z", null, sinkConfig(providers, poster));
+
+	const lines = toCliEvents(providers.provider.pollResult, "uid-7");
+	client.statusPatches.should.equal([Json(["status": Json([
+		"phase": Json("Succeeded"),
+		"exitCode": Json(0),
+		"output": Json(lines.join("\n")),
+		"completedAt": Json("2026-06-22T12:05:00Z"),
+	])])]);
+	const source = EventSource("run-b", "stn", "", "", "ai-agents");
+	poster.posts.should.equal((lines ~ `{"kind":"lifecycle","phase":"agent","status":"succeeded","exitCode":0}`)
+		.map!(line => "http://floor/events " ~ wrapEvent(source, line)).array);
 }
 
 unittest // pending batch agent with spec.files fails with batch execution does not support files

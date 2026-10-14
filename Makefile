@@ -33,8 +33,13 @@ record-fixtures: ## Re-record the claude CLI and Anthropic batch fixtures (needs
 	./scripts/record-cli-events.sh
 	./scripts/record-batch-response.sh
 
+.PHONY: record-fixtures-gemini
+record-fixtures-gemini: ## Re-record the gemini CLI and Gemini batch fixtures (needs GEMINI_API_KEY)
+	./scripts/record-cli-events.sh "" gemini
+	./scripts/record-batch-response.sh "" gemini
+
 .PHONY: itest-batch
-itest-batch: ## Live CLI-vs-batch event parity check (needs ANTHROPIC_API_KEY)
+itest-batch: ## Live CLI-vs-batch event parity check (needs ANTHROPIC_API_KEY; VENDOR=gemini needs GEMINI_API_KEY)
 	./scripts/itest-batch.sh
 
 .PHONY: ctest

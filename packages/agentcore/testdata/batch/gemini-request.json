@@ -1,0 +1,31 @@
+{
+    "batch": {
+        "display_name": "agent-7c1e",
+        "input_config": {
+            "requests": {
+                "requests": [
+                    {
+                        "request": {
+                            "contents": [
+                                {
+                                    "role": "user",
+                                    "parts": [
+                                        {
+                                            "text": "Say hello"
+                                        }
+                                    ]
+                                }
+                            ],
+                            "generationConfig": {
+                                "maxOutputTokens": 1024
+                            }
+                        },
+                        "metadata": {
+                            "key": "agent-7c1e"
+                        }
+                    }
+                ]
+            }
+        }
+    }
+}

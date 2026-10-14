@@ -14,6 +14,12 @@ struct BatchRequest
 	string customId;
 }
 
+/// Whether `schema` (a request's `output.schema`) asks for structured output.
+bool hasSchema(const Json schema)
+{
+	return schema.type != Json.Type.undefined && schema.type != Json.Type.null_;
+}
+
 enum BatchState
 {
 	pending,
@@ -58,6 +64,24 @@ struct HttpResponse
 /// ditto
 alias HttpTransport = HttpResponse delegate(HttpRequest request);
 
+version (unittest)
+{
+	/// Records each request and answers with the next scripted response.
+	struct FakeTransport
+	{
+		HttpResponse[] responses;
+		HttpRequest[] requests;
+
+		HttpResponse send(HttpRequest request)
+		{
+			requests ~= request;
+			const response = responses[0];
+			responses = responses[1 .. $];
+			return response;
+		}
+	}
+}
+
 /// Builds the `BatchProvider` for a vendor, authenticated with `apiKey`; injected into the
 /// reconcile driver so tests hand out a fake.
 alias BatchProviderFor = BatchProvider delegate(Vendor vendor, string apiKey);
@@ -101,4 +125,11 @@ BatchVendor batchVendor(Vendor vendor) @safe pure
 		enforce(false, "no batch API for vendor " ~ (vendor == Vendor.exec ? "exec" : "opencode"));
 		assert(0);
 	}
+}
+
+version (unittest) import fluent.asserts;
+
+unittest // batch model of gemini-3.1-flash-lite stays gemini-3.1-flash-lite while an empty model becomes claude-opus-5-5
+{
+	[batchModel("gemini-3.1-flash-lite"), batchModel("")].should.equal(["gemini-3.1-flash-lite", "claude-opus-5-5"]);
 }

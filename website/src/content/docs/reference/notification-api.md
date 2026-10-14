@@ -191,7 +191,9 @@ The agent's terminal event, emitted once when the run finishes.
 
 ## Consumer contract
 
-The fields below are the stable contract for Claude runs. A CLI run and a [batch run](../tasks/batch-runs.md) both emit every required field with the type shown; other fields may be added, removed or differ between the two and are not part of it. A field present with another type should be treated as invalid: the Floor drops such a line. The contract is the `consumerFields` table in `packages/agentcore/source/agentcore/output/contract.d`, checked in `dub test :agentcore` against a recorded Claude CLI run and against the batch translation of a recorded Message Batches result.
+The fields below are the stable contract for Claude and Gemini runs. A CLI run and a [batch run](../tasks/batch-runs.md) both emit every required field with the type shown; other fields may be added, removed or differ between the two and are not part of it. A field present with another type should be treated as invalid: the Floor drops such a line. The contract is the `consumerFields` table in `packages/agentcore/source/agentcore/output/contract.d`, checked in `dub test :agentcore` against recorded Claude and gemini CLI runs and against the batch translations of a Message Batches result and a Gemini Batch API result.
+
+### Claude
 
 | Event | Field | Type | Required |
 | --- | --- | --- | --- |
@@ -204,11 +206,32 @@ The fields below are the stable contract for Claude runs. A CLI run and a [batch
 | `result` | `modelUsage` | object keyed by model | yes |
 | `result` | `modelUsage.<model>.inputTokens`, `outputTokens`, `cacheReadInputTokens`, `cacheCreationInputTokens`, `costUSD` | number | yes, per model |
 | `system` (`subtype: "init"`) | `type`, `subtype`, `apiKeySource` | string | yes |
+
+### Gemini
+
+| Event | Field | Type | Required |
+| --- | --- | --- | --- |
+| `result` | `type` (`"result"`), `status` (`"success"` or `"error"`; `"error"` means the run failed) | string | yes |
+| `result` | `error` | object | no |
+| `result` | `error.message` | string | no |
+| `result` | `stats` | object | yes |
+| `result` | `stats.input`, `stats.cached`, `stats.output_tokens`, `stats.duration_ms` | number | yes |
+| `result` | `stats.models` | object keyed by model | yes |
+| `result` | `stats.models.<model>.input`, `cached`, `output_tokens` | number | yes, per model |
+| `init` | `type` | string | yes |
+| `message` (`role: "assistant"`) | `type`, `role`, `content` | string | yes |
+
+A consumer joins the assistant `message` lines' `content` for the run's text, since the gemini `result` carries none. A gemini run reports no cost. The gemini CLI's `timestamp` fields and its `message` echoing the user prompt are not part of the contract; a batch run omits both.
+
+### Lifecycle (every vendor)
+
+| Event | Field | Type | Required |
+| --- | --- | --- | --- |
 | lifecycle | `kind`, `phase`, `status` | string | yes |
 | lifecycle | `tool`, `reason` | string | no |
 | lifecycle | `exitCode` | number | no |
 
-`apiKeySource` is `"none"` when the CLI ran on a subscription and anything else, such as `"ANTHROPIC_API_KEY"`, when it ran on an API key; a batch run always reports `"ANTHROPIC_API_KEY"`. Nothing in `assistant` events is part of the contract. A run ends, for a consumer, on a lifecycle event with `status: "failed"` in any phase, or with `phase: "agent"` and `status: "succeeded"`. Of the envelope, only the presence of `source` and `event` is part of the contract.
+`apiKeySource` is `"none"` when the CLI ran on a subscription and anything else, such as `"ANTHROPIC_API_KEY"`, when it ran on an API key; a Claude batch run always reports `"ANTHROPIC_API_KEY"`. Nothing in Claude `assistant` events is part of the contract. A run ends, for a consumer, on a lifecycle event with `status: "failed"` in any phase, or with `phase: "agent"` and `status: "succeeded"`. Of the envelope, only the presence of `source` and `event` is part of the contract.
 
 > Always parse tool-native payloads with a JSON parser, never by string-matching the serialized form — escaping (Unicode, forward slashes) can differ between models.
 

@@ -19,7 +19,8 @@ struct Terminal
 /// Detect the agent's terminal event in `payload`. Claude's `stream-json` ends with
 /// a single `{"type":"result","is_error":bool,...}`; Codex's `exec --json` ends its
 /// turn with `{"type":"turn.completed",...}` (it has no error field, so a completed
-/// turn is treated as success). Anything else is not terminal. Never throws — it
+/// turn is treated as success); Gemini's `stream-json` ends with
+/// `{"type":"result","status":"success"|"error",...}`. Anything else is not terminal. Never throws — it
 /// runs on the supervisor's nothrow output path, so a malformed line is just "not
 /// terminal".
 Terminal terminalFor(string provider, string payload) nothrow
@@ -29,7 +30,15 @@ Terminal terminalFor(string provider, string payload) nothrow
 		auto event = parseJsonString(payload);
 		if (event.type != Json.Type.object)
 			return Terminal.init;
-		return provider == "codex" ? codexTerminal(event) : claudeTerminal(event);
+		switch (provider)
+		{
+		case "codex":
+			return codexTerminal(event);
+		case "gemini":
+			return geminiTerminal(event);
+		default:
+			return claudeTerminal(event);
+		}
 	}
 	catch (Exception)
 		return Terminal.init;
@@ -40,6 +49,13 @@ private Terminal claudeTerminal(Json event)
 	if (strAt(event, "type") != "result")
 		return Terminal.init;
 	return Terminal(true, !boolAt(event, "is_error"));
+}
+
+private Terminal geminiTerminal(Json event)
+{
+	if (strAt(event, "type") != "result")
+		return Terminal.init;
+	return Terminal(true, strAt(event, "status") != "error");
 }
 
 private Terminal codexTerminal(Json event)
@@ -104,4 +120,18 @@ unittest
 	terminalFor("claude", "not json").should.equal(Terminal(false, false));
 	terminalFor("claude", `"a string"`).should.equal(Terminal(false, false));
 	terminalFor("claude", "").should.equal(Terminal(false, false));
+}
+
+unittest // gemini result with status error is terminal and not ok
+{
+	terminalFor("gemini", `{"type":"result","status":"error","error":{"type":"unknown","message":"quota"}}`)
+		.should.equal(Terminal(true, false));
+}
+
+unittest // gemini success result is terminal and ok while its init and message lines are not terminal
+{
+	[terminalFor("gemini", `{"type":"init","session_id":"s","model":"gemini-3.1-flash-lite"}`),
+		terminalFor("gemini", `{"type":"message","role":"assistant","content":"ok","delta":true}`),
+		terminalFor("gemini", `{"type":"result","status":"success","stats":{}}`)]
+		.should.equal([Terminal(false, false), Terminal(false, false), Terminal(true, true)]);
 }
