@@ -1,0 +1,12 @@
+{
+  "requests": [
+    {
+      "custom_id": "agent-7c1e",
+      "params": {
+        "model": "claude-sonnet-4-5",
+        "max_tokens": 1024,
+        "messages": [{"role": "user", "content": "Say hello"}]
+      }
+    }
+  ]
+}

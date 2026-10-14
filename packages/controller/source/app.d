@@ -1,5 +1,6 @@
 module app;
 
+import core.time : seconds;
 import std.conv : to;
 import std.process : environment;
 
@@ -11,7 +12,12 @@ import health : startHealthServer;
 import incluster : loadClusterConfig;
 import leaderelection : Leadership, runLeaderElection;
 import readiness : Readiness;
-import watchpoll : runControlLoop;
+import watchpoll : ControlSettings, runControlLoop;
+
+import agentcore.batch.translate : batchProvidersOver;
+import agentcore.reconcile.reconcile_driver : BatchConfig;
+
+import batchhttp : batchTransport, sinkPoster;
 
 version (unittest)
 {
@@ -33,6 +39,10 @@ else
 		auto client = new HttpKubeClient(config);
 		auto leadership = new Leadership();
 		auto readiness = new Readiness();
+		auto settings = ControlSettings(agentImage,
+			BatchConfig(config.batchEnabled ? batchProvidersOver((request) => batchTransport(request)) : null,
+				config.maxOutputBytes, sinkPoster()),
+			config.batchPollSeconds.seconds);
 
 		logInfo("ai-agent-controller: namespace=%s identity=%s health=:%s agentImage=%s",
 			config.namespace, config.identity, healthPort, agentImage);
@@ -42,7 +52,7 @@ else
 			runLeaderElection(client, config.namespace, config.identity, leadership, readiness);
 		});
 		runTask(() nothrow {
-			runControlLoop(client, config.namespace, agentImage, leadership, readiness);
+			runControlLoop(client, config.namespace, settings, leadership, readiness);
 		});
 		return runEventLoop();
 	}

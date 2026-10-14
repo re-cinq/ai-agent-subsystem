@@ -19,6 +19,8 @@ The recipe. It has a `spec` and no `status`.
 | `disallowed_tools` | []string |  | Scoped denials, e.g. `Bash(rm *)`. |
 | `permission_mode` | enum | `auto` | `auto` enforces allow/deny lists; `bypass` grants all. |
 | `max_turns` | int |  | Agentic turn cap; omit for uncapped. |
+| `execution` | enum | `interactive` | `interactive` runs the CLI in a Job pod. `batch` sends the prompt to the vendor's batch API from the controller; see [batch runs](../tasks/batch-runs.md). |
+| `batch` | object |  | Batch settings, read only when `execution: batch`; see below. |
 | `resources` | object |  | Run inputs; see below. |
 | `output` | object |  | Result contract; see below. |
 | `tool_config` | object |  | Raw passthrough for tool-specific knobs; unknown fields preserved. |
@@ -34,6 +36,43 @@ The recipe. It has a `spec` and no `status`.
 | `skills` | []string | Skill names staged into the run's `$HOME/.claude/skills`, fetched from `skills_source` as `<source>/<name>.tar.gz`. The recipe declares intent; each adapter realizes it. |
 | `skills_source` | string | Base URL of the skill/settings registry. The init also fetches `<source>/settings.json` (Claude's flat session settings) and `<source>/hooks/<vendor>.tar.gz` — the hook bundle for the vendor the `model` routes to, in that vendor's native format, extracted relative to `$HOME`. Empty means no fetch — the cloned repo's own `.claude/skills` is still staged. |
 | `conversation` | object | `{source, id?, pin?, headers_secret?}` — a previous run this one continues. The init restores its state before the agent starts; the supervisor saves this run's own state as `pin`. `id` is opaque to the subsystem. |
+
+### `spec.batch`
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `timeoutMinutes` | int (min 1) | `1440` | Minutes to wait for the batch result, counted from the Agent's `startedAt`. |
+| `onTimeout` | enum | `fail` | `fail` cancels the batch and marks the Agent `Failed` with reason `batch timed out`. `fallback` cancels the batch and runs the same definition as an ordinary CLI Job, which is faster but costs full price. |
+| `maxTokens` | int (min 1) | `16000` | The batch request's `max_tokens`. Models that always think spend part of it on thinking. |
+
+#### Batch validation
+
+A batch request is one model call with no tool loop, so a definition with `execution: batch` may only
+set the fields a single call can use. The controller checks this when it reconciles an Agent, and
+fails the Agent with `batch execution does not support <field>` when the definition sets any of:
+
+- `allowed_tools`, `disallowed_tools` or `max_turns`
+- `resources.repos`, `resources.mcp_servers`, `resources.skills` or `resources.conversation`
+- `output.watch`
+- the `exec` model
+- a model that does not route to Claude. OpenAI (Codex), Gemini and opencode models are rejected
+  with `batch execution does not support codex models` (or `gemini`, `opencode`); support for
+  OpenAI and Gemini batch is coming.
+
+`output.schema` is allowed: it is sent as the request's structured-output format
+(`output_config.format` of type `json_schema`). An empty `model` (on the definition and the Agent)
+sends `claude-opus-5-5`. A controller without the batch component fails every batch Agent with
+`batch execution is disabled on this controller`; see
+[enabling batch](../tasks/batch-runs.md#enable-batch-on-the-controller).
+
+The model checked is the run's model: an Agent's `spec.model` overrides the definition's, as for a
+Job, so an Agent that overrides a batch recipe with a Gemini or Codex model fails with the same
+reason. An Agent that sets `spec.files` on a batch recipe fails with
+`batch execution does not support files`, since there is no workspace to download them into.
+
+The definition must also map the vendor's API key: a `resources.secrets` entry named
+`ANTHROPIC_API_KEY`. Without it the Agent fails with
+`batch execution needs a resources.secrets entry named ANTHROPIC_API_KEY`.
 
 ### `spec.output`
 

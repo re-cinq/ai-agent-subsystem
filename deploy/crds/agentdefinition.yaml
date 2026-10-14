@@ -60,6 +60,30 @@ spec:
                 max_turns:
                   type: integer
                   minimum: 1
+                execution:
+                  type: string
+                  enum:
+                    - "interactive"
+                    - "batch"
+                batch:
+                  type: object
+                  properties:
+                    timeoutMinutes:
+                      type: integer
+                      default: 1440
+                      minimum: 1
+                      description: "Minutes to wait for the batch result before onTimeout applies."
+                    onTimeout:
+                      type: string
+                      description: "fail marks the Agent Failed; fallback reruns the work as a CLI Job."
+                      enum:
+                        - "fail"
+                        - "fallback"
+                    maxTokens:
+                      type: integer
+                      default: 16000
+                      minimum: 1
+                      description: "Output token ceiling (max_tokens) for the batch request."
                 resources:
                   type: object
                   properties:

@@ -12,6 +12,8 @@
 #   - website/.../setup/install.md              cosign verify <controller>@  @digest        -> @digest
 #   - website/.../setup/{install,uninstall}.md  releases/download/<tag>/     tag            -> REF
 #   - website/.../setup/install.md, README.md   TAG=<tag> build example      tag            -> REF
+#   - website/.../{setup/install,tasks/batch-runs,reference/rbac-and-network}.md
+#                                               //deploy...?ref=<tag> URLs   tag            -> REF
 #
 # Resolving a digest from a tag reads the registry; both images are public, so this
 # works unauthenticated. In CI the build already emitted the digests, so pass them
@@ -97,12 +99,15 @@ v*)
 	python3 - "$ref" \
 		"$repo/website/src/content/docs/setup/install.md" \
 		"$repo/website/src/content/docs/setup/uninstall.md" \
+		"$repo/website/src/content/docs/tasks/batch-runs.md" \
+		"$repo/website/src/content/docs/reference/rbac-and-network.md" \
 		"$repo/README.md" <<'PY'
 import re, sys
 ref, paths = sys.argv[1], sys.argv[2:]
 patterns = [
     (re.compile(r"(/releases/download/)[^/]+(/install\.yaml)"), r"\g<1>" + ref + r"\g<2>"),
     (re.compile(r"(?m)^TAG=v\S+"), "TAG=" + ref),
+    (re.compile(r"(ai-agent-subsystem//deploy\S*\?ref=)v\S+"), r"\g<1>" + ref),
 ]
 landed = 0
 for path in paths:

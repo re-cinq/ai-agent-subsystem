@@ -19,6 +19,8 @@ Every event is delivered to each sink declared in `spec.output.sinks`. There are
 
 Both the init container (setup phase) and the supervisor (agent phase) emit through the same path, so the two phases' streams look identical to a listener. A single run therefore produces one uniform event stream from start to finish.
 
+A [batch run](../tasks/batch-runs.md#sinks) has no pod: the controller delivers its events to the same sinks through the same code, with no `pod` in `source` and no init-phase events. It sends each event after the status patch it reports, at most once.
+
 ## The envelope
 
 Every event **delivered to an http or file sink** is wrapped in an envelope carrying the run's identity, so a downstream workflow — where streams from many pods merge — can correlate it back to its agent and pod. The envelope is applied exactly once, at sink delivery; wrapping an already-wrapped line is refused (enforce) rather than nested:
@@ -43,7 +45,7 @@ Every event **delivered to an http or file sink** is wrapped in an envelope carr
 | `agent` | string | The run's name. |
 | `station` | string | The station the run belongs to. |
 | `task` | string | External correlation id (the Agent's `taskId`), if set. |
-| `pod` | string | The run pod's name. |
+| `pod` | string | The run pod's name. Absent for a batch run, which has no pod. |
 | `namespace` | string | The run pod's namespace. |
 
 Empty ids are omitted from `source`. A line that is not valid JSON is wrapped as a JSON string (`"event": "…"`) rather than dropped, so a listener never has to guard against malformed bodies.
@@ -186,6 +188,27 @@ The agent's terminal event, emitted once when the run finishes.
 | `total_cost_usd` | number | Total cost of the run. |
 | `num_turns` | int | Number of agentic turns. |
 | `duration_ms` | int | Wall-clock duration. |
+
+## Consumer contract
+
+The fields below are the stable contract for Claude runs. A CLI run and a [batch run](../tasks/batch-runs.md) both emit every required field with the type shown; other fields may be added, removed or differ between the two and are not part of it. A field present with another type should be treated as invalid: the Floor drops such a line. The contract is the `consumerFields` table in `packages/agentcore/source/agentcore/output/contract.d`, checked in `dub test :agentcore` against a recorded Claude CLI run and against the batch translation of a recorded Message Batches result.
+
+| Event | Field | Type | Required |
+| --- | --- | --- | --- |
+| `result` | `type` (`"result"`), `result` | string | yes |
+| `result` | `is_error` | bool | yes |
+| `result` | `total_cost_usd`, `num_turns`, `duration_ms` | number | yes |
+| `result` | `usage` | object | yes |
+| `result` | `usage.input_tokens`, `usage.output_tokens` | number | yes |
+| `result` | `usage.cache_read_input_tokens`, `usage.cache_creation_input_tokens` | number | no |
+| `result` | `modelUsage` | object keyed by model | yes |
+| `result` | `modelUsage.<model>.inputTokens`, `outputTokens`, `cacheReadInputTokens`, `cacheCreationInputTokens`, `costUSD` | number | yes, per model |
+| `system` (`subtype: "init"`) | `type`, `subtype`, `apiKeySource` | string | yes |
+| lifecycle | `kind`, `phase`, `status` | string | yes |
+| lifecycle | `tool`, `reason` | string | no |
+| lifecycle | `exitCode` | number | no |
+
+`apiKeySource` is `"none"` when the CLI ran on a subscription and anything else, such as `"ANTHROPIC_API_KEY"`, when it ran on an API key; a batch run always reports `"ANTHROPIC_API_KEY"`. Nothing in `assistant` events is part of the contract. A run ends, for a consumer, on a lifecycle event with `status: "failed"` in any phase, or with `phase: "agent"` and `status: "succeeded"`. Of the envelope, only the presence of `source` and `event` is part of the contract.
 
 > Always parse tool-native payloads with a JSON parser, never by string-matching the serialized form — escaping (Unicode, forward slashes) can differ between models.
 

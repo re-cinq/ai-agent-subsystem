@@ -177,6 +177,14 @@ final class HttpKubeClient : KubeClient, LeaseClient, AgentInformerClient
 		recordStatusPatch();
 	}
 
+	override void patchAgent(string ns, string name, Json patch)
+	{
+		// 422: a JSON-patch `test` op failed because the finalizer list changed since our
+		// read; drop the write and let the next reconcile recompute it from fresh state.
+		if (send(HTTPMethod.PATCH, crUrl(ns, "agents", name), patch, "application/json-patch+json", [200, 404, 422]) == 422)
+			logInfo("finalizer patch conflict for %s: list changed, will reconcile again", name);
+	}
+
 	/// List every Agent in the namespace, following `continue` tokens across pages
 	/// so a large namespace arrives in bounded chunks. Returns the accumulated
 	/// items with the list's `resourceVersion` — the point the watch resumes from.
@@ -234,6 +242,12 @@ final class HttpKubeClient : KubeClient, LeaseClient, AgentInformerClient
 		const log = capOutput(getText(podLogUrl(ns, podName), "logs for " ~ podName),
 			config.maxOutputBytes);
 		return PodResult(code, log);
+	}
+
+	override string secretValue(string ns, string name, string key)
+	{
+		return secretKeyValue(getJson(config.apiBase ~ "/api/v1/namespaces/" ~ ns ~ "/secrets/" ~ name,
+			"Secret " ~ name), key);
 	}
 
 	/// Stream Agent watch events (one newline-delimited JSON object per line) to
@@ -460,6 +474,17 @@ final class HttpKubeClient : KubeClient, LeaseClient, AgentInformerClient
 
 /// Read the leadership fields out of a Lease object. Missing fields fall back to
 /// their zero value — a freshly created Lease may not carry every field yet.
+/// The base64-decoded `data[key]` of a Secret object; throws `NotFound` when it is absent.
+string secretKeyValue(Json secret, string key)
+{
+	import std.base64 : Base64;
+
+	const entries = secret["data"];
+	const data = entries.type == Json.Type.object ? entries[key] : Json.undefined;
+	enforce(data.type == Json.Type.string, new NotFound("Secret has no key " ~ key));
+	return cast(string) Base64.decode(data.get!string);
+}
+
 LeaseRecord parseLeaseRecord(Json lease)
 {
 	LeaseRecord record;
@@ -595,4 +620,43 @@ unittest
 
 	// A Lease that has not been created yet leaves exists false and fields empty.
 	LeaseRecord.init.should.equal(LeaseRecord(false, "", "", "", 0));
+}
+
+unittest // Secret with base64 data anthropic-key decodes to sk-ant-test
+{
+	secretKeyValue(parseJsonString(`{"kind":"Secret","metadata":{"name":"agent-secrets"},
+		"data":{"anthropic-key":"c2stYW50LXRlc3Q="}}`), "anthropic-key").should.equal("sk-ant-test");
+}
+
+unittest // Secret without the key, or without data, throws NotFound naming the key
+{
+	secretKeyValue(parseJsonString(`{"data":{"other":"eA=="}}`), "anthropic-key").should
+		.throwException!NotFound.withMessage("Secret has no key anthropic-key");
+	secretKeyValue(parseJsonString(`{"metadata":{}}`), "anthropic-key").should
+		.throwException!NotFound.withMessage("Secret has no key anthropic-key");
+}
+
+unittest // patchAgent sends the finalizer patch as application/json-patch+json to the Agent's URL
+{
+	import vibe.http.server : HTTPServerRequest, HTTPServerResponse, HTTPServerSettings, listenHTTP;
+	import vibe.stream.operations : readAllUTF8;
+
+	string received;
+	auto settings = new HTTPServerSettings;
+	settings.port = 0;
+	settings.bindAddresses = ["127.0.0.1"];
+	auto listener = listenHTTP(settings, (scope HTTPServerRequest req, scope HTTPServerResponse res) {
+		received = req.method.httpMethodString ~ " " ~ req.requestURI ~ " " ~ req.contentType ~ " "
+			~ req.bodyReader.readAllUTF8;
+		res.writeBody("{}", "application/json");
+	});
+	scope (exit)
+		listener.stopListening();
+	const apiBase = "http://127.0.0.1:" ~ listener.bindAddresses[0].port.to!string;
+	auto client = new HttpKubeClient(ClusterConfig(apiBase, "tok", "", "", "ai-agents"));
+
+	client.patchAgent("ai-agents", "run-1", parseJsonString(`[{"op":"remove","path":"/metadata/finalizers/0"}]`));
+
+	received.should.equal("PATCH /apis/agents.re-cinq.com/v1alpha1/namespaces/ai-agents/agents/run-1 "
+		~ `application/json-patch+json [{"op":"remove","path":"/metadata/finalizers/0"}]`);
 }

@@ -42,6 +42,10 @@ The controller owns `status`:
 - **`output`**: captured summary output (the truncated tail of the pod logs).
 - **`failureReason`**: a human-readable reason when the run fails.
 - **`prUrl`**: a pull-request URL when applicable.
+- **`batchId`** / **`batchProvider`** / **`batchFallback`** / **`batchCleanupAttempts`**: set only
+  for [batch runs](../tasks/batch-runs.md). A batch Agent goes through the same phases, but `Running`
+  means its provider batch is in flight rather than a Job, and `jobName` stays empty unless it fell
+  back to a Job.
 
 The phase transitions are driven by the controller's reconcile loop; see
 [Controller lifecycle](./controller-lifecycle.md). The full field reference

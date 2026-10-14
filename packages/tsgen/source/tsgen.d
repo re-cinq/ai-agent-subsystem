@@ -16,7 +16,7 @@ import described : describe;
 
 import agentcore.crds.schema : descriptionOf, jsonNameOf, isRequired;
 import agentcore.crds.enums : PermissionMode, McpTransport, OutputFormat, SelectEvent,
-	SelectRole, SinkType, ConcurrencyPolicy;
+	SelectRole, SinkType, ConcurrencyPolicy, Execution, BatchTimeoutAction;
 import agentcore.core.types : Phase;
 import agentcore.crds.object_meta : ObjectMeta;
 import agentcore.crds.env_var : EnvVar;
@@ -31,7 +31,7 @@ import agentcore.crds.output_watch : OutputWatch;
 import agentcore.crds.watch_upload : WatchUpload;
 import agentcore.crds.input_file : InputFile;
 import agentcore.crds.output_spec : OutputSpec;
-import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
+import agentcore.crds.agent_definition_spec : AgentDefinitionSpec, BatchSpec;
 import agentcore.crds.agent_definition : AgentDefinition;
 import agentcore.crds.station_spec : StationSpec;
 import agentcore.crds.station : Station;
@@ -41,13 +41,13 @@ import agentcore.crds.agent : Agent;
 
 /// The enums emitted as TypeScript string-union types, in declaration order.
 private alias AllEnums = AliasSeq!(PermissionMode, McpTransport, OutputFormat,
-	SelectEvent, SelectRole, SinkType, ConcurrencyPolicy, Phase);
+	SelectEvent, SelectRole, SinkType, ConcurrencyPolicy, Execution, BatchTimeoutAction, Phase);
 
 /// The structs emitted as TypeScript interfaces (dependency-first for readability;
 /// TS does not require forward declaration).
 private alias AllStructs = AliasSeq!(ObjectMeta, EnvVar, SecretRef, McpHeader, McpServer, RepoRef,
 	ConversationRef, AgentResources, OutputSelector, OutputSink, WatchUpload, OutputWatch, OutputSpec,
-	AgentDefinitionSpec, AgentDefinition, StationSpec, Station, InputFile, AgentSpec, AgentStatus, Agent);
+	BatchSpec, AgentDefinitionSpec, AgentDefinition, StationSpec, Station, InputFile, AgentSpec, AgentStatus, Agent);
 
 /// The TypeScript type expression for D type `FT`. Mirrors `crdgen.emitType`'s
 /// dispatch: a `Json` preserve-unknown object becomes `unknown`; an enum and a

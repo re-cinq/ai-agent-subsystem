@@ -1,0 +1,15 @@
+# Opt-in batch execution (AgentDefinition `execution: batch`). Adds the controller's
+# read grant on the agent-secrets Secret (the controller calls the vendor batch API
+# itself, so it needs the provider API key) and sets BATCH_ENABLED=true. Without this
+# component the controller holds no Secret access and fails batch runs with
+# "batch execution is disabled on this controller".
+#
+# Enable it from your own kustomization:
+#   resources: [<path or URL to deploy>]
+#   components: [<path or URL to deploy/components/batch>]
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - secret-reader-rbac.yaml
+patches:
+  - path: batch-enabled-patch.yaml

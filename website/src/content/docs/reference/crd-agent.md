@@ -64,6 +64,33 @@ spec:
 | `output` | string | Captured summary: the truncated tail of pod logs, capped at `MAX_OUTPUT_BYTES` (default 256 KiB) to stay under etcd's per-object limit. |
 | `failureReason` | string | Human-readable reason on failure. Also set when a run reaches a terminal phase but its result couldn't be fully read back, e.g. `run output unavailable: pod garbage-collected` or `run record unavailable: Job garbage-collected before its result was observed`. |
 | `prUrl` | string | Pull-request URL when applicable. |
+| `batchId` | string | Batch runs only. The provider's batch id (for Anthropic, `msgbatch_...`), set when the controller submits the batch. Kept after a fallback for the audit trail. |
+| `batchProvider` | string | Batch runs only. The batch API the run was submitted to; `anthropic` today. |
+| `batchFallback` | bool | Batch runs only. `true` once the batch timed out with `onTimeout: fallback` and the run switched to a CLI Job. |
+| `batchCleanupAttempts` | int | Batch runs only. Failed attempts to delete the batch's provider-side objects. |
+
+For a [batch run](../tasks/batch-runs.md), `output` holds the Claude CLI `stream-json` lines the
+controller builds from the batch result (`system` init, `assistant`, `result`), the same shape a
+single-turn CLI run prints, capped at `MAX_OUTPUT_BYTES` in the same way. `exitCode` is `0` on success
+and `1` on failure, and `jobName` stays empty unless the run fell back to a Job.
+
+## Finalizer
+
+When the controller submits a batch, it adds the finalizer `agents.re-cinq.com/batch-cleanup` to the
+Agent. A provider batch has no owner reference, so without the finalizer a deleted Agent would leave a
+running, billed batch behind. While the finalizer is present, deleting the Agent makes the controller
+cancel the batch if it is still in flight, delete the batch at the provider, and then remove the
+finalizer so the delete completes.
+
+The controller also removes the finalizer once it has cleaned up a finished batch, so history pruning
+deletes the Agent straight away. If the provider cleanup fails, the controller retries on later
+reconciles and counts the failures in `status.batchCleanupAttempts`. After 5 failed attempts it removes
+the finalizer anyway and leaves the provider object behind, so a delete never stays stuck. Cleanup
+failures never change the Agent's phase.
+
+The finalizer is added and removed with JSON patches (`application/json-patch+json`) that append to
+or remove one entry of `metadata.finalizers`, so finalizers that other controllers add to the same
+Agent are left alone.
 
 Phase transitions are driven by the
 [controller lifecycle](../concepts/controller-lifecycle.md).

@@ -15,6 +15,48 @@ the npm package versions.
   Codex gets them as `-c mcp_servers.<name>.…` overrides, OpenCode as the `mcp` key of its
   global config; `headers_secret` is referenced from the pod env as for the other CLIs, so the
   token never reaches argv or disk. New guide: *Connect MCP servers*.
+- **An AgentDefinition can run as a provider batch request: `execution: batch`.** For Claude
+  models the controller submits the rendered prompt to the Anthropic Message Batches API itself,
+  at about half the price of the regular API, with no Job or pod. It polls the batch every
+  `BATCH_POLL_SECONDS` (default 60) and writes the result to `status.output` as the same Claude CLI
+  `stream-json` lines a single-turn run prints. `status.batchId`, `batchProvider`, `batchFallback`
+  and `batchCleanupAttempts` record the batch. `batch.timeoutMinutes` (default 1440) bounds the wait;
+  `batch.onTimeout: fail` fails the Agent with `batch timed out`, `fallback` cancels the batch and
+  runs the same definition as a normal Job at full price. A batch is one model call, so a batch
+  definition that sets tools, `max_turns`, repos, MCP servers, skills, a conversation,
+  `output.watch` or the `exec` model, or an Agent that sets `spec.files`, fails the Agent with the
+  field named. An `output.schema` is sent as structured output (`output_config.format` of type
+  `json_schema`). `batch.maxTokens` (default 16000) sets the request's `max_tokens`, and a run with no
+  model anywhere uses `claude-opus-5-5`. The `result` event's `total_cost_usd` is half the model's
+  standard price for the reported tokens (Anthropic list prices as of 2026-10, exact model id match;
+  `0` for a model not in the table), `usage` passes through cache token counts when present, and
+  `thinking` blocks are dropped so the events read like the CLI's. An Agent's `spec.model` overrides the definition's model for the
+  request and the model check, as it does for a Job. Under `concurrencyPolicy: Replace` a new batch
+  Agent preempts the oldest run and submits its batch. OpenAI and Gemini models
+  are rejected for now; their batch support is coming. The controller delivers the run's events to the
+  definition's `output.sinks` in the usual envelope (no `pod` in `source`): `agent`/`started` on
+  submit, the CLI lines through `output.select` and `agent`/`succeeded` or `agent`/`failed`
+  (`reason: batch_failed`) when the batch ends, and a `batch_timeout` lifecycle event on a timeout
+  (`failed` for `onTimeout: fail`, `running` for `fallback`). Each is sent after its status patch, at
+  most once, and an http sink's `headers_secret` is read from `agent-secrets`. The `result` event
+  carries `modelUsage` like the CLI's. Deleting an in-flight batch Agent cancels and
+  deletes its batch through the `agents.re-cinq.com/batch-cleanup` finalizer;
+  `controller_batch_cleanup_failures_total` on `/metrics` counts failed provider cleanups.
+
+### Changed
+- **The Notification API documents a consumer contract for Claude runs.** The reference lists the
+  `result`, `system` init and lifecycle fields, with their JSON types, that both CLI and batch runs
+  always emit; the unit tests check it against a recorded CLI run and a recorded batch result.
+- **Batch execution is opt-in through the `deploy/components/batch` kustomize component.** It adds
+  a Role with `get` on the `agent-secrets` Secret (that Secret only) and sets `BATCH_ENABLED=true` on
+  the controller, which then reads the provider API key itself. The default install, including the
+  release `install.yaml`, keeps the controller without any Secret access, and a batch Agent there
+  fails with `batch execution is disabled on this controller`. Enable it with
+  `components: [<deploy>/components/batch]` in your kustomization. If your cluster restricts egress
+  from the controller, allow HTTPS to `api.anthropic.com` for batch runs. Disabling batch with
+  runs in flight fails those Agents with the same reason and an `agent`/`failed` sink event, and
+  releases their `batch-cleanup` finalizer; their provider batches are left to finish and expire,
+  and are still billed.
 
 ### Deprecated
 - `mcp_servers[].headers_secret`: use `headers: [{name: Authorization, ref: <key>}]`. It keeps

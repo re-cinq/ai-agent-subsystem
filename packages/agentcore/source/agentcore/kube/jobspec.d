@@ -71,6 +71,15 @@ enum agentGid = 1000;
 /// start, so the controller needs no Secret read permission.
 enum agentSecretName = "agent-secrets";
 
+/// The recipe a run executes: the definition's spec with the run's own model winning over
+/// the recipe's, so the vendor choice, the request or CLI model and the init's env agree.
+AgentDefinitionSpec runRecipe(const Agent agent, AgentDefinitionSpec recipe) @safe pure nothrow
+{
+	if (agent.spec.model.length)
+		recipe.model = agent.spec.model;
+	return recipe;
+}
+
 /**
  * Build the `batch/v1` Job the controller creates for one Agent run. Pure: the
  * driver hands in the resolved Station + AgentDefinition and the agent image
@@ -81,11 +90,7 @@ enum agentSecretName = "agent-secrets";
  */
 Json buildJob(Agent agent, Station station, AgentDefinition definition, string agentImage)
 {
-	auto recipe = definition.spec;
-	// The run's own model wins over the recipe's, resolved once here so the vendor
-	// choice, the CLI's model flag and the init's env all see the same model.
-	if (agent.spec.model.length)
-		recipe.model = agent.spec.model;
+	auto recipe = runRecipe(agent, definition.spec);
 	const prompt = renderPrompt(recipe.prompt, agent.spec.parameters);
 	// The conversation to continue rides into the argv: the adapter decides whether it
 	// is a flag or a subcommand, and adds a pin when its CLI supports one.

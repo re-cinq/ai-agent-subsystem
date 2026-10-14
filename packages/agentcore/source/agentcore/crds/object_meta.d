@@ -13,4 +13,6 @@ struct ObjectMeta
 	@optional string creationTimestamp;
 	@optional string[string] labels;
 	@optional string[string] annotations;
+	@optional string[] finalizers;
+	@optional string deletionTimestamp;
 }

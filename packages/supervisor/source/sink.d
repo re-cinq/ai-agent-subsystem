@@ -1,12 +1,15 @@
 module sink;
 
 import core.time : msecs;
+import std.functional : toDelegate;
 
 import agentcore.output.event : EventSource;
 import agentcore.core.log : logError;
 import agentcore.crds.output_sink : OutputSink;
 import agentcore.core.env : envConversationAuth;
-import agentcore.output.output : emitEvent, headerLines, sinkHeaders;
+import agentcore.batch.provider : HttpRequest, HttpResponse;
+import agentcore.output.httpsink : retryingPoster;
+import agentcore.output.output : emitEvent, headerLines, HttpSink, sinkHeaders;
 import agentcore.output.retry : RetryPolicy, retryPolicyFromEnv, withRetry;
 
 import std.conv : to;
@@ -14,7 +17,7 @@ import std.process : environment;
 import std.string : indexOf, strip;
 import vibe.core.core : sleep;
 import vibe.http.client : requestHTTP, HTTPClientRequest, HTTPClientResponse;
-import vibe.http.common : HTTPMethod;
+import vibe.http.common : HTTPMethod, httpMethodFromString;
 
 version (unittest) import fluent.asserts;
 
@@ -25,45 +28,33 @@ version (unittest) import fluent.asserts;
 /// container's `notify`, so both containers' events land identically.
 void emit(const OutputSink[] sinks, in EventSource src, string payload, bool toSinks = true) nothrow
 {
-	emitEvent(sinks, src, payload, &postHttp, "[supervisor]", toSinks);
+	emitEvent(sinks, src, payload, sinkPoster(), "[supervisor]", toSinks);
 }
 
-/// POST `line` to an http(s) sink with the resolved auth `headers`, retrying transient
-/// failures with bounded backoff before giving up. stdout (pod logs) remains the source
-/// of truth, so a dropped sink event is logged, never fatal.
-private void postHttp(string url, string line, string headers) nothrow
+/// POSTs to an http(s) sink with vibe's HTTP client, retrying transient failures with bounded
+/// backoff before giving up. stdout (pod logs) remains the source of truth, so a dropped sink
+/// event is logged, never fatal.
+private HttpSink sinkPoster() nothrow
 {
-	const delivered = withRetry(retryPolicyFromEnv(),
-		() => postOnce(url, line, headers),
-		ms => napMs(ms));
-	if (!delivered)
-		logError("[supervisor] http sink failed after retries: " ~ url);
+	return retryingPoster(toDelegate(&vibeTransport), retryPolicyFromEnv(), toDelegate(&napMs), "[supervisor]");
 }
 
-/// One POST attempt with vibe's HTTP client; true on a 2xx response. A connection
-/// error or a non-2xx status is a retryable failure.
-private bool postOnce(string url, string line, string headers) nothrow
+/// One request with vibe's HTTP client; a connection error throws.
+private HttpResponse vibeTransport(HttpRequest request)
 {
-	try
-	{
-		bool ok;
-		requestHTTP(url,
-			(scope HTTPClientRequest req) {
-				req.method = HTTPMethod.POST;
-				setHeaders(req, headers);
-				req.writeBody(cast(const(ubyte)[]) line, "application/json");
-			},
-			(scope HTTPClientResponse res) {
-				ok = res.statusCode >= 200 && res.statusCode < 300;
-				res.dropBody();
-			});
-		return ok;
-	}
-	catch (Exception e)
-	{
-		logError("[supervisor] http sink attempt failed: " ~ e.msg);
-		return false;
-	}
+	HttpResponse response;
+	requestHTTP(request.url,
+		(scope HTTPClientRequest req) {
+			req.method = httpMethodFromString(request.method);
+			foreach (name, value; request.headers)
+				req.headers[name] = value;
+			req.writeBody(cast(const(ubyte)[]) request.body, request.headers.get("content-type", ""));
+		},
+		(scope HTTPClientResponse res) {
+			response.status = res.statusCode;
+			res.dropBody();
+		});
+	return response;
 }
 
 /// Set each `Name: value` line of a resolved header block on `req`.

@@ -33,6 +33,12 @@ flowchart LR
 - **`output`**: the result contract: `format` (`text` / `json` / `stream-json`), an optional
   `schema`, event `select` filters, `sinks` (`stdout`, `http`, `file`), and `watch` (files the run
   is expected to produce, each raised as a named event).
+- **`execution`**: `interactive` (the default) runs the agent CLI in a Job pod; `batch` sends the
+  prompt to the provider's batch API from the controller, about half the price but with results
+  that can take up to 24 hours and only a single model call. `batch.timeoutMinutes` and
+  `batch.onTimeout` (`fail` or `fallback` to a normal Job) bound the wait, and `batch.maxTokens`
+  (default 16000) caps the answer. Batch is off unless the controller is installed with the
+  `components/batch` kustomize component. See [batch runs](../tasks/batch-runs.md).
 - **`tool_config`**: a raw passthrough object for tool-specific knobs; unknown fields are preserved.
 
 ## Why it is separate

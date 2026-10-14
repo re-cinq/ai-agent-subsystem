@@ -2,6 +2,7 @@ module notify;
 
 import core.thread : Thread;
 import core.time : msecs;
+import std.functional : toDelegate;
 import std.process : pipeProcess, wait, Redirect;
 
 import agentcore.output.event : EventSource;
@@ -21,7 +22,7 @@ static immutable string[] curlArgv = ["curl", "--config", "-"];
 /// vibe's client).
 void notify(const OutputSink[] sinks, in EventSource src, string payload) nothrow
 {
-	emitEvent(sinks, src, payload, &postHttp, "[init]");
+	emitEvent(sinks, src, payload, toDelegate(&postHttp), "[init]");
 }
 
 /// POST `line` to an http sink with `curl` and the resolved auth `headers`, retrying

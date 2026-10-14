@@ -26,11 +26,20 @@ Json statusPatch(Decision decision, string jobName, string timestamp, string res
 		status["jobName"] = jobName;
 		status["startedAt"] = timestamp;
 		break;
+	case ActionKind.batchFallbackWait:
+		status["batchFallback"] = true;
+		break;
+	case ActionKind.batchFallbackStart:
+		status["batchFallback"] = true;
+		status["jobName"] = jobName;
+		status["startedAt"] = timestamp;
+		break;
 	case ActionKind.failMissingRef:
 		status["failureReason"] = decision.failureReason;
 		status["completedAt"] = timestamp;
 		break;
 	case ActionKind.complete:
+	case ActionKind.batchTimeoutFail:
 		// Record the Job the run used, so a run whose jobName was recovered from the
 		// derived name (an Agent left Running with an empty status.jobName) still ends
 		// with a complete terminal record instead of a permanently empty jobName column.
@@ -43,9 +52,71 @@ Json statusPatch(Decision decision, string jobName, string timestamp, string res
 		status["completedAt"] = timestamp;
 		break;
 	case ActionKind.none:
+	case ActionKind.submitBatch:
+	case ActionKind.replaceWithBatch:
+	case ActionKind.pollBatch:
 		break;
 	}
 
+	return withPrecondition(status, resourceVersion);
+}
+
+/// The status patch recording a submitted batch: Running, its provider batch id and
+/// provider name, and `startedAt` — the clock `batch.timeoutMinutes` counts from.
+Json batchSubmittedPatch(string batchId, string provider, string timestamp, string resourceVersion = "")
+{
+	auto status = Json([
+		"phase": Json("Running"),
+		"batchId": Json(batchId),
+		"batchProvider": Json(provider),
+		"startedAt": Json(timestamp),
+	]);
+	return withPrecondition(status, resourceVersion);
+}
+
+/// The JSON patch (RFC 6902) adding `finalizer` to an Agent holding `current`. It appends
+/// instead of replacing the list, so a finalizer another writer added meanwhile survives.
+Json addFinalizerPatch(const string[] current, string finalizer)
+{
+	if (current.length == 0)
+		return Json([jsonPatchOp("add", "/metadata/finalizers", serializeToJson([finalizer]))]);
+	return Json([jsonPatchOp("add", "/metadata/finalizers/-", Json(finalizer))]);
+}
+
+/// The JSON patch (RFC 6902) removing `finalizer` from an Agent holding `current`. The
+/// `test` op makes the API server reject (422) the patch when the list shifted since the
+/// read, instead of removing someone else's finalizer. Empty when `finalizer` is absent.
+Json removeFinalizerPatch(const string[] current, string finalizer)
+{
+	import std.algorithm.searching : countUntil;
+	import std.conv : to;
+
+	const index = current.countUntil(finalizer);
+	if (index < 0)
+		return Json.emptyArray;
+	const path = "/metadata/finalizers/" ~ index.to!string;
+	return Json([jsonPatchOp("test", path, Json(finalizer)), jsonPatchOp("remove", path)]);
+}
+
+private Json jsonPatchOp(string op, string path, Json value = Json.undefined)
+{
+	auto operation = Json.emptyObject;
+	operation["op"] = op;
+	operation["path"] = path;
+	if (value.type != Json.Type.undefined)
+		operation["value"] = value;
+	return operation;
+}
+
+/// The status patch counting failed provider cleanups; sent without a precondition, since
+/// it follows a status patch in the same reconcile that already moved the resourceVersion.
+Json batchCleanupAttemptsPatch(int attempts)
+{
+	return Json(["status": Json(["batchCleanupAttempts": Json(attempts)])]);
+}
+
+private Json withPrecondition(Json status, string resourceVersion)
+{
 	Json patch = Json.emptyObject;
 	patch["status"] = status;
 	// Include the read's resourceVersion so the API server rejects (409) a write
@@ -194,10 +265,11 @@ version (unittest)
 {
 	import fluent.asserts;
 	import agentcore.core.types : Phase;
-	import agentcore.crds.enums : ConcurrencyPolicy, McpTransport, PermissionMode,
+	import agentcore.crds.enums : BatchTimeoutAction, ConcurrencyPolicy, Execution, McpTransport, PermissionMode,
 		SelectEvent, SinkType;
 	import agentcore.crds.env_var : EnvVar;
 	import agentcore.crds.secret_ref : SecretRef;
+	import agentcore.crds.agent_definition_spec : BatchSpec;
 }
 
 unittest
@@ -397,4 +469,47 @@ unittest
 
 	parseJobOutcome(parseJsonString(`{"status":{"succeeded":1}}`)).state.should.equal(JobState.succeeded);
 	parseJobOutcome(parseJsonString(`{"status":{}}`)).state.should.equal(JobState.running);
+}
+
+unittest // definition without execution parses as interactive with batch defaults
+{
+	auto definition = parseAgentDefinition(parseJsonString(`{"metadata":{"name":"d"},"spec":{"prompt":"p"}}`));
+	definition.spec.execution.should.equal(Execution.interactive);
+	definition.spec.batch.should.equal(BatchSpec(1440, BatchTimeoutAction.fail, 16_000));
+}
+
+unittest // definition with execution batch, batch fallback after 60 minutes and maxTokens 2048 parses all three
+{
+	auto definition = parseAgentDefinition(parseJsonString(`{"metadata":{"name":"d"},"spec":{"prompt":"p",
+		"execution":"batch","batch":{"timeoutMinutes":60,"onTimeout":"fallback","maxTokens":2048}}}`));
+	definition.spec.execution.should.equal(Execution.batch);
+	definition.spec.batch.should.equal(BatchSpec(60, BatchTimeoutAction.fallback, 2048));
+}
+
+unittest // agent status with batch fields parses batchId, batchProvider and batchFallback
+{
+	auto agent = parseAgent(parseJsonString(`{"metadata":{"name":"r"},"spec":{"stationRef":"s"},
+		"status":{"phase":"Running","batchId":"msgbatch_1","batchProvider":"anthropic","batchFallback":true}}`));
+	[agent.status.batchId, agent.status.batchProvider].should.equal(["msgbatch_1", "anthropic"]);
+	agent.status.batchFallback.should.equal(true);
+}
+
+unittest // adding a finalizer to an Agent without finalizers creates the list holding it
+{
+	addFinalizerPatch([], "agents.re-cinq.com/batch-cleanup").should.equal(parseJsonString(
+		`[{"op":"add","path":"/metadata/finalizers","value":["agents.re-cinq.com/batch-cleanup"]}]`));
+}
+
+unittest // adding a finalizer to an Agent with other/keep appends it, leaving other/keep in place
+{
+	addFinalizerPatch(["other/keep"], "agents.re-cinq.com/batch-cleanup").should.equal(parseJsonString(
+		`[{"op":"add","path":"/metadata/finalizers/-","value":"agents.re-cinq.com/batch-cleanup"}]`));
+}
+
+unittest // removing the finalizer at index 1 tests it is still there, then removes index 1
+{
+	removeFinalizerPatch(["other/keep", "agents.re-cinq.com/batch-cleanup"], "agents.re-cinq.com/batch-cleanup")
+		.should.equal(parseJsonString(`[
+			{"op":"test","path":"/metadata/finalizers/1","value":"agents.re-cinq.com/batch-cleanup"},
+			{"op":"remove","path":"/metadata/finalizers/1"}]`));
 }

@@ -46,7 +46,8 @@ output:
       url: http://collector.my-namespace.svc:8099/notify
 ```
 
-The supervisor POSTs each `stream-json` line to that URL. This is how a UI or an
+The supervisor POSTs each `stream-json` line to that URL. For a [batch run](./batch-runs.md#sinks),
+which has no pod, the controller POSTs the same envelope once the batch ends. This is how a UI or an
 indexer consumes runs in real time. See [Agent runtime](../concepts/agent-runtime.md)
 for how the supervisor produces these events.
 

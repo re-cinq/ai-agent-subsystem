@@ -59,10 +59,27 @@ vitest suite, which enforces 100% coverage — the same gate CI applies.
 | Host | `make itest` | nothing beyond the D toolchain |
 | Cross-distro containers | `make ctest` (or the individual `scripts/ctest-*.sh`) | docker |
 | Controller on a cluster | `make itest-controller` | kind or minikube, kubectl, docker |
+| Live batch event parity | `make itest-batch` | `ANTHROPIC_API_KEY`, curl (spends two small Haiku calls) |
 
 The ctest scripts take env overrides (`TARGETS`, `BUILDER_IMAGE`, `CONTAINER_ENGINE=podman`, ...);
 each script's header documents its knobs. CI's container workflows call these same scripts, so a
 local pass means CI parity.
+
+### Recorded batch fixtures
+
+The batch translator tests in `packages/agentcore` compare a batch run's events with a recorded
+Claude CLI run: `testdata/events/claude-cli.jsonl` (from `scripts/record-cli-events.sh`, which runs the
+CLI version pinned in `scripts/container/Dockerfile.agent` with the run pod's flags) and
+`testdata/batch/anthropic-batch-ended.json` plus `anthropic-result-succeeded.json` (from
+`scripts/record-batch-response.sh`, which submits a one-request batch, polls it every 30s until it
+ends, and deletes it). Both need `ANTHROPIC_API_KEY` and fail fast without it.
+
+- `make record-fixtures` re-records all three files in place. Review the diff and commit it, for
+  example after raising the CLI pin.
+- `make itest-batch` records into a temp dir, puts the recordings over the fixtures, runs
+  `dub test :agentcore`, then restores the committed fixtures. Set `KEEP_FIXTURES=1` to keep the
+  recordings instead. Run it on release and whenever the CLI pin changes, to catch upstream event
+  format changes. Unit tests never read live files: they only see what is in `testdata/`.
 
 ## Pull requests
 

@@ -1,0 +1,1 @@
+{"custom_id":"agent-7c1e","result":{"type":"errored","error":{"type":"error","error":{"type":"invalid_request_error","message":"max_tokens: 1000000 > 64000, which is the maximum allowed number of output tokens for claude-sonnet-4-5"}}}}

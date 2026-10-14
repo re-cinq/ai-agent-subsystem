@@ -60,6 +60,48 @@ reports `0`.
 
 **Terminal → terminal** is a no-op; reconciling a finished Agent does nothing.
 
+## Batch runs
+
+An Agent whose AgentDefinition sets `execution: batch` goes through the same phases, but the controller
+does the work itself instead of creating a Job. See [batch runs](../tasks/batch-runs.md).
+
+**Pending → Running (submit).** After resolving the refs, the controller checks that the definition
+can run as a batch (see [batch validation](../reference/crd-agentdefinition.md#batch-validation)) and
+that the controller runs with `BATCH_ENABLED=true` (the `components/batch` kustomize component), and
+fails the Agent with the reason if not. Station concurrency applies as for Jobs; under `Replace` a
+full Station's oldest `Running` run is deleted and the new Agent submits its batch. It then reads the API
+key from `agent-secrets`, submits the rendered prompt with the run's model (the Agent's `spec.model`
+when set, else the definition's, else `claude-opus-5-5`), `batch.maxTokens` and any `output.schema`
+to the Anthropic Message Batches API, patches
+`phase = Running`, `batchId`, `batchProvider` and `startedAt`, and adds the
+`agents.re-cinq.com/batch-cleanup` finalizer.
+
+**Running (poll).** While the batch is in flight, the controller polls it at most once every
+`BATCH_POLL_SECONDS` (default 60) rather than on every watch event. A pending batch leaves the Agent
+`Running`. A finished batch moves it to `Succeeded` or `Failed` with `output` set to the Claude CLI
+event lines built from the response; an errored request's message becomes `failureReason`.
+
+**Timeout.** Once `batch.timeoutMinutes` have passed since `startedAt`, the controller cancels the
+batch. With `onTimeout: fail` the Agent becomes `Failed` with `batch timed out`. With
+`onTimeout: fallback` it patches `batchFallback = true` (keeping `batchId`) and creates the ordinary
+Job for the same Agent; from then on the Job transitions above apply. If the Station is full, the
+Agent waits in `Running` until a slot frees. A poll that reports the result in the same pass wins: the
+Agent completes and no fallback starts.
+
+**Sink events.** The controller sends the definition's `output.sinks` the events a pod's supervisor
+would: `agent`/`started` after the submit patch, the CLI lines (through `output.select`) and
+`agent`/`succeeded` or `agent`/`failed` after the completing patch, and a `batch_timeout` lifecycle
+event after a timeout patch (`failed` for `onTimeout: fail`, `running` for `fallback`, where the
+Job's supervisor reports the end). Each is sent after its patch succeeds, at most once. See
+[batch runs](../tasks/batch-runs.md#sinks).
+
+**Cleanup and the finalizer.** After the result is recorded, and after a timeout, the controller
+deletes the batch at the provider and removes the finalizer. When an Agent with the finalizer is
+deleted, the controller cancels its batch if it is still in flight, cleans it up, then removes the
+finalizer so the delete goes through. Failed cleanups are retried and counted in
+`status.batchCleanupAttempts`; after 5 the finalizer is removed anyway and the provider object is left
+behind; each failed attempt also increments `controller_batch_cleanup_failures_total`. Finalizer changes are JSON patches that touch only this one entry of `metadata.finalizers`.
+
 ## Launch sequence
 
 ```mermaid
@@ -103,7 +145,7 @@ reported terminal with a clear `failureReason` rather than silently losing its o
 On every terminal transition the controller groups its cached Agents for the Station by phase, sorts
 by `completedAt` (newest first), and deletes any beyond the Station's
 `successfulRunsHistoryLimit` / `failedRunsHistoryLimit`. This bounds how many finished Agents
-accumulate without losing the most recent ones.
+accumulate without losing the most recent ones. Batch Agents are pruned the same way.
 
 ## Watch + poll + cache
 
@@ -132,6 +174,8 @@ terminal patch; `controller_run_queue_seconds` is a histogram of the wait from a
 `creationTimestamp` to its Job, which is how long it sat behind a Station's concurrency limit; and
 `controller_run_failures_total{kind}` counts the runs that ended with a reason, by kind
 (`missing_ref`, `job_failed`, `output_unavailable`, `preempted`) rather than by message, so the series stay few. A run failed for a missing reference is counted and not timed, since it never ran; a run preempted under the Replace policy has no terminal status and appears only under `preempted`.
+`controller_batch_cleanup_failures_total` counts failed attempts to delete a batch run's provider-side
+objects (see [batch runs](#batch-runs)); a steady rise means batches are being left at the provider.
 Every number is the leader's own process state: a restart starts them from zero, which Prometheus
 reads as a counter reset.
 
