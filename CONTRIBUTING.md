@@ -59,7 +59,7 @@ vitest suite, which enforces 100% coverage — the same gate CI applies.
 | Host | `make itest` | nothing beyond the D toolchain |
 | Cross-distro containers | `make ctest` (or the individual `scripts/ctest-*.sh`) | docker |
 | Controller on a cluster | `make itest-controller` | kind or minikube, kubectl, docker |
-| Live batch event parity | `make itest-batch` (`VENDOR=gemini make itest-batch` for Gemini) | `ANTHROPIC_API_KEY` (or `GEMINI_API_KEY`), curl (spends two small calls); Gemini also needs node |
+| Live batch event parity | `make itest-batch` (`VENDOR=gemini` for Gemini, `VENDOR=openai` for OpenAI/codex) | `ANTHROPIC_API_KEY` (or `GEMINI_API_KEY`, `OPENAI_API_KEY`), curl (spends two small calls); Gemini also needs node |
 
 The ctest scripts take env overrides (`TARGETS`, `BUILDER_IMAGE`, `CONTAINER_ENGINE=podman`, ...);
 each script's header documents its knobs. CI's container workflows call these same scripts, so a
@@ -80,6 +80,13 @@ CLI run of the same vendor:
   `GEMINI_CLI`, with the run pod's flags) and `testdata/batch/gemini-batch-succeeded.json` (from
   `scripts/record-batch-response.sh "" gemini`). Both need `GEMINI_API_KEY`.
   `testdata/events/gemini-cli-error.jsonl` is a real gemini-cli 0.62.0 run with an invalid key.
+- Codex/OpenAI: `testdata/events/codex-cli.jsonl` (from `scripts/record-cli-events.sh "" codex`,
+  which installs the codex CLI with the same unpinned installer `vendors/codex/setup.d` runs, or
+  uses `CODEX_CLI`, with the run pod's flags) and `testdata/batch/openai-batch-completed.json` plus
+  `openai-output-succeeded.json` (from `scripts/record-batch-response.sh "" openai`). Both need
+  `OPENAI_API_KEY`; the CLI recorder hands it to codex as `CODEX_API_KEY`, the variable
+  `codex exec` reads. `testdata/events/codex-cli-error.jsonl` is a real codex-cli 0.142.5 run with
+  an invalid key.
 
 **Pending re-record:** `gemini-cli.jsonl` and every `testdata/batch/gemini-*.json` fixture were
 written by hand from gemini-cli 0.62.0's stream-json source and Google's Batch API reference,
@@ -89,11 +96,19 @@ review the diff, commit it, and drop this note. `gemini-batch-pending.json`,
 `gemini-batch-failed.json` and `gemini-batch-request-errored.json` have no recorder; reconcile them
 with the recorded shapes by hand.
 
+**Pending re-record:** `codex-cli.jsonl` and every `testdata/batch/openai-*.json` fixture were
+written by hand from codex's `exec --json` event types (`codex-rs/exec/src/exec_events.rs`) and
+OpenAI's Batch and Responses API docs, because no `OPENAI_API_KEY` was available when OpenAI batch
+support landed. Run `make record-fixtures-openai` (or `VENDOR=openai KEEP_FIXTURES=1 make itest-batch`)
+with a key, review the diff, commit it, and drop this note. `openai-request.json`,
+`openai-batch-in-progress.json`, `openai-batch-failed.json` and `openai-output-errored.json` have no
+recorder; reconcile them with the recorded shapes by hand.
+
 - `make record-fixtures` re-records the Claude files in place, `make record-fixtures-gemini` the
-  Gemini ones. Review the diff and commit it, for example after raising a CLI pin.
+  Gemini ones, `make record-fixtures-openai` the codex and OpenAI ones. Review the diff and commit it, for example after raising a CLI pin.
 - `make itest-batch` records into a temp dir, puts the recordings over the fixtures, runs
   `dub test :agentcore`, then restores the committed fixtures. `VENDOR=gemini` does the same for
-  Gemini. Set `KEEP_FIXTURES=1` to keep the recordings instead. Run it on release and whenever a CLI
+  Gemini, `VENDOR=openai` for codex and OpenAI. Set `KEEP_FIXTURES=1` to keep the recordings instead. Run it on release and whenever a CLI
   pin changes, to catch upstream event format changes. Unit tests never read live files: they only
   see what is in `testdata/`.
 

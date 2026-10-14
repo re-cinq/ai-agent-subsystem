@@ -38,8 +38,13 @@ record-fixtures-gemini: ## Re-record the gemini CLI and Gemini batch fixtures (n
 	./scripts/record-cli-events.sh "" gemini
 	./scripts/record-batch-response.sh "" gemini
 
+.PHONY: record-fixtures-openai
+record-fixtures-openai: ## Re-record the codex CLI and OpenAI batch fixtures (needs OPENAI_API_KEY)
+	./scripts/record-cli-events.sh "" codex
+	./scripts/record-batch-response.sh "" openai
+
 .PHONY: itest-batch
-itest-batch: ## Live CLI-vs-batch event parity check (needs ANTHROPIC_API_KEY; VENDOR=gemini needs GEMINI_API_KEY)
+itest-batch: ## Live CLI-vs-batch event parity check (needs ANTHROPIC_API_KEY; VENDOR=gemini needs GEMINI_API_KEY; VENDOR=openai needs OPENAI_API_KEY)
 	./scripts/itest-batch.sh
 
 .PHONY: ctest

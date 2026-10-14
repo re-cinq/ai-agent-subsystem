@@ -8,8 +8,8 @@ import agentcore.crds.station : Station;
 import agentcore.reconcile.concurrency : effectiveMaxRuns, oldestRunningRun, stationAtCapacity;
 import agentcore.kube.jobs : jobNameFor;
 import agentcore.kube.jobspec : buildJob, runRecipe;
-import agentcore.batch.provider : batchCleanupFinalizer, maxBatchCleanupAttempts, BatchProvider, BatchProviderFor, BatchRequest,
-	BatchPoll, BatchState, batchModel, batchVendor;
+import agentcore.batch.provider : batchCleanupFinalizer, batchSettleMinutes, maxBatchCleanupAttempts, BatchNotSettled,
+	BatchPoll, BatchProvider, BatchProviderFor, BatchRequest, BatchState, batchModel, batchVendor;
 import agentcore.batch.translate : batchCliEvents;
 import agentcore.core.env : defaultMaxOutputBytes;
 import agentcore.core.log : logError;
@@ -305,30 +305,50 @@ private struct AgentReconcile
 		}
 		const terminal = agent.status.phase == Phase.succeeded || agent.status.phase == Phase.failed;
 		if (!terminal && !agent.status.batchFallback)
-			provider.cancel(agent.status.batchId);
+			cancelInFlight();
 		return cleanupBatch();
 	}
 
+	/// Cancel a deleted Agent's in-flight batch, best effort: a cleanup that is not settled
+	/// retries this every reconcile, and a batch already cancelling or ended can refuse a
+	/// repeated cancel. The cleanup's `BatchNotSettled` says whether the batch still runs.
+	private void cancelInFlight()
+	{
+		try
+			provider.cancel(agent.status.batchId);
+		catch (Exception)
+		{
+		}
+	}
+
 	/// Delete what the Agent's batch left at the provider, then release its deletion.
+	/// A batch not settled yet (a cancel still in progress) keeps the finalizer for a
+	/// later reconcile without counting a failed attempt, until `batchSettleMinutes`
+	/// after `startedAt`, past which it counts as one so the finalizer cannot hang forever.
 	/// True when the cleanup failed.
 	private bool cleanupBatch()
 	{
-		bool failed;
 		try
 			provider.cleanup(agent.status.batchId);
+		catch (BatchNotSettled)
+			return batchTimedOut(agent.status.startedAt, now, batchSettleMinutes) && countFailedCleanup();
 		catch (Exception)
-		{
-			// The batch-cleanup-failed event attaches here (slice 2).
-			failed = true;
-			const attempts = agent.status.batchCleanupAttempts + 1;
-			if (attempts < maxBatchCleanupAttempts)
-			{
-				patch(batchCleanupAttemptsPatch(attempts));
-				return failed;
-			}
-		}
+			return countFailedCleanup();
 		releaseFinalizer();
-		return failed;
+		return false;
+	}
+
+	/// Record one more failed cleanup, releasing the finalizer at `maxBatchCleanupAttempts`
+	/// and leaving the provider objects behind. Always true, the cleanup having failed.
+	private bool countFailedCleanup()
+	{
+		// The batch-cleanup-failed event attaches here (slice 2).
+		const attempts = agent.status.batchCleanupAttempts + 1;
+		if (attempts < maxBatchCleanupAttempts)
+			patch(batchCleanupAttemptsPatch(attempts));
+		else
+			releaseFinalizer();
+		return true;
 	}
 
 	/// Remove the batch-cleanup finalizer, if the Agent holds it.
@@ -554,7 +574,7 @@ version (unittest)
 	import vibe.data.json : parseJsonString;
 	import agentcore.crds.enums : ConcurrencyPolicy;
 	import agentcore.reconcile.reconcile : JobState;
-	import agentcore.batch.provider : BatchPoll;
+	import agentcore.batch.provider : BatchNotSettled, BatchPoll;
 	import agentcore.core.vendor : Vendor;
 
 	/// The JSON patch removing the batch-cleanup finalizer when it is the Agent's only one.
@@ -653,6 +673,8 @@ version (unittest)
 		string[] cleaned;
 		bool cleanupThrows;
 		bool pollThrows;
+		bool cleanupNotSettled;
+		bool cancelThrows;
 		FakeKubeClient journal; /// when set, cleanups are logged into its `calls`
 
 		string submit(BatchRequest request)
@@ -670,11 +692,13 @@ version (unittest)
 		void cancel(string id)
 		{
 			cancelled ~= id;
+			enforce(!cancelThrows, "batch " ~ id ~ " is already cancelling");
 		}
 
 		void cleanup(string id)
 		{
 			cleaned ~= id;
+			enforce(!cleanupNotSettled, new BatchNotSettled("batch " ~ id ~ " is still canceling"));
 			enforce(!cleanupThrows, "provider cleanup failed");
 			if (journal !is null)
 				journal.calls ~= "cleanup " ~ id;
@@ -1415,6 +1439,21 @@ unittest // deleted Agent with an in-flight batch cancels, cleans up msgbatch_1,
 	client.agentPatches.should.equal([removeFirstFinalizer]);
 }
 
+unittest // deleted Agent with an in-flight batch whose repeated cancel fails still cleans up msgbatch_1 and removes the finalizer
+{
+	auto client = batchClient("claude-sonnet-4-6");
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	providers.provider.cancelThrows = true;
+	auto agent = runningBatchAgent("run-b");
+	agent.metadata.finalizers = [batchCleanupFinalizer];
+	agent.metadata.deletionTimestamp = "2026-06-22T12:03:00Z";
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:05:00Z", null, BatchConfig(&providers.make));
+
+	[Json(providers.provider.cleaned.length), Json(client.agentPatches == [removeFirstFinalizer])]
+		.should.equal([Json(1), Json(true)]);
+}
+
 unittest // succeeded batch Agent on its 5th failed cleanup removes the finalizer and keeps its phase
 {
 	auto client = batchClient("claude-sonnet-4-6");
@@ -1430,6 +1469,36 @@ unittest // succeeded batch Agent on its 5th failed cleanup removes the finalize
 	providers.provider.cleaned.should.equal(["msgbatch_1"]);
 	client.statusPatches.length.should.equal(0);
 	client.agentPatches.should.equal([removeFirstFinalizer]);
+}
+
+unittest // failed batch Agent whose cleanup reports not settled 10 minutes after start keeps the finalizer without counting an attempt
+{
+	auto client = batchClient("claude-sonnet-4-6");
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	providers.provider.cleanupNotSettled = true;
+	auto agent = runningBatchAgent("run-b");
+	agent.status.phase = Phase.failed;
+	agent.metadata.finalizers = [batchCleanupFinalizer];
+
+	const effect = reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:10:00Z", null,
+		BatchConfig(&providers.make));
+
+	[Json(client.statusPatches.length), Json(client.agentPatches.length), Json(effect.batchCleanupFailed)]
+		.should.equal([Json(0), Json(0), Json(false)]);
+}
+
+unittest // failed batch Agent whose cleanup reports not settled 48 hours after start records batchCleanupAttempts 1
+{
+	auto client = batchClient("claude-sonnet-4-6");
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	providers.provider.cleanupNotSettled = true;
+	auto agent = runningBatchAgent("run-b");
+	agent.status.phase = Phase.failed;
+	agent.metadata.finalizers = [batchCleanupFinalizer];
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-24T12:00:00Z", null, BatchConfig(&providers.make));
+
+	client.statusPatches.should.equal([parseJsonString(`{"status":{"batchCleanupAttempts":1}}`)]);
 }
 
 unittest // succeeded batch Agent whose 1st cleanup fails records batchCleanupAttempts 1 and keeps the finalizer
@@ -1507,17 +1576,17 @@ unittest // pending batch agent with spec.model claude-opus-4-1 submits its requ
 	providers.provider.submitted[0].model.should.equal("claude-opus-4-1");
 }
 
-unittest // pending batch agent with spec.model gpt-5-codex fails with batch execution does not support codex models
+unittest // pending batch agent with spec.model opencode/openai/gpt-5 fails with batch execution does not support opencode models
 {
 	auto client = batchClient("claude-sonnet-4-6");
 	auto providers = FakeBatchProviders(new FakeBatchProvider);
 	auto agent = pendingAgent("run-b", "stn");
-	agent.spec.model = "gpt-5-codex";
+	agent.spec.model = "opencode/openai/gpt-5";
 
 	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null, BatchConfig(&providers.make));
 
 	client.statusPatches[0]["status"]["failureReason"].get!string.should.equal(
-		"batch execution does not support codex models");
+		"batch execution does not support opencode models");
 }
 
 unittest // pending gemini batch agent submits with the GEMINI_API_KEY secret and patches Running with batchProvider gemini
@@ -1562,6 +1631,64 @@ unittest // running gemini batch agent whose poll succeeded patches Succeeded wi
 	FakeSinkPoster poster;
 	auto agent = runningBatchAgent("run-b");
 	agent.status.batchProvider = "gemini";
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:05:00Z", null, sinkConfig(providers, poster));
+
+	const lines = toCliEvents(providers.provider.pollResult, "uid-7");
+	client.statusPatches.should.equal([Json(["status": Json([
+		"phase": Json("Succeeded"),
+		"exitCode": Json(0),
+		"output": Json(lines.join("\n")),
+		"completedAt": Json("2026-06-22T12:05:00Z"),
+	])])]);
+	const source = EventSource("run-b", "stn", "", "", "ai-agents");
+	poster.posts.should.equal((lines ~ `{"kind":"lifecycle","phase":"agent","status":"succeeded","exitCode":0}`)
+		.map!(line => "http://floor/events " ~ wrapEvent(source, line)).array);
+}
+
+unittest // pending codex batch agent submits with the OPENAI_API_KEY secret and patches Running with batchProvider openai
+{
+	import agentcore.crds.secret_ref : SecretRef;
+
+	auto client = batchClient("gpt-5-mini");
+	client.definition.spec.resources.secrets = [SecretRef("OPENAI_API_KEY", "openai-key")];
+	client.secrets["agent-secrets/openai-key"] = "sk-test";
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	auto agent = pendingAgent("run-b", "stn");
+	agent.metadata.uid = "uid-7";
+	agent.spec.parameters = ["ticket": "ENG-1"];
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null, BatchConfig(&providers.make));
+
+	providers.vendors.should.equal([Vendor.codex]);
+	providers.apiKeys.should.equal(["sk-test"]);
+	providers.provider.submitted.should.equal([
+		BatchRequest("gpt-5-mini", "Fix ENG-1", Json.undefined, 16_000, "uid-7")
+	]);
+	client.statusPatches.should.equal([parseJsonString(`{"status":{"phase":"Running",
+		"batchId":"msgbatch_1","batchProvider":"openai","startedAt":"2026-06-22T12:00:00Z"}}`)]);
+}
+
+unittest // running codex batch agent whose poll succeeded patches Succeeded with the codex lines and posts them to the http sink
+{
+	import agentcore.batch.openai : parsePoll, toCliEvents;
+	import agentcore.crds.enums : SinkType;
+	import agentcore.crds.output_sink : OutputSink;
+	import agentcore.crds.secret_ref : SecretRef;
+	import agentcore.output.event : EventSource, wrapEvent;
+	import std.algorithm : map;
+	import std.array : array, join;
+
+	auto client = batchClient("gpt-5-mini");
+	client.definition.spec.resources.secrets = [SecretRef("OPENAI_API_KEY", "openai-key")];
+	client.secrets["agent-secrets/openai-key"] = "sk-test";
+	client.definition.spec.output.sinks = [OutputSink(SinkType.http, "http://floor/events")];
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	providers.provider.pollResult = parsePoll(parseJsonString(import("batch/openai-batch-completed.json")),
+		import("batch/openai-output-succeeded.json"));
+	FakeSinkPoster poster;
+	auto agent = runningBatchAgent("run-b");
+	agent.status.batchProvider = "openai";
 
 	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:05:00Z", null, sinkConfig(providers, poster));
 

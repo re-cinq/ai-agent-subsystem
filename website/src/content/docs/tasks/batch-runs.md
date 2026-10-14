@@ -8,8 +8,8 @@ and each request is one model call with no tool loop. An AgentDefinition with `e
 uses this path. No Job or pod is created: the controller submits the prompt, polls the batch from
 its reconcile loop, and records the result on the Agent.
 
-Batch runs support Anthropic (Claude models) and Gemini (Gemini models, see [Gemini](#gemini)).
-OpenAI batch support is coming.
+Batch runs support Anthropic (Claude models), Gemini (Gemini models, see [Gemini](#gemini)) and
+OpenAI (Codex-routed models, see [OpenAI](#openai)).
 
 ## Enable batch on the controller
 
@@ -49,7 +49,7 @@ A batch definition may not set any field that needs the CLI harness. The Agent f
 - `allowed_tools`, `disallowed_tools` or `max_turns`
 - `resources.repos`, `resources.mcp_servers`, `resources.skills` or `resources.conversation`
 - `output.watch`
-- the `exec` model, or a Codex or opencode model
+- the `exec` model, or an opencode model
 
 The Agent itself may not set `spec.files` (`batch execution does not support files`). An Agent's
 `spec.model` overrides the definition's model as it does for a Job, and the override goes through the
@@ -132,8 +132,8 @@ The controller sends one request per Agent. The prompt is the definition's `prom
 the Agent's `parameters`, the model is the Agent's `spec.model` when set and the definition's `model`
 otherwise, and the request's `custom_id` is the Agent's uid. When neither names a model, the request
 uses `claude-opus-5-5`: unlike the CLI, a batch request has no default model of its own. That
-default only covers an empty model, which routes to Claude; a Gemini definition always names its
-model.
+default only covers an empty model, which routes to Claude; a Gemini or OpenAI definition always
+names its model.
 
 `batch.maxTokens` sets the request's `max_tokens` (default `16000`). Models that always think, such
 as `claude-opus-5-5`, spend part of it on thinking, so raise it for long answers.
@@ -262,6 +262,92 @@ API error, and the Agent goes `Failed` with that message as `status.failureReaso
 deletes the batch once it is done, as for Anthropic (Google otherwise keeps batch results for
 6 weeks).
 
+## OpenAI
+
+A definition whose model routes to Codex (`gpt-*`, `o1*`, `o3*`, `o4*` or any id containing `codex`,
+such as `gpt-5-mini`) is submitted to the
+[OpenAI Batch API](https://platform.openai.com/docs/guides/batch) instead, with
+`status.batchProvider: openai`. Everything above about validation, timeouts, fallback, concurrency,
+sinks and cleanup applies unchanged; a fallback Job runs the codex CLI. The key comes from the
+`resources.secrets` entry named `OPENAI_API_KEY`:
+
+```sh
+kubectl -n ai-agents create secret generic agent-secrets \
+  --from-literal=openai-key="$OPENAI_API_KEY"
+```
+
+```yaml
+apiVersion: agents.re-cinq.com/v1alpha1
+kind: AgentDefinition
+metadata:
+  name: ticket-triage
+  namespace: ai-agents
+spec:
+  description: Classify a support ticket.
+  model: gpt-5-mini
+  execution: batch
+  prompt: |
+    Classify this support ticket by severity and component:
+    {ticket}
+  output:
+    schema:
+      type: object
+      properties:
+        severity: {type: string, enum: [low, medium, high]}
+        component: {type: string}
+      required: [severity, component]
+      additionalProperties: false
+  resources:
+    secrets:
+      - name: OPENAI_API_KEY
+        ref: openai-key
+```
+
+The OpenAI Batch API reads its requests from a file, so the controller first uploads a one-line
+JSONL file (`POST /v1/files`, `purpose=batch`) holding a `POST /v1/responses` call, the Responses API
+the codex CLI uses, and then creates a batch over it (`POST /v1/batches`, `completion_window: 24h`).
+The line's `custom_id` is the Agent's uid, `input` is the rendered prompt and `batch.maxTokens` sets
+`max_output_tokens`. An `output.schema` becomes `text.format` of type `json_schema` with
+`strict: true`, so the answer is JSON that matches it. Strict mode needs every property listed in
+`required` and `additionalProperties: false` on each object; a schema without them fails the request,
+and the Agent with it. `status.batchId` is the batch's id (`batch_…`).
+
+When the batch ends, the controller reads the line its output file (or, for a failed request, its
+error file) holds, and `status.output` and the sinks get the lines `codex exec --json` prints for a
+single-turn, no-tool run:
+
+```json
+{"type":"thread.started","thread_id":"<agent uid>"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"{\"severity\":\"high\",\"component\":\"login\"}"}}
+{"type":"turn.completed","usage":{"input_tokens":48,"cached_input_tokens":0,"output_tokens":75,"reasoning_output_tokens":64}}
+```
+
+The `agent_message` carries the text of the response's `message` items; reasoning items are left out,
+as the CLI leaves them out of its message. `usage` comes from the response's `usage`:
+`cached_input_tokens` is `input_tokens_details.cached_tokens` and `reasoning_output_tokens` is
+`output_tokens_details.reasoning_tokens`. The codex CLI reports no cost, so neither does an OpenAI
+batch run.
+
+A failed request, a response cut off as `incomplete` (`Incomplete response returned, reason:
+max_output_tokens`, as the CLI words it), a response whose message holds only a `refusal` (the
+refusal text is the error), a completed batch whose output and error files hold no line (`batch
+completed without a result`), or a batch that ends `failed`, `expired` or `cancelled` gives `thread.started`, `turn.started`, an `error` line and a `turn.failed` with `error.message`, as the
+CLI reports an API error, and the Agent goes `Failed` with that message as `status.failureReason`.
+
+OpenAI batch objects cannot be deleted, so cleanup deletes the batch's input file and its output and
+error files (`DELETE /v1/files/<id>`), which hold the prompt and the answer. A cancelled batch stays
+`cancelling` for up to about 10 minutes and writes its output and error files only then, so cleanup
+waits for the batch to reach `completed`, `failed`, `expired` or `cancelled` before deleting anything.
+Every file is tried on each cleanup, and a file that is already gone (`404`) counts as deleted, so a
+retry after a partial cleanup finishes the rest.
+
+:::caution[The Floor does not read codex output yet]
+The Floor parses no codex event today, for CLI runs and batch runs alike: a codex run's final text
+and token usage do not reach it, only the lifecycle events. The
+[consumer contract](../reference/notification-api.md#codex) pins the codex fields a parser would read.
+:::
+
 ## Timeouts and fallback
 
 `batch.timeoutMinutes` (default `1440`, 24 hours) counts from the Agent's `startedAt`, the moment the
@@ -301,9 +387,17 @@ kubectl -n ai-agents delete agent ticket-summary-abc12
 
 On submit the controller adds the finalizer `agents.re-cinq.com/batch-cleanup` to the Agent. While it
 is present, a delete makes the controller cancel the batch if it is still running, delete the batch at
-the provider (Anthropic otherwise keeps results for 29 days, Gemini for 6 weeks), and then remove the finalizer so the
+the provider (Anthropic otherwise keeps results for 29 days, Gemini for 6 weeks; for OpenAI the batch's
+files), and then remove the finalizer so the
 Agent goes away. The same cleanup runs after every finished or timed-out batch, so history pruning
 removes finished batch Agents straight away.
+
+A cancel does not end a batch at once: Anthropic keeps it `canceling` and only an ended batch can be
+deleted, and OpenAI keeps it `cancelling` until it writes its result files. While the batch has not
+settled, the controller keeps the finalizer and tries the cleanup again on later reconciles (the
+safety-net poll runs every ~15 seconds), without counting those tries as failures. A delete of a
+batch Agent can therefore take a few minutes. A batch still unsettled 48 hours after the Agent's
+`startedAt` is treated as stuck, and its cleanups count as failures from then on.
 
 If the provider cleanup keeps failing, the controller retries and counts the failures in
 `status.batchCleanupAttempts`, and the controller's `/metrics` counts each failed attempt in
@@ -314,7 +408,7 @@ provider object behind, so a delete is never stuck. A failed cleanup never chang
 
 Batch runs change who sees the provider key. With the `components/batch` component the controller
 gets `get` on the `agent-secrets` Secret, and the controller pod calls `https://api.anthropic.com`
-(Claude models) and `https://generativelanguage.googleapis.com` (Gemini models) itself. The shipped
-NetworkPolicy selects run pods only, so the controller's egress is open unless your cluster
-restricts it; if it does, allow HTTPS to `api.anthropic.com` and
-`generativelanguage.googleapis.com`. See [RBAC & network](../reference/rbac-and-network.md).
+(Claude models), `https://generativelanguage.googleapis.com` (Gemini models) and
+`https://api.openai.com` (Codex-routed models) itself. The shipped NetworkPolicy selects run pods
+only, so the controller's egress is open unless your cluster restricts it; if it does, allow HTTPS
+to `api.anthropic.com`, `generativelanguage.googleapis.com` and `api.openai.com`. See [RBAC & network](../reference/rbac-and-network.md).
