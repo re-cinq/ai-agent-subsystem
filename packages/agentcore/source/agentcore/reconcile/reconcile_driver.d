@@ -3,16 +3,37 @@ module agentcore.reconcile.reconcile_driver;
 import agentcore.crds.agent : Agent;
 import agentcore.crds.agent_definition : AgentDefinition;
 import agentcore.crds.mcp_server : mcpViolation;
+import agentcore.crds.agent_definition_spec : AgentDefinitionSpec, batchViolation;
 import agentcore.crds.station : Station;
 import agentcore.reconcile.concurrency : effectiveMaxRuns, oldestRunningRun, stationAtCapacity;
 import agentcore.kube.jobs : jobNameFor;
-import agentcore.kube.jobspec : buildJob;
-import agentcore.kube.jsonbody : statusPatch;
+import agentcore.kube.jobspec : buildJob, runRecipe;
+import agentcore.batch.provider : batchCleanupFinalizer, maxBatchCleanupAttempts, BatchProvider, BatchProviderFor, BatchRequest,
+	BatchState, batchModel, batchVendor;
+import agentcore.batch.translate : batchCliEvents;
+import agentcore.core.env : defaultMaxOutputBytes;
+import agentcore.kube.outputcap : capOutput;
+import std.array : join;
+import agentcore.core.prompt : renderPrompt;
+import agentcore.core.vendor : vendorOf;
+import agentcore.crds.enums : Execution;
+import agentcore.crds.secret_ref : SecretRef;
+import agentcore.kube.jobspec : agentSecretName;
+import agentcore.kube.jsonbody : batchCleanupAttemptsPatch, addFinalizerPatch, batchSubmittedPatch, removeFinalizerPatch, statusPatch;
 import agentcore.kube.kubeclient : KubeClient, NotFound, PodResult;
 import agentcore.reconcile.prune : agentsToPrune;
-import agentcore.reconcile.reconcile : ActionKind, coherentExitCode, decide, Decision, JobOutcome, JobState;
+import agentcore.reconcile.reconcile : ActionKind, BatchRun, batchPolled, batchTimedOut, cancelsBatch,
+	coherentExitCode, decide, Decision, JobOutcome, JobState;
 import agentcore.core.types : Phase;
 import agentcore.vendors.select : agentForModel;
+import agentcore.output.event : EventSource;
+import agentcore.output.lifecycle : LifecycleEvent, LifecyclePhase = Phase, Status, toJson;
+import agentcore.output.output : deliverEvent, HttpSink;
+import agentcore.output.selectmatcher : selected;
+import std.algorithm.iteration : filter;
+import std.conv : to;
+import std.exception : enforce;
+import vibe.data.json : Json;
 
 /// Status reason when the run Job was garbage-collected before the controller could
 /// observe its result — the controller was down or backlogged past the Job's
@@ -37,6 +58,8 @@ struct ReconcileEffect
 	/// What was decided, so the caller can observe a start or a terminal transition
 	/// (and time it) without re-deriving the state machine.
 	Decision decision;
+	/// Whether deleting the batch's provider-side objects failed in this reconcile.
+	bool batchCleanupFailed;
 }
 
 /**
@@ -51,72 +74,372 @@ struct ReconcileEffect
  * the `ReconcileEffect` so a batch pass can keep its concurrency count honest.
  */
 ReconcileEffect reconcileAgent(KubeClient client, string ns, Agent agent, string agentImage, string now,
-	const Agent[] cached)
+	const Agent[] cached, BatchConfig batchConfig = BatchConfig.init)
 {
 	const phase = agent.status.phase;
+	auto run = AgentReconcile(client, ns, agent, Station.init, AgentDefinition.init, agentImage, now,
+		cached, batchConfig, agent.status.jobName);
+	if (batchCleanupDue(agent))
+	{
+		resolveRefs(client, ns, agent, run.station, run.definition);
+		ReconcileEffect released;
+		released.batchCleanupFailed = run.releaseBatch();
+		return released;
+	}
 	if (phase == Phase.succeeded || phase == Phase.failed)
 		return ReconcileEffect.init;
 
-	Station station;
-	AgentDefinition definition;
-	bool refsResolved = true;
-	bool atCapacity = false;
-	string specViolation;
-	if (phase == Phase.pending)
-	{
-		refsResolved = resolveRefs(client, ns, agent, station, definition);
-		if (refsResolved)
-			specViolation = mcpViolation(definition.spec.resources.mcpServers,
-				agentForModel(definition.spec.model).name);
-		if (refsResolved)
-			atCapacity = stationAtCapacity(cached, agent.spec.stationRef,
-				effectiveMaxRuns(station.spec.concurrencyPolicy, station.spec.maxConcurrentRuns));
-	}
+	const batchInFlight = agent.status.batchId.length > 0;
+	const batchPending = batchInFlight && !agent.status.batchFallback;
+	const awaitingFallbackJob = agent.status.batchFallback && agent.status.jobName.length == 0;
+	const needsRefs = phase == Phase.pending || batchPending || awaitingFallbackJob;
+	const refsResolved = !needsRefs || resolveRefs(client, ns, agent, run.station, run.definition);
+	const atCapacity = refsResolved && (phase == Phase.pending || awaitingFallbackJob) && run.stationFull;
+
+	if (refsResolved && batchPending && batchConfig.providers is null)
+		return run.failBatchDisabled();
 
 	JobOutcome outcome;
-	bool hasOutcome = false;
-	string jobName = agent.status.jobName;
-	if (phase == Phase.running)
+	const observesJob = phase == Phase.running && !batchPending && !awaitingFallbackJob;
+	if (observesJob)
 	{
 		// A Running Agent whose status never recorded its jobName (a controller crash
 		// between the Running patch and the jobName write) would otherwise observe no
 		// outcome and stay Running forever. The Job name is derived from the Agent name,
 		// so fall back to it and let observeJob resolve the run or report it terminal.
-		if (jobName.length == 0)
-			jobName = jobNameFor(agent.metadata.name);
-		outcome = observeJob(client, ns, jobName);
-		hasOutcome = true;
+		if (run.jobName.length == 0)
+			run.jobName = jobNameFor(agent.metadata.name);
+		outcome = observeJob(client, ns, run.jobName);
 	}
 
-	const decision = decide(phase, refsResolved, hasOutcome, outcome, atCapacity,
-		station.spec.concurrencyPolicy, specViolation);
+	return run.apply(decide(phase, refsResolved, observesJob, outcome, atCapacity,
+		run.station.spec.concurrencyPolicy,
+		runViolation(agent, run.definition.spec, batchConfig.providers !is null),
+		BatchRun(run.definition.spec.execution == Execution.batch, agent.status.batchId,
+			agent.status.batchFallback, awaitingFallbackJob)));
+}
 
-	final switch (decision.kind)
+/// How the controller runs batch-executed Agents: the vendor providers it submits to, and
+/// the `status.output` cap it applies to their results, as it does to a run pod's log.
+struct BatchConfig
+{
+	BatchProviderFor providers;
+	size_t maxOutputBytes = defaultMaxOutputBytes;
+	/// Posts a batch run's events to its definition's http sinks; null delivers to no sink.
+	HttpSink postSink;
+}
+
+/// One Agent's reconcile once its refs are resolved: applies a `Decision` through the
+/// client. `jobName` is the Job the run uses (recovered from the Agent name when the
+/// status lost it).
+private struct AgentReconcile
+{
+	KubeClient client;
+	string ns;
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	string agentImage;
+	string now;
+	const(Agent)[] cached;
+	BatchConfig batchConfig;
+	string jobName;
+	BatchProvider batchProvider;
+	/// The finished batch's result as the vendor CLI's event lines, uncapped, for the sinks.
+	string[] batchLines;
+
+	ReconcileEffect apply(Decision decision)
 	{
-	case ActionKind.none:
-		return ReconcileEffect(false, "", decision);
-	case ActionKind.startRun:
-		client.createJob(ns, buildJob(agent, station, definition, agentImage));
-		client.patchAgentStatus(ns, agent.metadata.name,
-			statusPatch(decision, jobNameFor(agent.metadata.name), now, agent.metadata.resourceVersion));
-		return ReconcileEffect(true, "", decision);
-	case ActionKind.replaceRun:
-		const preempted = oldestRunningRun(cached, agent.spec.stationRef);
-		client.deleteAgent(ns, preempted, resourceVersionByName(cached, preempted));
-		client.createJob(ns, buildJob(agent, station, definition, agentImage));
-		client.patchAgentStatus(ns, agent.metadata.name,
-			statusPatch(decision, jobNameFor(agent.metadata.name), now, agent.metadata.resourceVersion));
-		return ReconcileEffect(true, preempted, decision);
-	case ActionKind.failMissingRef:
-		client.patchAgentStatus(ns, agent.metadata.name,
-			statusPatch(decision, "", now, agent.metadata.resourceVersion));
-		return ReconcileEffect(false, "", decision);
-	case ActionKind.complete:
-		client.patchAgentStatus(ns, agent.metadata.name,
-			statusPatch(decision, jobName, now, agent.metadata.resourceVersion));
-		pruneHistory(client, ns, agent.spec.stationRef, cached);
-		return ReconcileEffect(false, "", decision);
+		final switch (decision.kind)
+		{
+		case ActionKind.none:
+			return ReconcileEffect(false, "", decision);
+		case ActionKind.pollBatch:
+			auto polled = apply(pollBatch());
+			emitBatchOutcome(polled.decision);
+			if (polled.decision.kind != ActionKind.none)
+				polled.batchCleanupFailed = cleanupBatch();
+			return polled;
+		case ActionKind.submitBatch:
+			return submitBatch(decision);
+		case ActionKind.replaceWithBatch:
+			const preemptedForBatch = oldestRunningRun(cached, agent.spec.stationRef);
+			client.deleteAgent(ns, preemptedForBatch, resourceVersionByName(cached, preemptedForBatch));
+			return submitBatch(decision, preemptedForBatch);
+		case ActionKind.startRun:
+		case ActionKind.batchFallbackStart:
+			return startJob(decision, "");
+		case ActionKind.replaceRun:
+			const preempted = oldestRunningRun(cached, agent.spec.stationRef);
+			client.deleteAgent(ns, preempted, resourceVersionByName(cached, preempted));
+			return startJob(decision, preempted);
+		case ActionKind.failMissingRef:
+			return fail(decision.failureReason);
+		case ActionKind.batchFallbackWait:
+			patch(statusPatch(decision, "", now, agent.metadata.resourceVersion));
+			return ReconcileEffect(false, "", decision);
+		case ActionKind.complete:
+		case ActionKind.batchTimeoutFail:
+			patch(statusPatch(decision, jobName, now, agent.metadata.resourceVersion));
+			pruneHistory(client, ns, agent.spec.stationRef, cached);
+			return ReconcileEffect(false, "", decision);
+		}
 	}
+
+	/// Whether the Station's other runs already fill its concurrent-run limit.
+	bool stationFull()
+	{
+		import std.algorithm.iteration : filter;
+		import std.array : array;
+
+		return stationAtCapacity(cached.filter!(a => a.metadata.name != agent.metadata.name).array,
+			agent.spec.stationRef,
+			effectiveMaxRuns(station.spec.concurrencyPolicy, station.spec.maxConcurrentRuns));
+	}
+
+	/// Create the run Job and record it. Only a Pending Agent's start adds a run to the
+	/// Station; a batch Agent falling back to a Job already counts as Running.
+	private ReconcileEffect startJob(Decision decision, string preempted)
+	{
+		client.createJob(ns, buildJob(agent, station, definition, agentImage));
+		patch(statusPatch(decision, jobNameFor(agent.metadata.name), now, agent.metadata.resourceVersion));
+		return ReconcileEffect(agent.status.phase == Phase.pending, preempted, decision);
+	}
+
+	/// Submit the Agent's rendered prompt to its vendor's batch API, authenticated with the
+	/// key its definition maps from agent-secrets, and record the batch on the status. A
+	/// definition with no secrets entry for the vendor's key fails the Agent instead.
+	private ReconcileEffect submitBatch(Decision decision, string preempted = "")
+	{
+		const target = batchVendor(vendorOf(definition.spec.model));
+		if (apiKeyRef.length == 0)
+			return fail("batch execution needs a resources.secrets entry named " ~ target.apiKeyEnv);
+
+		const batchId = provider.submit(BatchRequest(batchModel(definition.spec.model),
+				renderPrompt(definition.spec.prompt, agent.spec.parameters), definition.spec.output.schema.clone,
+				definition.spec.batch.maxTokens, agent.metadata.uid));
+		patch(batchSubmittedPatch(batchId, target.provider, now, agent.metadata.resourceVersion));
+		client.patchAgent(ns, agent.metadata.name, addFinalizerPatch(agent.metadata.finalizers, batchCleanupFinalizer));
+		emitToSinks(LifecycleEvent(LifecyclePhase.agent, Status.started).toJson);
+		return ReconcileEffect(true, preempted, decision);
+	}
+
+	/// Poll the Agent's batch and decide what its result, or its timeout, leads to. A
+	/// finished batch carries the result translated to the vendor CLI's event lines; a
+	/// timed-out one is cancelled before the Agent fails or falls back to a Job.
+	/// The returned decision (in `ReconcileEffect.decision`) is where sink events such
+	/// as `batch_timeout` attach.
+	private Decision pollBatch()
+	{
+		const vendor = vendorOf(definition.spec.model);
+		auto batch = provider;
+		const poll = batch.poll(agent.status.batchId);
+		batchLines = poll.state == BatchState.pending ? null : batchCliEvents(vendor, poll, agent.metadata.uid);
+		const output = capOutput(batchLines.join("\n"), batchConfig.maxOutputBytes);
+		const decision = batchPolled(poll, output,
+			batchTimedOut(agent.status.startedAt, now, definition.spec.batch.timeoutMinutes),
+			definition.spec.batch.onTimeout, stationFull);
+		if (cancelsBatch(decision.kind))
+			batch.cancel(agent.status.batchId);
+		return decision;
+	}
+
+	/// Deliver what a batch poll that went somewhere means to the definition's sinks, after its
+	/// status patch: a finished batch's CLI lines (through `output.select`) and the agent's
+	/// terminal lifecycle event.
+	private void emitBatchOutcome(Decision decision)
+	{
+		switch (decision.kind)
+		{
+		case ActionKind.complete:
+			const provider = vendorOf(definition.spec.model).to!string;
+			foreach (line; batchLines.filter!(line => selected(definition.spec.output.select, provider, line)))
+				emitToSinks(line);
+			emitToSinks(batchFinished(decision.phase == Phase.succeeded).toJson);
+			break;
+		case ActionKind.batchTimeoutFail:
+			emitToSinks(batchTimeout(true).toJson);
+			break;
+		case ActionKind.batchFallbackStart:
+		case ActionKind.batchFallbackWait:
+			emitToSinks(batchTimeout(false).toJson);
+			break;
+		default:
+			break;
+		}
+	}
+
+	/// Send one event to the definition's sinks, wrapped with the Agent's run identity.
+	private void emitToSinks(string payload)
+	{
+		if (batchConfig.postSink is null)
+			return;
+		const source = EventSource(agent.metadata.name, agent.spec.stationRef, agent.spec.taskId, "", ns);
+		deliverEvent(definition.spec.output.sinks, source, payload, batchConfig.postSink, "[controller]",
+			&secretHeaders);
+	}
+
+	/// An http sink's `headers_secret`, read from the agent-secrets key it names, as the run
+	/// pod reads it from the env var that key is injected as. Empty when unresolvable: auth
+	/// never breaks the run.
+	private string secretHeaders(string headersSecret) nothrow
+	{
+		if (headersSecret.length == 0)
+			return "";
+		try
+			return client.secretValue(ns, agentSecretName, headersSecret);
+		catch (Exception)
+			return "";
+	}
+
+	/// A deleted or finished Agent's batch: cancel it while still in flight, then clean it
+	/// up and release the Agent. Without a provider (batch disabled) it only releases the
+	/// Agent, leaving the batch to expire. True when the cleanup failed.
+	bool releaseBatch()
+	{
+		if (batchConfig.providers is null)
+		{
+			releaseFinalizer();
+			return false;
+		}
+		const terminal = agent.status.phase == Phase.succeeded || agent.status.phase == Phase.failed;
+		if (!terminal && !agent.status.batchFallback)
+			provider.cancel(agent.status.batchId);
+		return cleanupBatch();
+	}
+
+	/// Delete what the Agent's batch left at the provider, then release its deletion.
+	/// True when the cleanup failed.
+	private bool cleanupBatch()
+	{
+		bool failed;
+		try
+			provider.cleanup(agent.status.batchId);
+		catch (Exception)
+		{
+			// The batch-cleanup-failed event attaches here (slice 2).
+			failed = true;
+			const attempts = agent.status.batchCleanupAttempts + 1;
+			if (attempts < maxBatchCleanupAttempts)
+			{
+				patch(batchCleanupAttemptsPatch(attempts));
+				return failed;
+			}
+		}
+		releaseFinalizer();
+		return failed;
+	}
+
+	/// Remove the batch-cleanup finalizer, if the Agent holds it.
+	private void releaseFinalizer()
+	{
+		const release = removeFinalizerPatch(agent.metadata.finalizers, batchCleanupFinalizer);
+		if (release.length)
+			client.patchAgent(ns, agent.metadata.name, release);
+	}
+
+	/// The vendor's batch provider, authenticated with the agent-secrets value the
+	/// definition maps to the vendor's API key; built once per reconcile.
+	private BatchProvider provider()
+	{
+		enforce(batchConfig.providers !is null, "batch execution has no provider configured");
+		if (batchProvider is null)
+			batchProvider = batchConfig.providers(vendorOf(definition.spec.model),
+				client.secretValue(ns, agentSecretName, apiKeyRef));
+		return batchProvider;
+	}
+
+	private string apiKeyRef()
+	{
+		return secretRefFor(definition.spec.resources.secrets,
+			batchVendor(vendorOf(definition.spec.model)).apiKeyEnv);
+	}
+
+	/// Fail a Running batch Agent on a controller whose batch execution was disabled since it
+	/// submitted. With no provider the batch can be neither cancelled nor cleaned up, so it is
+	/// left to finish and expire at the provider.
+	ReconcileEffect failBatchDisabled()
+	{
+		auto failed = fail(batchDisabledReason);
+		emitToSinks(batchFinished(false).toJson);
+		releaseFinalizer();
+		return failed;
+	}
+
+	/// Patch the Agent terminal Failed with `reason`.
+	private ReconcileEffect fail(string reason)
+	{
+		const failed = Decision(ActionKind.failMissingRef, Phase.failed, 0, reason);
+		patch(statusPatch(failed, "", now, agent.metadata.resourceVersion));
+		return ReconcileEffect(false, "", failed);
+	}
+
+	private void patch(Json statusPatch)
+	{
+		client.patchAgentStatus(ns, agent.metadata.name, statusPatch);
+	}
+}
+
+/// The agent-phase terminal event of a finished batch, shaped like the supervisor's on a process
+/// exit: `succeeded` with exit code 0, or `failed` with exit code 1 and reason `batch_failed`.
+private LifecycleEvent batchFinished(bool succeeded) @safe pure nothrow
+{
+	LifecycleEvent finished = {phase: LifecyclePhase.agent, status: succeeded ? Status.succeeded : Status.failed,
+		reason: succeeded ? "" : "batch_failed"};
+	finished.exitCode = succeeded ? 0 : 1;
+	return finished;
+}
+
+/// The agent-phase `batch_timeout` event: `failed` with exit code 1 when the timeout fails the
+/// run, else `running`, since the fallback Job's supervisor reports how the run ends and a
+/// consumer ends the visit on any `failed`.
+private LifecycleEvent batchTimeout(bool failsRun) @safe pure nothrow
+{
+	LifecycleEvent timedOut = {phase: LifecyclePhase.agent, status: failsRun ? Status.failed : Status.running,
+		reason: "batch_timeout"};
+	if (failsRun)
+		timedOut.exitCode = 1;
+	return timedOut;
+}
+
+/// Whether the Agent holds the batch-cleanup finalizer and is past needing its batch: it
+/// is being deleted, or it finished and a cleanup after its batch failed and must be retried.
+private bool batchCleanupDue(const Agent agent) @safe pure
+{
+	import std.algorithm.searching : canFind;
+
+	const phase = agent.status.phase;
+	return agent.metadata.finalizers.canFind(batchCleanupFinalizer)
+		&& (agent.metadata.deletionTimestamp.length > 0 || phase == Phase.succeeded
+			|| phase == Phase.failed);
+}
+
+private enum batchDisabledReason = "batch execution is disabled on this controller";
+
+/// Why the Agent cannot run its resolved recipe, or "": the recipe's own batch violation,
+/// else, for a non-batch recipe, its invalid `resources.mcp_servers`, else a batch recipe on a controller without batch providers (`BATCH_ENABLED` unset), else
+/// per-run input files, which a batch request has no workspace to download into.
+private string runViolation(const Agent agent, const AgentDefinitionSpec recipe, bool batchEnabled) @safe
+{
+	const violation = batchViolation(recipe);
+	if (violation.length)
+		return violation;
+	if (recipe.execution != Execution.batch)
+		return mcpViolation(recipe.resources.mcpServers, agentForModel(recipe.model).name);
+	if (!batchEnabled)
+		return batchDisabledReason;
+	if (agent.spec.files.length == 0)
+		return "";
+	return "batch execution does not support files";
+}
+
+/// The agent-secrets key the `resources.secrets` entry named `env` points at, or "".
+private string secretRefFor(const SecretRef[] secrets, string env) @safe pure nothrow
+{
+	foreach (secret; secrets)
+		if (secret.name == env)
+			return secret.ref_;
+	return "";
 }
 
 /// The `resourceVersion` of the cached Agent named `name`, or "" if it is not in the
@@ -191,6 +514,7 @@ private bool resolveRefs(KubeClient client, string ns, Agent agent, ref Station 
 	{
 		station = client.getStation(ns, agent.spec.stationRef);
 		definition = client.getAgentDefinition(ns, station.spec.agentDefRef);
+		definition.spec = runRecipe(agent, definition.spec);
 		return true;
 	}
 	catch (NotFound)
@@ -212,11 +536,20 @@ private void pruneHistory(KubeClient client, string ns, string stationRef, const
 
 version (unittest)
 {
-	import std.exception : enforce;
 	import fluent.asserts;
-	import vibe.data.json : Json, parseJsonString;
+	import vibe.data.json : parseJsonString;
 	import agentcore.crds.enums : ConcurrencyPolicy;
 	import agentcore.reconcile.reconcile : JobState;
+	import agentcore.batch.provider : BatchPoll;
+	import agentcore.core.vendor : Vendor;
+
+	/// The JSON patch removing the batch-cleanup finalizer when it is the Agent's only one.
+	Json removeFirstFinalizer()
+	{
+		return parseJsonString(`[
+			{"op":"test","path":"/metadata/finalizers/0","value":"agents.re-cinq.com/batch-cleanup"},
+			{"op":"remove","path":"/metadata/finalizers/0"}]`);
+	}
 
 	private final class FakeKubeClient : KubeClient
 	{
@@ -228,10 +561,13 @@ version (unittest)
 		string podNameValue;
 		PodResult podResultValue;
 		bool podReadThrows; /// simulate the pod being GC'd between podNameForJob and podResult
+		string[string] secrets; /// "<secret>/<key>" -> value
 
 		Json[] createdJobs;
 		Json[] statusPatches;
 		string[] patchedNames;
+		Json[] agentPatches;
+		string[] calls; /// status / metadata patches and provider cleanups, in order
 		string[] deletedAgents;
 		string[] deletedVersions;
 
@@ -261,6 +597,13 @@ version (unittest)
 		{
 			patchedNames ~= name;
 			statusPatches ~= patch;
+			calls ~= "patchAgentStatus";
+		}
+
+		override void patchAgent(string ns, string name, Json patch)
+		{
+			agentPatches ~= patch;
+			calls ~= "patchAgent";
 		}
 
 		override void deleteAgent(string ns, string name, string resourceVersion = "")
@@ -279,6 +622,120 @@ version (unittest)
 			enforce(!podReadThrows, new NotFound("pod " ~ podName ~ " not found"));
 			return podResultValue;
 		}
+
+		override string secretValue(string ns, string name, string key)
+		{
+			const value = (name ~ "/" ~ key) in secrets;
+			enforce(value !is null, new NotFound("secret " ~ name ~ "/" ~ key ~ " not found"));
+			return *value;
+		}
+	}
+
+	private final class FakeBatchProvider : BatchProvider
+	{
+		BatchRequest[] submitted;
+		BatchPoll pollResult;
+		string[] cancelled;
+		string[] cleaned;
+		bool cleanupThrows;
+		FakeKubeClient journal; /// when set, cleanups are logged into its `calls`
+
+		string submit(BatchRequest request)
+		{
+			submitted ~= request;
+			return "msgbatch_1";
+		}
+
+		BatchPoll poll(string id)
+		{
+			return pollResult;
+		}
+
+		void cancel(string id)
+		{
+			cancelled ~= id;
+		}
+
+		void cleanup(string id)
+		{
+			cleaned ~= id;
+			enforce(!cleanupThrows, "provider cleanup failed");
+			if (journal !is null)
+				journal.calls ~= "cleanup " ~ id;
+		}
+	}
+
+	/// A factory handing out `provider` and recording the vendor and API key it was asked for.
+	private struct FakeBatchProviders
+	{
+		FakeBatchProvider provider;
+		Vendor[] vendors;
+		string[] apiKeys;
+
+		BatchProvider make(Vendor vendor, string apiKey)
+		{
+			vendors ~= vendor;
+			apiKeys ~= apiKey;
+			return provider;
+		}
+	}
+
+	private FakeKubeClient batchClient(string model)
+	{
+		import agentcore.crds.enums : Execution;
+		import agentcore.crds.secret_ref : SecretRef;
+
+		auto client = new FakeKubeClient;
+		client.station.metadata.name = "stn";
+		client.station.spec.agentDefRef = "def";
+		client.definition.spec.model = model;
+		client.definition.spec.prompt = "Fix {ticket}";
+		client.definition.spec.execution = Execution.batch;
+		client.definition.spec.resources.secrets = [SecretRef("ANTHROPIC_API_KEY", "anthropic-key")];
+		client.secrets["agent-secrets/anthropic-key"] = "sk-ant-test";
+		return client;
+	}
+
+	private Agent runningBatchAgent(string name)
+	{
+		Agent agent;
+		agent.metadata.name = name;
+		agent.metadata.uid = "uid-7";
+		agent.spec.stationRef = "stn";
+		agent.status.phase = Phase.running;
+		agent.status.batchId = "msgbatch_1";
+		agent.status.batchProvider = "anthropic";
+		agent.status.startedAt = "2026-06-22T12:00:00Z";
+		return agent;
+	}
+
+	private BatchPoll succeededPoll()
+	{
+		import agentcore.batch.anthropic : parsePoll;
+
+		return parsePoll(parseJsonString(import("batch/anthropic-batch-ended.json")),
+			import("batch/anthropic-result-succeeded.json"));
+	}
+
+	/// Records every http sink post as `<url> <line>`, and the header block it carried.
+	private struct FakeSinkPoster
+	{
+		string[] posts;
+		string[] headers;
+
+		void post(string url, string line, string headerBlock) nothrow
+		{
+			posts ~= url ~ " " ~ line;
+			headers ~= headerBlock;
+		}
+	}
+
+	/// A `BatchConfig` over `providers` whose http sink posts land in `poster`.
+	private BatchConfig sinkConfig(ref FakeBatchProviders providers, ref FakeSinkPoster poster)
+	{
+		auto config = BatchConfig(&providers.make);
+		config.postSink = &poster.post;
+		return config;
 	}
 
 	private Agent pendingAgent(string name, string stationRef)
@@ -610,4 +1067,687 @@ unittest
 	// The recovered (derived) Job name is written into the terminal record, so the run
 	// no longer ends with a permanently empty jobName.
 	client.statusPatches[0]["status"]["jobName"].get!string.should.equal("agent-job-run-11");
+}
+
+unittest // pending agent whose batch definition sets allowed_tools goes Failed with that reason and no Job
+{
+	import agentcore.crds.enums : Execution;
+
+	auto client = new FakeKubeClient;
+	client.station.metadata.name = "stn";
+	client.station.spec.agentDefRef = "def";
+	client.definition.spec.execution = Execution.batch;
+	client.definition.spec.allowedTools = ["Read"];
+
+	reconcileAgent(client, "ai-agents", pendingAgent("run-b", "stn"), "img", "2026-06-22T12:00:00Z", null);
+
+	client.createdJobs.length.should.equal(0);
+	client.statusPatches[0]["status"]["failureReason"].get!string.should
+		.equal("batch execution does not support allowed_tools");
+}
+
+unittest // pending claude batch agent submits with the agent-secrets key and patches Running with batchId msgbatch_1
+{
+	auto client = batchClient("claude-sonnet-4-6");
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	auto agent = pendingAgent("run-b", "stn");
+	agent.metadata.uid = "uid-7";
+	agent.spec.parameters = ["ticket": "ENG-1"];
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null, BatchConfig(&providers.make));
+
+	providers.vendors.should.equal([Vendor.claude]);
+	providers.apiKeys.should.equal(["sk-ant-test"]);
+	providers.provider.submitted.should.equal([
+		BatchRequest("claude-sonnet-4-6", "Fix ENG-1", Json.undefined, 16_000, "uid-7")
+	]);
+	client.createdJobs.length.should.equal(0);
+	client.statusPatches.should.equal([parseJsonString(`{"status":{"phase":"Running",
+		"batchId":"msgbatch_1","batchProvider":"anthropic","startedAt":"2026-06-22T12:00:00Z"}}`)]);
+}
+
+unittest // pending claude batch agent without an ANTHROPIC_API_KEY secret entry goes Failed naming it and submits nothing
+{
+	auto client = batchClient("claude-sonnet-4-6");
+	client.definition.spec.resources.secrets = null;
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+
+	reconcileAgent(client, "ai-agents", pendingAgent("run-b", "stn"), "img", "2026-06-22T12:00:00Z", null,
+		BatchConfig(&providers.make));
+
+	providers.provider.submitted.length.should.equal(0);
+	client.statusPatches.should.equal([parseJsonString(`{"status":{"phase":"Failed",
+		"failureReason":"batch execution needs a resources.secrets entry named ANTHROPIC_API_KEY",
+		"completedAt":"2026-06-22T12:00:00Z"}}`)]);
+}
+
+unittest // running claude batch agent whose poll succeeded patches Succeeded with the translated claude lines as output
+{
+	import agentcore.batch.anthropic : toCliEvents;
+	import std.array : join;
+
+	auto client = batchClient("claude-sonnet-4-6");
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	providers.provider.pollResult = succeededPoll();
+
+	reconcileAgent(client, "ai-agents", runningBatchAgent("run-b"), "img", "2026-06-22T12:05:00Z", null,
+		BatchConfig(&providers.make));
+
+	auto expected = Json([
+		"phase": Json("Succeeded"),
+		"exitCode": Json(0),
+		"output": Json(toCliEvents(succeededPoll(), "uid-7").join("\n")),
+		"completedAt": Json("2026-06-22T12:05:00Z"),
+	]);
+	client.statusPatches.should.equal([Json(["status": expected])]);
+}
+
+unittest // running claude batch agent whose poll errored patches Failed with the vendor error as reason
+{
+	import agentcore.batch.anthropic : parsePoll;
+
+	auto client = batchClient("claude-sonnet-4-6");
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	providers.provider.pollResult = parsePoll(parseJsonString(import("batch/anthropic-batch-ended.json")),
+		import("batch/anthropic-result-errored.json"));
+
+	reconcileAgent(client, "ai-agents", runningBatchAgent("run-b"), "img", "2026-06-22T12:05:00Z", null,
+		BatchConfig(&providers.make));
+
+	client.statusPatches[0]["status"]["phase"].get!string.should.equal("Failed");
+	client.statusPatches[0]["status"]["failureReason"].should.equal(Json(providers.provider.pollResult.error));
+}
+
+unittest // running claude batch agent whose poll is pending patches nothing
+{
+	auto client = batchClient("claude-sonnet-4-6");
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+
+	reconcileAgent(client, "ai-agents", runningBatchAgent("run-b"), "img", "2026-06-22T12:05:00Z", null,
+		BatchConfig(&providers.make));
+
+	client.statusPatches.length.should.equal(0);
+}
+
+unittest // pending batch 60 minutes past a 60-minute timeout with onTimeout fail cancels msgbatch_1 and patches Failed "batch timed out"
+{
+	auto client = batchClient("claude-sonnet-4-6");
+	client.definition.spec.batch.timeoutMinutes = 60;
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+
+	reconcileAgent(client, "ai-agents", runningBatchAgent("run-b"), "img", "2026-06-22T13:00:00Z", null,
+		BatchConfig(&providers.make));
+
+	providers.provider.cancelled.should.equal(["msgbatch_1"]);
+	client.statusPatches.should.equal([parseJsonString(`{"status":{"phase":"Failed","exitCode":1,
+		"output":"","failureReason":"batch timed out","completedAt":"2026-06-22T13:00:00Z"}}`)]);
+}
+
+unittest // timed-out batch with onTimeout fallback cancels msgbatch_1, creates the buildJob Job and patches batchFallback true
+{
+	import agentcore.crds.enums : BatchTimeoutAction;
+
+	auto client = batchClient("claude-sonnet-4-6");
+	client.station.spec.template_ = parseJsonString(`{"spec":{"containers":[{"name":"agent","image":"node:22"}]}}`);
+	client.definition.spec.batch.timeoutMinutes = 60;
+	client.definition.spec.batch.onTimeout = BatchTimeoutAction.fallback;
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	auto agent = runningBatchAgent("run-b");
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T13:00:00Z", null, BatchConfig(&providers.make));
+
+	providers.provider.cancelled.should.equal(["msgbatch_1"]);
+	client.createdJobs.should.equal([buildJob(agent, client.station, client.definition, "img")]);
+	client.statusPatches.should.equal([parseJsonString(`{"status":{"phase":"Running","batchFallback":true,
+		"jobName":"agent-job-run-b","startedAt":"2026-06-22T13:00:00Z"}}`)]);
+}
+
+unittest // fallen-back batch agent whose Job succeeded completes Succeeded from the pod without polling the batch
+{
+	auto client = batchClient("claude-sonnet-4-6");
+	client.outcome = JobOutcome(JobState.succeeded);
+	client.podNameValue = "agent-job-run-b-abc";
+	client.podResultValue = PodResult(0, "job log");
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	auto agent = runningBatchAgent("run-b");
+	agent.status.batchFallback = true;
+	agent.status.jobName = "agent-job-run-b";
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T13:00:00Z", null, BatchConfig(&providers.make));
+
+	providers.vendors.length.should.equal(0);
+	client.statusPatches[0]["status"]["phase"].get!string.should.equal("Succeeded");
+	client.statusPatches[0]["status"]["output"].get!string.should.equal("job log");
+}
+
+unittest // timed-out fallback batch whose poll succeeded completes Succeeded without cancel or Job
+{
+	import agentcore.crds.enums : BatchTimeoutAction;
+
+	auto client = batchClient("claude-sonnet-4-6");
+	client.definition.spec.batch.timeoutMinutes = 60;
+	client.definition.spec.batch.onTimeout = BatchTimeoutAction.fallback;
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	providers.provider.pollResult = succeededPoll();
+
+	reconcileAgent(client, "ai-agents", runningBatchAgent("run-b"), "img", "2026-06-22T13:00:00Z", null,
+		BatchConfig(&providers.make));
+
+	providers.provider.cancelled.length.should.equal(0);
+	client.createdJobs.length.should.equal(0);
+	client.statusPatches[0]["status"]["phase"].get!string.should.equal("Succeeded");
+}
+
+unittest // timed-out fallback batch at Station capacity cancels and patches batchFallback true with no Job
+{
+	import agentcore.crds.enums : BatchTimeoutAction;
+
+	auto client = batchClient("claude-sonnet-4-6");
+	client.station.spec.maxConcurrentRuns = 1;
+	client.definition.spec.batch.timeoutMinutes = 60;
+	client.definition.spec.batch.onTimeout = BatchTimeoutAction.fallback;
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	auto agent = runningBatchAgent("run-b");
+	auto other = runningBatchAgent("run-other");
+	other.status.batchId = "";
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T13:00:00Z", [agent, other], BatchConfig(&providers.make));
+
+	providers.provider.cancelled.should.equal(["msgbatch_1"]);
+	client.createdJobs.length.should.equal(0);
+	client.statusPatches.should.equal([parseJsonString(`{"status":{"phase":"Running","batchFallback":true}}`)]);
+}
+
+unittest // fallen-back batch agent waiting for a slot creates its Job once the Station has room, without polling
+{
+	auto client = batchClient("claude-sonnet-4-6");
+	client.station.spec.maxConcurrentRuns = 1;
+	client.station.spec.template_ = parseJsonString(`{"spec":{"containers":[{"name":"agent","image":"node:22"}]}}`);
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	auto agent = runningBatchAgent("run-b");
+	agent.status.batchFallback = true;
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T14:00:00Z", [agent], BatchConfig(&providers.make));
+
+	providers.vendors.length.should.equal(0);
+	client.createdJobs.should.equal([buildJob(agent, client.station, client.definition, "img")]);
+	client.statusPatches.should.equal([parseJsonString(`{"status":{"phase":"Running",
+		"jobName":"agent-job-run-b","startedAt":"2026-06-22T14:00:00Z"}}`)]);
+}
+
+unittest // fallen-back batch agent waiting for a slot at Station capacity stays without a Job or patch
+{
+	auto client = batchClient("claude-sonnet-4-6");
+	client.station.spec.maxConcurrentRuns = 1;
+	auto agent = runningBatchAgent("run-b");
+	agent.status.batchFallback = true;
+	auto other = runningBatchAgent("run-other");
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T14:00:00Z", [agent, other]);
+
+	client.createdJobs.length.should.equal(0);
+	client.statusPatches.length.should.equal(0);
+}
+
+unittest // pending claude batch agent submit JSON-patches the batch-cleanup finalizer into the Agent metadata
+{
+	auto client = batchClient("claude-sonnet-4-6");
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+
+	reconcileAgent(client, "ai-agents", pendingAgent("run-b", "stn"), "img", "2026-06-22T12:00:00Z", null,
+		BatchConfig(&providers.make));
+
+	client.agentPatches.should.equal([
+		parseJsonString(`[{"op":"add","path":"/metadata/finalizers","value":["agents.re-cinq.com/batch-cleanup"]}]`)
+	]);
+}
+
+unittest // succeeded batch poll cleans up msgbatch_1 after the status patch, then removes the batch-cleanup finalizer
+{
+	auto client = batchClient("claude-sonnet-4-6");
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	providers.provider.pollResult = succeededPoll();
+	providers.provider.journal = client;
+	auto agent = runningBatchAgent("run-b");
+	agent.metadata.finalizers = ["other/keep", batchCleanupFinalizer];
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:05:00Z", null, BatchConfig(&providers.make));
+
+	client.calls.should.equal(["patchAgentStatus", "cleanup msgbatch_1", "patchAgent"]);
+	client.agentPatches.should.equal([parseJsonString(`[
+		{"op":"test","path":"/metadata/finalizers/1","value":"agents.re-cinq.com/batch-cleanup"},
+		{"op":"remove","path":"/metadata/finalizers/1"}]`)]);
+}
+
+unittest // timed-out batch with onTimeout fail cancels, then cleans up msgbatch_1 and removes the finalizer
+{
+	auto client = batchClient("claude-sonnet-4-6");
+	client.definition.spec.batch.timeoutMinutes = 60;
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	providers.provider.journal = client;
+	auto agent = runningBatchAgent("run-b");
+	agent.metadata.finalizers = [batchCleanupFinalizer];
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T13:00:00Z", null, BatchConfig(&providers.make));
+
+	providers.provider.cancelled.should.equal(["msgbatch_1"]);
+	client.calls.should.equal(["patchAgentStatus", "cleanup msgbatch_1", "patchAgent"]);
+	client.agentPatches.should.equal([removeFirstFinalizer]);
+}
+
+unittest // timed-out batch with onTimeout fallback starts its Job, then cleans up msgbatch_1 and removes the finalizer
+{
+	import agentcore.crds.enums : BatchTimeoutAction;
+
+	auto client = batchClient("claude-sonnet-4-6");
+	client.station.spec.template_ = parseJsonString(`{"spec":{"containers":[{"name":"agent","image":"node:22"}]}}`);
+	client.definition.spec.batch.timeoutMinutes = 60;
+	client.definition.spec.batch.onTimeout = BatchTimeoutAction.fallback;
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	providers.provider.journal = client;
+	auto agent = runningBatchAgent("run-b");
+	agent.metadata.finalizers = [batchCleanupFinalizer];
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T13:00:00Z", null, BatchConfig(&providers.make));
+
+	client.createdJobs.length.should.equal(1);
+	client.calls.should.equal(["patchAgentStatus", "cleanup msgbatch_1", "patchAgent"]);
+}
+
+unittest // deleted Agent with an in-flight batch cancels, cleans up msgbatch_1, then removes the finalizer without polling
+{
+	auto client = batchClient("claude-sonnet-4-6");
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	providers.provider.pollResult = succeededPoll();
+	providers.provider.journal = client;
+	auto agent = runningBatchAgent("run-b");
+	agent.metadata.finalizers = [batchCleanupFinalizer];
+	agent.metadata.deletionTimestamp = "2026-06-22T12:03:00Z";
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:05:00Z", null, BatchConfig(&providers.make));
+
+	providers.provider.cancelled.should.equal(["msgbatch_1"]);
+	client.calls.should.equal(["cleanup msgbatch_1", "patchAgent"]);
+	client.agentPatches.should.equal([removeFirstFinalizer]);
+}
+
+unittest // succeeded batch Agent on its 5th failed cleanup removes the finalizer and keeps its phase
+{
+	auto client = batchClient("claude-sonnet-4-6");
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	providers.provider.cleanupThrows = true;
+	auto agent = runningBatchAgent("run-b");
+	agent.status.phase = Phase.succeeded;
+	agent.status.batchCleanupAttempts = 4;
+	agent.metadata.finalizers = [batchCleanupFinalizer];
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:10:00Z", null, BatchConfig(&providers.make));
+
+	providers.provider.cleaned.should.equal(["msgbatch_1"]);
+	client.statusPatches.length.should.equal(0);
+	client.agentPatches.should.equal([removeFirstFinalizer]);
+}
+
+unittest // succeeded batch Agent whose 1st cleanup fails records batchCleanupAttempts 1 and keeps the finalizer
+{
+	auto client = batchClient("claude-sonnet-4-6");
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	providers.provider.cleanupThrows = true;
+	auto agent = runningBatchAgent("run-b");
+	agent.status.phase = Phase.succeeded;
+	agent.metadata.finalizers = [batchCleanupFinalizer];
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:10:00Z", null, BatchConfig(&providers.make));
+
+	client.statusPatches.should.equal([parseJsonString(`{"status":{"batchCleanupAttempts":1}}`)]);
+	client.agentPatches.length.should.equal(0);
+}
+
+unittest // succeeded batch poll with maxOutputBytes 64 keeps only the last 64 bytes of the output
+{
+	import agentcore.batch.anthropic : toCliEvents;
+	import std.array : join;
+
+	auto client = batchClient("claude-sonnet-4-6");
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	providers.provider.pollResult = succeededPoll();
+
+	reconcileAgent(client, "ai-agents", runningBatchAgent("run-b"), "img", "2026-06-22T12:05:00Z", null,
+		BatchConfig(&providers.make, 64));
+
+	client.statusPatches[0]["status"]["output"].get!string.should.equal(
+		capOutput(toCliEvents(succeededPoll(), "uid-7").join("\n"), 64));
+}
+
+unittest // running batch Agent whose Station is gone goes Failed "Station or AgentDefinition not found" without polling
+{
+	auto client = batchClient("claude-sonnet-4-6");
+	client.stationMissing = true;
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+
+	reconcileAgent(client, "ai-agents", runningBatchAgent("run-b"), "img", "2026-06-22T12:05:00Z", null,
+		BatchConfig(&providers.make));
+
+	providers.vendors.length.should.equal(0);
+	client.statusPatches.should.equal([parseJsonString(`{"status":{"phase":"Failed",
+		"failureReason":"Station or AgentDefinition not found","completedAt":"2026-06-22T12:05:00Z"}}`)]);
+}
+
+unittest // pending batch agent at a full Replace station deletes run-old and submits a batch without creating a Job
+{
+	auto client = batchClient("claude-sonnet-4-6");
+	client.station.spec.concurrencyPolicy = ConcurrencyPolicy.replace;
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	Agent running;
+	running.metadata.name = "run-old";
+	running.spec.stationRef = "stn";
+	running.status.phase = Phase.running;
+
+	const effect = reconcileAgent(client, "ai-agents", pendingAgent("run-b", "stn"), "img", "2026-06-22T12:00:00Z",
+		[running], BatchConfig(&providers.make));
+
+	[client.deletedAgents.length, providers.provider.submitted.length, client.createdJobs.length]
+		.should.equal([1, 1, 0]);
+	effect.preemptedAgent.should.equal("run-old");
+}
+
+unittest // pending batch agent with spec.model claude-opus-4-1 submits its request with model claude-opus-4-1
+{
+	auto client = batchClient("claude-sonnet-4-6");
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	auto agent = pendingAgent("run-b", "stn");
+	agent.spec.model = "claude-opus-4-1";
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null, BatchConfig(&providers.make));
+
+	providers.provider.submitted[0].model.should.equal("claude-opus-4-1");
+}
+
+unittest // pending batch agent with spec.model gemini-2.5-pro fails with batch execution does not support gemini models
+{
+	auto client = batchClient("claude-sonnet-4-6");
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	auto agent = pendingAgent("run-b", "stn");
+	agent.spec.model = "gemini-2.5-pro";
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null, BatchConfig(&providers.make));
+
+	client.statusPatches[0]["status"]["failureReason"].get!string.should.equal(
+		"batch execution does not support gemini models");
+}
+
+unittest // pending batch agent with spec.files fails with batch execution does not support files
+{
+	import agentcore.crds.input_file : InputFile;
+
+	auto client = batchClient("claude-sonnet-4-6");
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	auto agent = pendingAgent("run-b", "stn");
+	agent.spec.files = [InputFile("notes/brief.md", "https://files.example.com/brief.md")];
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null, BatchConfig(&providers.make));
+
+	[providers.provider.submitted.length].should.equal([0]);
+	client.statusPatches[0]["status"]["failureReason"].get!string.should.equal(
+		"batch execution does not support files");
+}
+
+unittest // succeeded batch Agent whose cleanup fails reports batchCleanupFailed on the effect
+{
+	auto client = batchClient("claude-sonnet-4-6");
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	providers.provider.cleanupThrows = true;
+	auto agent = runningBatchAgent("run-b");
+	agent.status.phase = Phase.succeeded;
+	agent.metadata.finalizers = [batchCleanupFinalizer];
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:10:00Z", null, BatchConfig(&providers.make))
+		.batchCleanupFailed.should.equal(true);
+}
+
+unittest // pending batch agent whose definition sets batch.maxTokens 2048 submits max tokens 2048
+{
+	auto client = batchClient("claude-sonnet-4-6");
+	client.definition.spec.batch.maxTokens = 2048;
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+
+	reconcileAgent(client, "ai-agents", pendingAgent("run-b", "stn"), "img", "2026-06-22T12:00:00Z", null,
+		BatchConfig(&providers.make));
+
+	providers.provider.submitted[0].maxTokens.should.equal(2048);
+}
+
+unittest // pending batch agent whose definition has an empty model submits model claude-opus-5-5
+{
+	auto client = batchClient("");
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+
+	reconcileAgent(client, "ai-agents", pendingAgent("run-b", "stn"), "img", "2026-06-22T12:00:00Z", null,
+		BatchConfig(&providers.make));
+
+	providers.provider.submitted[0].model.should.equal("claude-opus-5-5");
+}
+
+unittest // pending batch agent whose definition has an object output.schema submits that schema
+{
+	auto client = batchClient("claude-sonnet-4-6");
+	client.definition.spec.output.schema = parseJsonString(`{"type":"object"}`);
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+
+	reconcileAgent(client, "ai-agents", pendingAgent("run-b", "stn"), "img", "2026-06-22T12:00:00Z", null,
+		BatchConfig(&providers.make));
+
+	providers.provider.submitted[0].schema.should.equal(parseJsonString(`{"type":"object"}`));
+}
+
+unittest // pending batch agent on a controller with batch disabled goes Failed "batch execution is disabled on this controller"
+{
+	auto client = batchClient("claude-sonnet-4-6");
+
+	reconcileAgent(client, "ai-agents", pendingAgent("run-b", "stn"), "img", "2026-06-22T12:00:00Z", null,
+		BatchConfig.init);
+
+	client.statusPatches.should.equal([parseJsonString(`{"status":{"phase":"Failed",
+		"failureReason":"batch execution is disabled on this controller",
+		"completedAt":"2026-06-22T12:00:00Z"}}`)]);
+}
+
+unittest // succeeded batch poll posts each translated claude line to the http sink wrapped with the Agent's source, then agent succeeded
+{
+	import agentcore.batch.anthropic : toCliEvents;
+	import agentcore.crds.enums : SinkType;
+	import agentcore.crds.output_sink : OutputSink;
+	import agentcore.output.event : EventSource, wrapEvent;
+	import std.algorithm : map;
+	import std.array : array;
+
+	auto client = batchClient("claude-sonnet-4-6");
+	client.definition.spec.output.sinks = [OutputSink(SinkType.http, "http://floor/events")];
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	providers.provider.pollResult = succeededPoll();
+	FakeSinkPoster poster;
+	auto agent = runningBatchAgent("run-b");
+	agent.spec.taskId = "T-1";
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:05:00Z", null, sinkConfig(providers, poster));
+
+	const source = EventSource("run-b", "stn", "T-1", "", "ai-agents");
+	poster.posts.should.equal((toCliEvents(succeededPoll(), "uid-7")
+		~ `{"kind":"lifecycle","phase":"agent","status":"succeeded","exitCode":0}`)
+		.map!(line => "http://floor/events " ~ wrapEvent(source, line)).array);
+}
+
+unittest // succeeded batch poll with output.select on result posts only the result line and the lifecycle event
+{
+	import agentcore.batch.anthropic : toCliEvents;
+	import agentcore.crds.enums : SelectEvent, SinkType;
+	import agentcore.crds.output_selector : OutputSelector;
+	import agentcore.crds.output_sink : OutputSink;
+	import agentcore.output.event : EventSource, wrapEvent;
+	import std.algorithm : map;
+	import std.array : array;
+
+	auto client = batchClient("claude-sonnet-4-6");
+	client.definition.spec.output.sinks = [OutputSink(SinkType.http, "http://floor/events")];
+	OutputSelector onResult = {event: SelectEvent.result};
+	client.definition.spec.output.select = [onResult];
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	providers.provider.pollResult = succeededPoll();
+	FakeSinkPoster poster;
+
+	reconcileAgent(client, "ai-agents", runningBatchAgent("run-b"), "img", "2026-06-22T12:05:00Z", null,
+		sinkConfig(providers, poster));
+
+	const source = EventSource("run-b", "stn", "", "", "ai-agents");
+	poster.posts.should.equal([toCliEvents(succeededPoll(), "uid-7")[$ - 1],
+		`{"kind":"lifecycle","phase":"agent","status":"succeeded","exitCode":0}`]
+		.map!(line => "http://floor/events " ~ wrapEvent(source, line)).array);
+}
+
+unittest // errored batch poll posts agent failed with exitCode 1 and reason batch_failed after its lines
+{
+	import agentcore.batch.anthropic : parsePoll;
+	import agentcore.crds.enums : SinkType;
+	import agentcore.crds.output_sink : OutputSink;
+	import agentcore.output.event : EventSource, wrapEvent;
+
+	auto client = batchClient("claude-sonnet-4-6");
+	client.definition.spec.output.sinks = [OutputSink(SinkType.http, "http://floor/events")];
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	providers.provider.pollResult = parsePoll(parseJsonString(import("batch/anthropic-batch-ended.json")),
+		import("batch/anthropic-result-errored.json"));
+	FakeSinkPoster poster;
+
+	reconcileAgent(client, "ai-agents", runningBatchAgent("run-b"), "img", "2026-06-22T12:05:00Z", null,
+		sinkConfig(providers, poster));
+
+	poster.posts[$ - 1].should.equal("http://floor/events " ~ wrapEvent(EventSource("run-b", "stn", "", "", "ai-agents"),
+		`{"kind":"lifecycle","phase":"agent","status":"failed","reason":"batch_failed","exitCode":1}`));
+}
+
+unittest // timed-out batch with onTimeout fail posts only agent failed with exitCode 1 and reason batch_timeout
+{
+	import agentcore.crds.enums : SinkType;
+	import agentcore.crds.output_sink : OutputSink;
+	import agentcore.output.event : EventSource, wrapEvent;
+
+	auto client = batchClient("claude-sonnet-4-6");
+	client.definition.spec.output.sinks = [OutputSink(SinkType.http, "http://floor/events")];
+	client.definition.spec.batch.timeoutMinutes = 60;
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	FakeSinkPoster poster;
+
+	reconcileAgent(client, "ai-agents", runningBatchAgent("run-b"), "img", "2026-06-22T13:00:00Z", null,
+		sinkConfig(providers, poster));
+
+	poster.posts.should.equal(["http://floor/events " ~ wrapEvent(EventSource("run-b", "stn", "", "", "ai-agents"),
+		`{"kind":"lifecycle","phase":"agent","status":"failed","reason":"batch_timeout","exitCode":1}`)]);
+}
+
+unittest // timed-out batch with onTimeout fallback posts only agent running with reason batch_timeout, never a terminal event
+{
+	import agentcore.crds.enums : BatchTimeoutAction, SinkType;
+	import agentcore.crds.output_sink : OutputSink;
+	import agentcore.output.event : EventSource, wrapEvent;
+
+	auto client = batchClient("claude-sonnet-4-6");
+	client.station.spec.template_ = parseJsonString(`{"spec":{"containers":[{"name":"agent","image":"node:22"}]}}`);
+	client.definition.spec.output.sinks = [OutputSink(SinkType.http, "http://floor/events")];
+	client.definition.spec.batch.timeoutMinutes = 60;
+	client.definition.spec.batch.onTimeout = BatchTimeoutAction.fallback;
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	FakeSinkPoster poster;
+
+	reconcileAgent(client, "ai-agents", runningBatchAgent("run-b"), "img", "2026-06-22T13:00:00Z", null,
+		sinkConfig(providers, poster));
+
+	poster.posts.should.equal(["http://floor/events " ~ wrapEvent(EventSource("run-b", "stn", "", "", "ai-agents"),
+		`{"kind":"lifecycle","phase":"agent","status":"running","reason":"batch_timeout"}`)]);
+}
+
+unittest // pending batch agent submit posts agent started after its Running patch
+{
+	import agentcore.crds.enums : SinkType;
+	import agentcore.crds.output_sink : OutputSink;
+	import agentcore.output.event : EventSource, wrapEvent;
+
+	auto client = batchClient("claude-sonnet-4-6");
+	client.definition.spec.output.sinks = [OutputSink(SinkType.http, "http://floor/events")];
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	FakeSinkPoster poster;
+
+	reconcileAgent(client, "ai-agents", pendingAgent("run-b", "stn"), "img", "2026-06-22T12:00:00Z", null,
+		sinkConfig(providers, poster));
+
+	poster.posts.should.equal(["http://floor/events " ~ wrapEvent(EventSource("run-b", "stn", "", "", "ai-agents"),
+		`{"kind":"lifecycle","phase":"agent","status":"started"}`)]);
+}
+
+unittest // http sink with headers_secret floor-auth posts with the agent-secrets floor-auth value as headers
+{
+	import agentcore.crds.enums : SinkType;
+	import agentcore.crds.output_sink : OutputSink;
+
+	auto client = batchClient("claude-sonnet-4-6");
+	client.definition.spec.output.sinks = [OutputSink(SinkType.http, "http://floor/events", "floor-auth")];
+	client.secrets["agent-secrets/floor-auth"] = "Authorization: Bearer floor-token";
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	FakeSinkPoster poster;
+
+	reconcileAgent(client, "ai-agents", pendingAgent("run-b", "stn"), "img", "2026-06-22T12:00:00Z", null,
+		sinkConfig(providers, poster));
+
+	poster.headers.should.equal(["Authorization: Bearer floor-token"]);
+}
+
+unittest // running batch agent on a controller with batch disabled patches Failed "batch execution is disabled on this controller"
+{
+	auto client = batchClient("claude-sonnet-4-6");
+
+	reconcileAgent(client, "ai-agents", runningBatchAgent("run-b"), "img", "2026-06-22T12:05:00Z", null);
+
+	client.statusPatches.should.equal([parseJsonString(`{"status":{"phase":"Failed",
+		"failureReason":"batch execution is disabled on this controller","completedAt":"2026-06-22T12:05:00Z"}}`)]);
+}
+
+unittest // running batch agent with the batch-cleanup finalizer on a controller with batch disabled removes the finalizer
+{
+	auto client = batchClient("claude-sonnet-4-6");
+	auto agent = runningBatchAgent("run-b");
+	agent.metadata.finalizers = [batchCleanupFinalizer];
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:05:00Z", null);
+
+	client.agentPatches.should.equal([removeFirstFinalizer]);
+}
+
+unittest // running batch agent on a controller with batch disabled posts agent failed with exitCode 1 and reason batch_failed
+{
+	import agentcore.crds.enums : SinkType;
+	import agentcore.crds.output_sink : OutputSink;
+	import agentcore.output.event : EventSource, wrapEvent;
+
+	auto client = batchClient("claude-sonnet-4-6");
+	client.definition.spec.output.sinks = [OutputSink(SinkType.http, "http://floor/events")];
+	FakeSinkPoster poster;
+	BatchConfig batchDisabled;
+	batchDisabled.postSink = &poster.post;
+
+	reconcileAgent(client, "ai-agents", runningBatchAgent("run-b"), "img", "2026-06-22T12:05:00Z", null,
+		batchDisabled);
+
+	poster.posts.should.equal(["http://floor/events " ~ wrapEvent(EventSource("run-b", "stn", "", "", "ai-agents"),
+		`{"kind":"lifecycle","phase":"agent","status":"failed","reason":"batch_failed","exitCode":1}`)]);
+}
+
+unittest // deleted batch Agent with the batch-cleanup finalizer on a controller with batch disabled removes the finalizer
+{
+	auto client = batchClient("claude-sonnet-4-6");
+	auto agent = runningBatchAgent("run-b");
+	agent.metadata.finalizers = [batchCleanupFinalizer];
+	agent.metadata.deletionTimestamp = "2026-06-22T12:03:00Z";
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:05:00Z", null);
+
+	client.agentPatches.should.equal([removeFirstFinalizer]);
 }

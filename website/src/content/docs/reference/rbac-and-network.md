@@ -15,6 +15,26 @@ The controller's ServiceAccount is granted exactly what reconciliation needs:
 - **Pods**: list and read logs (to capture `status.output`).
 - **Leases** (`coordination.k8s.io`): get, create, and patch — one Lease the
   replicas contend for so only the leader reconciles (see [leader election](../concepts/controller-lifecycle.md#leader-election)).
+The default install grants **no access to Secrets**: run pods receive provider keys through
+`secretKeyRef`, which the kubelet resolves.
+
+### Batch component (opt-in)
+
+[Batch runs](../tasks/batch-runs.md#enable-batch-on-the-controller) need the controller to read the
+provider API key itself. The `deploy/components/batch` kustomize component adds a separate
+`agent-controller-batch` Role and RoleBinding with `get` on the `agent-secrets` Secret only
+(`resourceNames: ["agent-secrets"]`), and sets `BATCH_ENABLED=true` on the controller. The controller
+still cannot list Secrets or read any other one.
+
+```yaml
+components:
+  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/batch?ref=v0.12.0
+```
+
+The grant is a tradeoff. Without it only run pods ever see provider keys; with it the controller can
+read every key in `agent-secrets`, though it only reads the key a batch definition maps in
+`resources.secrets`. Leave the component out if you never use `execution: batch`; batch Agents then
+fail with `batch execution is disabled on this controller`.
 
 ## Caller role
 
@@ -49,6 +69,19 @@ flowchart LR
     POD -. blocked .-> INT["cluster-internal / 169.254.169.254"]
     X(("ingress")) -. denied .-> POD
 ```
+
+## Controller egress for batch runs
+
+The NetworkPolicy above selects run pods only. The controller pod is not selected by it, so its
+egress is whatever your cluster allows by default; with no other policy in place, it can already
+reach `api.anthropic.com` on 443. For batch runs the controller itself calls the Anthropic Message
+Batches API (`https://api.anthropic.com/v1/messages/batches`) to submit, poll, cancel and delete
+batches. If you restrict the controller's egress, allow HTTPS to `api.anthropic.com`. OpenAI and
+Gemini batch support is coming and will need `api.openai.com` and
+`generativelanguage.googleapis.com`.
+
+The controller polls each in-flight batch at most once every `BATCH_POLL_SECONDS` seconds (default
+`60`), set as an environment variable on the controller Deployment.
 
 Tighten the HTTPS egress further — to specific provider CIDRs or through an egress proxy — if your
 environment allows.

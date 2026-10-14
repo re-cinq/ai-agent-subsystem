@@ -110,3 +110,15 @@ spec:
                   type: string
                 prUrl:
                   type: string
+                batchId:
+                  type: string
+                  description: "Provider batch id while a batch-executed run is in flight."
+                batchProvider:
+                  type: string
+                  description: "Provider the batch was submitted to."
+                batchFallback:
+                  type: boolean
+                  description: "True once the batch timed out and the fallback Job started."
+                batchCleanupAttempts:
+                  type: integer
+                  description: "Failed attempts to delete the batch's provider-side objects."

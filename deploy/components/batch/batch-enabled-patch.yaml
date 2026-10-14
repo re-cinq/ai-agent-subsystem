@@ -1,0 +1,13 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-controller
+  namespace: ai-agents
+spec:
+  template:
+    spec:
+      containers:
+        - name: controller
+          env:
+            - name: BATCH_ENABLED
+              value: "true"

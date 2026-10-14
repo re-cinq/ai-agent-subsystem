@@ -1,7 +1,6 @@
 module agentcore.vendors.select;
 
-import std.algorithm.searching : startsWith, canFind;
-import std.uni : toLower;
+public import agentcore.core.vendor : Vendor, vendorOf;
 
 import agentcore.vendors.base.agent : Agent;
 import agentcore.vendors.base.setup : AgentSetup;
@@ -16,26 +15,22 @@ import agentcore.vendors.gemini.setup : GeminiSetup;
 import agentcore.vendors.opencode.agent : OpenCodeAgent;
 import agentcore.vendors.opencode.setup : OpenCodeSetup;
 
-/// Choose the agent adapter from a model id. The literal `exec` id maps to the
-/// non-LLM command runner (station recipes); an explicit `opencode` / `opencode/…`
-/// id maps to OpenCode; the GPT / o-series / codex family maps to Codex; Gemini
-/// models map to Gemini; Claude models and the empty or unrecognized case map to
-/// Claude (the system default).
-/// OpenCode is checked first so an `opencode/openai/gpt-…` id routes to OpenCode
-/// rather than matching the Codex `gpt` rule.
+/// Choose the agent adapter for a model id's vendor.
 Agent agentForModel(string model) @safe
 {
-	const m = model.toLower;
-	if (m == "exec")
-		return new ExecAgent;
-	if (m.canFind("opencode"))
-		return new OpenCodeAgent;
-	if (m.canFind("gemini"))
-		return new GeminiAgent;
-	if (m.canFind("codex") || m.startsWith("gpt") || m.startsWith("o1")
-		|| m.startsWith("o3") || m.startsWith("o4"))
+	final switch (vendorOf(model))
+	{
+	case Vendor.claude:
+		return new ClaudeAgent;
+	case Vendor.codex:
 		return new CodexAgent;
-	return new ClaudeAgent;
+	case Vendor.exec:
+		return new ExecAgent;
+	case Vendor.gemini:
+		return new GeminiAgent;
+	case Vendor.opencode:
+		return new OpenCodeAgent;
+	}
 }
 
 /// Every agent-CLI installer, one per supported vendor. Registering a new vendor
@@ -62,12 +57,13 @@ AgentSetup agentSetupByName(string name) @safe
 }
 
 /// The installer for the CLI a run on `model` will use — keyed to the same
-/// `agentForModel` routing that picks the adapter, so "install X" can never drift
-/// from "run X". Falls back to Claude (the system default) exactly as the adapter
-/// routing does.
+/// `vendorOf` classification that picks the adapter (each installer is named after its
+/// vendor), so "install X" can never drift from "run X".
 AgentSetup agentSetupForModel(string model) @safe
 {
-	auto setup = agentSetupByName(agentForModel(model).name);
+	import std.conv : to;
+
+	auto setup = agentSetupByName(vendorOf(model).to!string);
 	return setup is null ? new ClaudeSetup : setup;
 }
 

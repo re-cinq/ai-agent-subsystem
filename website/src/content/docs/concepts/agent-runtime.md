@@ -303,3 +303,27 @@ strips leading slashes and refuses `..` members, so a bundle cannot write outsid
   with `ref` as the key inside it (the operator creates that Secret out of band). Plain
   `resources.env` entries are injected as literal env vars. The supervisor inherits this environment
   and passes it to the agent CLI; it stages nothing itself.
+
+  **Batch exception.** For a definition with `execution: batch` there is no run pod: the controller
+  itself reads the key the `ANTHROPIC_API_KEY` entry of `resources.secrets` points at from
+  `agent-secrets` and sends it to the provider's batch API. This is the one case where a provider key
+  leaves the run pod's environment, and it needs the opt-in `components/batch` kustomize component;
+  see [RBAC & network](../reference/rbac-and-network.md#batch-component-opt-in).
+
+## Batch execution path
+
+A definition with `execution: batch` skips everything above. No Job, init container or supervisor
+runs. The controller renders the prompt from the Agent's `parameters`, submits it as a one-request
+Anthropic Message Batch (the request's `custom_id` is the Agent's uid), and polls it from its
+reconcile loop. When the batch ends, the controller turns the response into the event lines the Claude
+CLI prints for a single-turn, no-tool run (`system` init, `assistant` with the `text` blocks only, then `result` with `usage`, the
+batch-discounted `total_cost_usd` and `session_id`) and writes them to `status.output`, so a parser that reads a CLI run's output reads a
+batch run's output the same way.
+
+Because it is a single model call, a batch run has no tools, turns, repositories, MCP servers, skills,
+hooks, conversation resume, watched files or per-run input files;
+definitions (or Agents, for `files`) that set them are rejected. In this release
+the result is delivered to `status.output` only. Delivery to the definition's `output.sinks` from the
+controller arrives in the next release. If the batch times out with `onTimeout: fallback`, the
+controller starts an ordinary Job for the same definition, and the rest of this page applies to it.
+See [batch runs](../tasks/batch-runs.md).

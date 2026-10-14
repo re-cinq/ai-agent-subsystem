@@ -21,6 +21,7 @@ flowchart TB
     end
 
     CTRL <-->|watch / create / patch| K8S[("Kubernetes API")]
+    CTRL <-->|"batch: submit / poll / cancel / delete"| BATCH[("Anthropic Message Batches API")]
     INIT -->|init container, prepares| POD["Agent Pod"]
     SUP -->|runs as PID 1 inside| POD
     STATIC["statically linked with LDC, no runtime deps"] -.-> CTRL
@@ -39,6 +40,9 @@ The pure core, with no process of its own:
 - The pure reconcile state machine (I/O injected, so it is unit-testable).
 - Prompt templating.
 - The Job builder.
+- Batch providers (`agentcore/batch`): the Anthropic Message Batches adapter and the translation of
+  a batch result into Claude CLI event lines, with HTTP injected so tests run on fixtures.
+- The shared vendor routing (`core/vendor.d`) that both CLI selection and batch selection use.
 
 ### `controller`: binary 1
 
@@ -47,6 +51,14 @@ builds and creates a `Job`, polls the Job's outcome, and patches the Agent's `st
 prunes old runs beyond the Station's history limits, and exposes `/healthz` (liveness), `/readyz`
 (readiness), plus a Prometheus `/metrics` endpoint (reconcile counts and latency, agents by phase,
 watch reconnects, Kubernetes API latency, and leader status).
+
+For an AgentDefinition with `execution: batch` (opt-in, enabled by the `components/batch` kustomize
+component) it creates no Job. It submits the prompt to the
+Anthropic Message Batches API itself, polls the batch at most every `BATCH_POLL_SECONDS` (default 60),
+records the result in `status.output`, and on `batch.timeoutMinutes` either fails the Agent or falls
+back to an ordinary Job. An `agents.re-cinq.com/batch-cleanup` finalizer makes sure a deleted Agent's
+batch is cancelled and deleted at the provider. See [batch runs](../tasks/batch-runs.md) and the
+[controller lifecycle](./controller-lifecycle.md#batch-runs).
 
 It combines a low-latency **watch** with a ~15s **poll** over one shared in-memory cache, so
 reconcile work is O(changed) and a dropped watch event is still caught by the next poll. Two replicas

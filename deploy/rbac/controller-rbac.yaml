@@ -28,6 +28,8 @@ rules:
   - apiGroups: [""]
     resources: ["pods/log"]
     verbs: ["get"]
+  # No Secret access here: batch execution, the one feature that needs the controller
+  # to read agent-secrets, is opt-in via the deploy/components/batch kustomize component.
   # Leader election: replicas contend for a single Lease so only one reconciles.
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]

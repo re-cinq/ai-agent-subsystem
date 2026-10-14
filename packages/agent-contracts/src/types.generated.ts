@@ -8,6 +8,8 @@ export type SelectEvent = "tool_call" | "message" | "tool_result" | "result" | "
 export type SelectRole = "assistant" | "user";
 export type SinkType = "stdout" | "http" | "file";
 export type ConcurrencyPolicy = "Allow" | "Forbid" | "Replace";
+export type Execution = "interactive" | "batch";
+export type BatchTimeoutAction = "fail" | "fallback";
 export type Phase = "Pending" | "Running" | "Succeeded" | "Failed";
 
 export interface ObjectMeta {
@@ -19,6 +21,8 @@ export interface ObjectMeta {
   creationTimestamp?: string;
   labels?: Record<string, string>;
   annotations?: Record<string, string>;
+  finalizers?: string[];
+  deletionTimestamp?: string;
 }
 
 export interface EnvVar {
@@ -122,6 +126,15 @@ export interface OutputSpec {
   watch?: OutputWatch[];
 }
 
+export interface BatchSpec {
+  /** Minutes to wait for the batch result before onTimeout applies. */
+  timeoutMinutes?: number;
+  /** fail marks the Agent Failed; fallback reruns the work as a CLI Job. */
+  onTimeout?: BatchTimeoutAction;
+  /** Output token ceiling (max_tokens) for the batch request. */
+  maxTokens?: number;
+}
+
 /** The reusable recipe for a coding agent task. */
 export interface AgentDefinitionSpec {
   /** Human summary for operators. */
@@ -134,6 +147,8 @@ export interface AgentDefinitionSpec {
   disallowed_tools?: string[];
   permission_mode?: PermissionMode;
   max_turns?: number;
+  execution?: Execution;
+  batch?: BatchSpec;
   resources?: AgentResources;
   output?: OutputSpec;
   /** Raw passthrough for tool-specific knobs. */
@@ -207,6 +222,14 @@ export interface AgentStatus {
   output?: string;
   failureReason?: string;
   prUrl?: string;
+  /** Provider batch id while a batch-executed run is in flight. */
+  batchId?: string;
+  /** Provider the batch was submitted to. */
+  batchProvider?: string;
+  /** True once the batch timed out and the fallback Job started. */
+  batchFallback?: boolean;
+  /** Failed attempts to delete the batch's provider-side objects. */
+  batchCleanupAttempts?: number;
 }
 
 export interface Agent {

@@ -82,6 +82,27 @@ kubectl apply -k deploy
 The controller runs least-privilege: it can watch and patch Agents, read Stations and
 AgentDefinitions, manage Jobs, and read pod logs. See [RBAC & network](../reference/rbac-and-network.md).
 
+## Enable batch runs (optional)
+
+[Batch runs](../tasks/batch-runs.md) are off by default, and neither `install.yaml` nor `deploy/`
+gives the controller access to Secrets. To enable them, install through your own kustomization that
+adds the `components/batch` component:
+
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - https://github.com/re-cinq/ai-agent-subsystem//deploy?ref=v0.12.0
+components:
+  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/batch?ref=v0.12.0
+```
+
+```sh
+kubectl apply -k .
+```
+
+From a source checkout, list `deploy` and `deploy/components/batch` as local paths instead.
+
 ## Verify the deployment
 
 ```sh

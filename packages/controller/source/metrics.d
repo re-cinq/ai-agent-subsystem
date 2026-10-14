@@ -120,6 +120,13 @@ void recordRunFailure(string kind) nothrow
 		`kind="` ~ kind ~ `"`);
 }
 
+/// Count one failed attempt to delete a batch's provider-side objects.
+void recordBatchCleanupFailure() nothrow
+{
+	addCounter("controller_batch_cleanup_failures_total",
+		"Failed attempts to delete a batch run's provider-side objects.", "");
+}
+
 /// Record how long a run waited from its creation to its Job being created.
 void recordRunQueued(double waitSeconds) nothrow
 {

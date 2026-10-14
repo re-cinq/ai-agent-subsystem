@@ -6,7 +6,7 @@ import agentcore.core.types : Phase;
 import agentcore.crds.agent : Agent;
 import agentcore.reconcile.reconcile : ActionKind;
 import agentcore.reconcile.reconcile_driver : ReconcileEffect;
-import metrics : recordRunCompleted, recordRunDuration, recordRunFailure, recordRunQueued;
+import metrics : recordBatchCleanupFailure, recordRunCompleted, recordRunDuration, recordRunFailure, recordRunQueued;
 
 /// Turn what one reconcile decided into the run metrics: a start records how long
 /// the Agent waited since its creation; a terminal transition records the run's
@@ -17,14 +17,21 @@ import metrics : recordRunCompleted, recordRunDuration, recordRunFailure, record
 /// the metric and the status agree to the second.
 void recordRunEffect(const Agent agent, const ReconcileEffect effect, string now) nothrow
 {
+	if (effect.batchCleanupFailed)
+		recordBatchCleanupFailure();
 	final switch (effect.decision.kind)
 	{
 	case ActionKind.none:
+	case ActionKind.pollBatch:
+	case ActionKind.batchFallbackStart:
+	case ActionKind.batchFallbackWait:
 		break;
 	case ActionKind.startRun:
+	case ActionKind.submitBatch:
 		recordRunQueued(secondsBetween(agent.metadata.creationTimestamp, now));
 		break;
 	case ActionKind.replaceRun:
+	case ActionKind.replaceWithBatch:
 		recordRunQueued(secondsBetween(agent.metadata.creationTimestamp, now));
 		recordRunFailure("preempted");
 		break;
@@ -33,6 +40,7 @@ void recordRunEffect(const Agent agent, const ReconcileEffect effect, string now
 		recordRunFailure("missing_ref");
 		break;
 	case ActionKind.complete:
+	case ActionKind.batchTimeoutFail:
 		recordRunCompleted(cast(string) effect.decision.phase, effect.decision.exitCode);
 		recordRunDuration(cast(string) effect.decision.phase, secondsBetween(agent.status.startedAt, now));
 		if (effect.decision.failureReason.length)
@@ -109,4 +117,15 @@ unittest
 	text.should.contain(`controller_run_failures_total{kind="missing_ref"} 1`);
 	text.should.contain(`controller_run_failures_total{kind="preempted"} 1`);
 	text.should.contain("controller_run_queue_seconds_count 1");
+}
+
+unittest // effect with a failed batch cleanup counts controller_batch_cleanup_failures_total 1
+{
+	resetMetrics();
+	auto effect = ReconcileEffect(false, "", Decision(ActionKind.none, Phase.succeeded));
+	effect.batchCleanupFailed = true;
+
+	recordRunEffect(Agent.init, effect, "2026-10-09T10:00:00Z");
+
+	renderMetrics().should.contain("controller_batch_cleanup_failures_total 1");
 }

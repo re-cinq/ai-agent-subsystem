@@ -1,6 +1,6 @@
 module watchpoll;
 
-import core.time : MonoTime, seconds;
+import core.time : Duration, MonoTime, seconds;
 import std.datetime.systime : Clock;
 import std.datetime.timezone : UTC;
 import std.exception : enforce;
@@ -15,7 +15,7 @@ import agentcore.crds.agent : Agent;
 import agentcore.kube.jsonbody : parseAgent;
 import agentcore.kube.kubeclient : NotFound;
 import agentcore.reconcile.prune : agentsToPrune;
-import agentcore.reconcile.reconcile_driver : reconcileAgent, ReconcileEffect,
+import agentcore.reconcile.reconcile_driver : BatchConfig, reconcileAgent, ReconcileEffect,
 	resourceVersionByName;
 
 import cache : AgentCache;
@@ -116,6 +116,51 @@ private int statusCodeOf(Json object)
 	return 0;
 }
 
+/// What every reconcile needs beyond the cluster: the image whose init container injects
+/// the runtime, how batch-executed Agents run, and when their in-flight batches are polled.
+struct ControlSettings
+{
+	string agentImage;
+	BatchConfig batch;
+	BatchPollClock batchPolls;
+
+	this(string agentImage, BatchConfig batch = BatchConfig.init, Duration batchPollInterval = 60.seconds)
+	{
+		this.agentImage = agentImage;
+		this.batch = batch;
+		this.batchPolls = new BatchPollClock(batchPollInterval);
+	}
+}
+
+/// When each in-flight batch Agent was last reconciled, so its batch is polled once per
+/// interval rather than on every watch event and poll pass.
+final class BatchPollClock
+{
+	private Duration interval;
+	private MonoTime[string] lastPolled;
+
+	this(Duration interval)
+	{
+		this.interval = interval;
+	}
+
+	/// Whether `agent` is due at `now`; a due in-flight batch is stamped as polled at `now`.
+	bool due(const Agent agent, MonoTime now)
+	{
+		const name = agent.metadata.name;
+		if (!batchPollDue(agent, lastPolled.get(name, MonoTime.init), now, interval))
+			return false;
+		lastPolled[name] = now;
+		return true;
+	}
+
+	/// Drop a deleted Agent's last poll time.
+	void forget(string name)
+	{
+		lastPolled.remove(name);
+	}
+}
+
 /// The controller's reconcile engine: a low-latency informer watch plus an
 /// independent ~15s safety-net poll, sharing one in-memory cache and running as two
 /// vibe tasks. The watch resumes from the last resourceVersion (no full replay) and
@@ -124,12 +169,12 @@ private int statusCodeOf(Json object)
 /// never delivered. Concurrency counts and history pruning read the cache rather
 /// than re-listing per reconcile, so reconcile work is O(changed). Only the Lease
 /// holder reconciles, so standbys stay idle.
-void runControlLoop(AgentInformerClient client, string ns, string agentImage, Leadership leadership,
+void runControlLoop(AgentInformerClient client, string ns, ControlSettings settings, Leadership leadership,
 	Readiness readiness = null) nothrow
 {
 	auto cache = new AgentCache;
-	runTask(() nothrow { pollLoop(client, ns, agentImage, leadership, cache, readiness); });
-	informLoop(client, ns, agentImage, leadership, cache);
+	runTask(() nothrow { pollLoop(client, ns, settings, leadership, cache, readiness); });
+	informLoop(client, ns, settings, leadership, cache);
 }
 
 /// The low-latency path: seed the cache + resourceVersion with one LIST, then watch
@@ -138,7 +183,7 @@ void runControlLoop(AgentInformerClient client, string ns, string agentImage, Le
 /// a fresh LIST + resync. Losing leadership resets the cursor so a replica that
 /// (re)acquires the Lease starts clean. The ~15s poll is the safety net behind this
 /// — it, not a timer here, guarantees an event the watch missed is still picked up.
-private void informLoop(AgentInformerClient client, string ns, string agentImage, Leadership leadership,
+private void informLoop(AgentInformerClient client, string ns, ControlSettings settings, Leadership leadership,
 	AgentCache cache) nothrow
 {
 	string resourceVersion;
@@ -157,11 +202,11 @@ private void informLoop(AgentInformerClient client, string ns, string agentImage
 		try
 		{
 			if (resourceVersion.length == 0)
-				resourceVersion = sync(client, ns, agentImage, cache, leadership);
+				resourceVersion = sync(client, ns, settings, cache, leadership);
 			if (!firstWatch)
 				recordWatchReconnect();
 			firstWatch = false;
-			resourceVersion = watch(client, ns, agentImage, leadership, cache, resourceVersion);
+			resourceVersion = watch(client, ns, settings, leadership, cache, resourceVersion);
 			errorAttempt = 0;
 			backoff(watchBackoffBaseSeconds);
 		}
@@ -187,7 +232,7 @@ private void informLoop(AgentInformerClient client, string ns, string agentImage
 
 /// Full paginated LIST: replace the cache, reconcile every cached Agent once, and
 /// return the list's resourceVersion for the watch to resume from.
-private string sync(AgentInformerClient client, string ns, string agentImage, AgentCache cache,
+private string sync(AgentInformerClient client, string ns, ControlSettings settings, AgentCache cache,
 	Leadership leadership)
 {
 	auto page = client.listAllAgents(ns);
@@ -195,7 +240,7 @@ private string sync(AgentInformerClient client, string ns, string agentImage, Ag
 	recordResync();
 	logInfo("sync: %s agent(s) at resourceVersion %s", page.items.length, page.resourceVersion);
 	pruneAllStations(client, ns, cache, leadership);
-	reconcileAll(client, ns, agentImage, cache, leadership);
+	reconcileAll(client, ns, settings, cache, leadership);
 	return page.resourceVersion;
 }
 
@@ -259,7 +304,7 @@ private void pruneAllStations(AgentInformerClient client, string ns, AgentCache 
 /// Watch from `resourceVersion`, updating the cache and reconciling each change,
 /// returning the last resourceVersion seen so the next watch resumes from it. A
 /// 410 ERROR event raises WatchExpired so the caller resyncs.
-private string watch(AgentInformerClient client, string ns, string agentImage, Leadership leadership,
+private string watch(AgentInformerClient client, string ns, ControlSettings settings, Leadership leadership,
 	AgentCache cache, string resourceVersion)
 {
 	string lastVersion = resourceVersion;
@@ -281,12 +326,15 @@ private string watch(AgentInformerClient client, string ns, string agentImage, L
 			if (event.parsed)
 			{
 				cache.upsert(event.agent);
-				reconcileOne(client, ns, event.agent, agentImage, cache.snapshot());
+				reconcileOne(client, ns, event.agent, settings, cache.snapshot());
 			}
 			break;
 		case "DELETED":
 			if (event.agent.metadata.name.length)
+			{
 				cache.remove(event.agent.metadata.name);
+				settings.batchPolls.forget(event.agent.metadata.name);
+			}
 			break;
 		default:
 			break; // BOOKMARK only advanced lastVersion; unparseable lines are ignored
@@ -298,7 +346,7 @@ private string watch(AgentInformerClient client, string ns, string agentImage, L
 /// Reconcile every cached Agent against the current snapshot — the pass `sync`
 /// runs after refreshing the cache. Terminal Agents short-circuit with no I/O, so
 /// this is O(actionable) API calls, not O(all).
-private void reconcileAll(AgentInformerClient client, string ns, string agentImage, AgentCache cache,
+private void reconcileAll(AgentInformerClient client, string ns, ControlSettings settings, AgentCache cache,
 	Leadership leadership)
 {
 	auto agents = cache.snapshot();
@@ -313,7 +361,7 @@ private void reconcileAll(AgentInformerClient client, string ns, string agentIma
 		// now-stale cache; the watch path already rechecks this per event.
 		if (!leadership.isLeader)
 			return;
-		const effect = reconcileOne(client, ns, agent, agentImage, agents);
+		const effect = reconcileOne(client, ns, agent, settings, agents);
 		if (effect.startedRun)
 			agent.status.phase = Phase.running;
 		if (effect.preemptedAgent.length)
@@ -338,7 +386,7 @@ private void markTerminal(Agent[] agents, string name) nothrow
 /// delivered — a created/updated Agent whose event was missed or dropped — since
 /// the cache-reading reconciles can only act on Agents the cache already holds. The
 /// watch is the low-latency path; this is the guarantee.
-private void pollLoop(AgentInformerClient client, string ns, string agentImage, Leadership leadership,
+private void pollLoop(AgentInformerClient client, string ns, ControlSettings settings, Leadership leadership,
 	AgentCache cache, Readiness readiness = null) nothrow
 {
 	int syncFailures = 0;
@@ -354,7 +402,7 @@ private void pollLoop(AgentInformerClient client, string ns, string agentImage, 
 		else
 			try
 			{
-				sync(client, ns, agentImage, cache, leadership);
+				sync(client, ns, settings, cache, leadership);
 				syncFailures = 0;
 				markReconcileHealth(readiness, true);
 			}
@@ -382,15 +430,17 @@ private void markReconcileHealth(Readiness readiness, bool healthy) nothrow
 		readiness.reconcileHealth(healthy);
 }
 
-private ReconcileEffect reconcileOne(AgentInformerClient client, string ns, Agent agent, string agentImage,
+private ReconcileEffect reconcileOne(AgentInformerClient client, string ns, Agent agent, ControlSettings settings,
 	const Agent[] cached) nothrow
 {
 	const start = MonoTime.currTime;
 	try
 	{
+		if (!settings.batchPolls.due(agent, start))
+			return ReconcileEffect.init;
 		logInfo("reconcile %s (phase=%s)", agent.metadata.name, cast(string) agent.status.phase);
 		const now = nowRfc3339();
-		const effect = reconcileAgent(client, ns, agent, agentImage, now, cached);
+		const effect = reconcileAgent(client, ns, agent, settings.agentImage, now, cached, settings.batch);
 		recordReconcile("success", elapsedSeconds(start));
 		recordRunEffect(agent, effect, now);
 		return effect;
@@ -407,6 +457,16 @@ private ReconcileEffect reconcileOne(AgentInformerClient client, string ns, Agen
 		logError("reconcile %s: %s", agent.metadata.name, error.msg);
 		return ReconcileEffect.init;
 	}
+}
+
+/// Whether a reconcile of `agent` is due, given when its batch was `lastPolled`: an
+/// in-flight batch (Running, not fallen back, not being deleted) is polled at most once per
+/// `interval`, however often the watch and poll loops reach it; every other Agent is due.
+bool batchPollDue(const Agent agent, MonoTime lastPolled, MonoTime now, Duration interval) @safe pure nothrow
+{
+	const inFlight = agent.status.phase == Phase.running && agent.status.batchId.length > 0
+		&& !agent.status.batchFallback && agent.metadata.deletionTimestamp.length == 0;
+	return !inFlight || now - lastPolled >= interval;
 }
 
 /// Tally how many Agents sit in each phase right now, for the agents-by-phase
@@ -623,6 +683,10 @@ version (unittest)
 			patchedNames ~= name;
 		}
 
+		void patchAgent(string ns, string name, Json patch)
+		{
+		}
+
 		void deleteAgent(string ns, string name, string resourceVersion = "")
 		{
 			deletedAgents ~= name;
@@ -636,6 +700,11 @@ version (unittest)
 		PodResult podResult(string ns, string podName)
 		{
 			return PodResult.init;
+		}
+
+		string secretValue(string ns, string name, string key)
+		{
+			throw new NotFound("secret " ~ name ~ " not found");
 		}
 	}
 
@@ -684,7 +753,7 @@ unittest
 	auto leadership = new Leadership;
 	leadership.isLeader = true;
 	auto cache = new AgentCache;
-	sync(client, "ai-agents", "img", cache, leadership);
+	sync(client, "ai-agents", ControlSettings("img"), cache, leadership);
 
 	client.createdJobs.length.should.equal(1);
 }
@@ -701,7 +770,7 @@ unittest
 	leadership.isLeader = true;
 	client.flipLeaderOnCreate = leadership;
 	auto cache = new AgentCache;
-	sync(client, "ai-agents", "img", cache, leadership);
+	sync(client, "ai-agents", ControlSettings("img"), cache, leadership);
 
 	client.createdJobs.length.should.equal(1);
 }
@@ -723,7 +792,7 @@ unittest
 	auto leadership = new Leadership;
 	leadership.isLeader = true;
 	auto cache = new AgentCache;
-	const last = watch(client, "ai-agents", "img", leadership, cache, "1");
+	const last = watch(client, "ai-agents", ControlSettings("img"), leadership, cache, "1");
 
 	cache.length.should.equal(1); // b remains; a added then deleted; c never upserted
 	cache.snapshot()[0].metadata.name.should.equal("b");
@@ -739,7 +808,7 @@ unittest
 	auto leadership = new Leadership;
 	leadership.isLeader = true;
 	auto cache = new AgentCache;
-	watch(client, "ai-agents", "img", leadership, cache, "1").should.throwException!WatchExpired;
+	watch(client, "ai-agents", ControlSettings("img"), leadership, cache, "1").should.throwException!WatchExpired;
 }
 
 unittest
@@ -773,7 +842,7 @@ unittest
 	auto leadership = new Leadership;
 	leadership.isLeader = true;
 	auto cache = new AgentCache;
-	sync(client, "ai-agents", "img", cache, leadership);
+	sync(client, "ai-agents", ControlSettings("img"), cache, leadership);
 
 	client.deletedAgents.should.equal(["succ-old"]);
 	cache.length.should.equal(2);
@@ -795,7 +864,7 @@ unittest
 	auto leadership = new Leadership;
 	leadership.isLeader = true;
 	auto cache = new AgentCache;
-	sync(client, "ai-agents", "img", cache, leadership);
+	sync(client, "ai-agents", ControlSettings("img"), cache, leadership);
 
 	client.deletedAgents.length.should.equal(0);
 	cache.length.should.equal(4);
@@ -816,4 +885,33 @@ unittest
 
 	client.deletedAgents.length.should.equal(0);
 	cache.length.should.equal(1);
+}
+
+unittest // in-flight batch Agent polled 30s ago is not due at a 60s interval, 60s ago it is due
+{
+	Agent agent;
+	agent.status.phase = Phase.running;
+	agent.status.batchId = "msgbatch_1";
+	const now = MonoTime.currTime;
+
+	[batchPollDue(agent, now - 30.seconds, now, 60.seconds), batchPollDue(agent, now - 60.seconds, now, 60.seconds)]
+		.should.equal([false, true]);
+}
+
+unittest // Pending, fallen-back and deleting batch Agents are due regardless of the last poll
+{
+	Agent pending;
+	pending.status.batchId = "msgbatch_1";
+	Agent fallback;
+	fallback.status.phase = Phase.running;
+	fallback.status.batchId = "msgbatch_1";
+	fallback.status.batchFallback = true;
+	Agent deleting;
+	deleting.status.phase = Phase.running;
+	deleting.status.batchId = "msgbatch_1";
+	deleting.metadata.deletionTimestamp = "2026-06-22T12:00:00Z";
+	const now = MonoTime.currTime;
+
+	[batchPollDue(pending, now, now, 60.seconds), batchPollDue(fallback, now, now, 60.seconds),
+		batchPollDue(deleting, now, now, 60.seconds)].should.equal([true, true, true]);
 }

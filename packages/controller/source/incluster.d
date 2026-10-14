@@ -20,7 +20,17 @@ struct ClusterConfig
 	string namespace; /// the Pod's own namespace
 	size_t maxOutputBytes = defaultMaxOutputBytes; /// tail of a run pod's log kept in status.output
 	string identity; /// this replica's leader-election identity (its Pod name)
+	size_t batchPollSeconds = defaultBatchPollSeconds; /// how often an in-flight batch is polled
+	bool batchEnabled; /// whether the controller submits batch-execution Agents (opt-in)
 }
+
+/// Env setting that opts the controller into batch execution; off unless set to "true".
+enum envBatchEnabled = "BATCH_ENABLED";
+
+/// Env setting for how often an in-flight batch Agent's batch is polled, and its default.
+enum envBatchPollSeconds = "BATCH_POLL_SECONDS";
+/// ditto
+enum size_t defaultBatchPollSeconds = 60;
 
 enum tokenPath = "/var/run/secrets/kubernetes.io/serviceaccount/token";
 enum caPath = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt";
@@ -59,18 +69,36 @@ ClusterConfig loadClusterConfig()
 		.strip : environment.get("NAMESPACE", "ai-agents");
 	config.maxOutputBytes = parseMaxOutputBytes(
 		environment.get(envMaxOutputBytes, defaultMaxOutputBytes.to!string));
+	config.batchPollSeconds = parseCount(envBatchPollSeconds,
+		environment.get(envBatchPollSeconds, defaultBatchPollSeconds.to!string));
+	config.batchEnabled = parseFlag(envBatchEnabled, environment.get(envBatchEnabled, "false"));
 	config.identity = environment.get("POD_NAME", environment.get("HOSTNAME", "agent-controller"));
 	return config;
 }
 
-/// Parse the `MAX_OUTPUT_BYTES` env value into a byte count. Rejects anything that
-/// isn't a plain non-negative integer with a message naming the setting, so a typo
-/// fails fast at startup with a clear reason rather than a bare `ConvException`.
+/// Parse the `MAX_OUTPUT_BYTES` env value into a byte count.
 size_t parseMaxOutputBytes(string raw) @safe pure
 {
+	return parseCount(envMaxOutputBytes, raw);
+}
+
+/// Parse the env value of `setting` as a count. Rejects anything that isn't a plain
+/// non-negative integer with a message naming the setting, so a typo fails fast at
+/// startup with a clear reason rather than a bare `ConvException`.
+size_t parseCount(string setting, string raw) @safe pure
+{
 	enforce(raw.length && raw.all!isDigit,
-		envMaxOutputBytes ~ " must be a non-negative integer, got: \"" ~ raw ~ "\"");
+		setting ~ " must be a non-negative integer, got: \"" ~ raw ~ "\"");
 	return raw.to!size_t;
+}
+
+/// Parse the env value of `setting` as a boolean, accepting only "true" or "false" so a typo
+/// fails fast at startup instead of silently leaving the setting off.
+bool parseFlag(string setting, string raw) @safe pure
+{
+	enforce(raw == "true" || raw == "false",
+		setting ~ ` must be "true" or "false", got: "` ~ raw ~ `"`);
+	return raw == "true";
 }
 
 version (unittest) import fluent.asserts;
@@ -98,4 +126,18 @@ unittest
 	// A non-numeric value fails fast with a message naming the setting.
 	({ parseMaxOutputBytes("256k"); }).should.throwException!Exception
 		.withMessage.equal(`MAX_OUTPUT_BYTES must be a non-negative integer, got: "256k"`);
+}
+
+unittest // BATCH_POLL_SECONDS "1m" fails naming the setting, "30" parses to 30
+{
+	({ parseCount(envBatchPollSeconds, "1m"); }).should.throwException!Exception
+		.withMessage.equal(`BATCH_POLL_SECONDS must be a non-negative integer, got: "1m"`);
+	parseCount(envBatchPollSeconds, "30").should.equal(size_t(30));
+}
+
+unittest // BATCH_ENABLED "true" parses true, "false" false, "yes" fails naming the setting
+{
+	[parseFlag(envBatchEnabled, "true"), parseFlag(envBatchEnabled, "false")].should.equal([true, false]);
+	({ parseFlag(envBatchEnabled, "yes"); }).should.throwException!Exception
+		.withMessage.equal(`BATCH_ENABLED must be "true" or "false", got: "yes"`);
 }

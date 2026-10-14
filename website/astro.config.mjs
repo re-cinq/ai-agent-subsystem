@@ -58,6 +58,7 @@ export default defineConfig({
 						{ label: 'Create a station', slug: 'tasks/create-a-station' },
 						{ label: 'Launch an agent', slug: 'tasks/launch-an-agent' },
 						{ label: 'Setting limits', slug: 'tasks/set-limits' },
+						{ label: 'Batch runs', slug: 'tasks/batch-runs' },
 						{ label: 'Collect output', slug: 'tasks/collect-output' },
 						{ label: 'Connect MCP servers', slug: 'tasks/connect-mcp-servers' },
 						{ label: 'Receive notifications', slug: 'tasks/receive-notifications' },

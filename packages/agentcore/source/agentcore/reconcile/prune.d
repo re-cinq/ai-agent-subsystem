@@ -98,3 +98,23 @@ version (unittest) private Agent terminalAgent(string name, Phase phase,
 	// Nothing terminal -> nothing to prune.
 	agentsToPrune([terminalAgent("p", Phase.pending, "")], "stn", 3, 3).length.should.equal(0);
 }
+
+unittest // three succeeded batch Agents over a history limit of 1 prune the two oldest
+{
+	Agent batchRun(string name, string completedAt)
+	{
+		Agent agent;
+		agent.metadata.name = name;
+		agent.spec.stationRef = "stn";
+		agent.status.phase = Phase.succeeded;
+		agent.status.batchId = "msgbatch_" ~ name;
+		agent.status.batchProvider = "anthropic";
+		agent.status.completedAt = completedAt;
+		return agent;
+	}
+
+	const agents = [batchRun("b2", "2026-06-22T11:00:00Z"), batchRun("b3", "2026-06-22T12:00:00Z"),
+		batchRun("b1", "2026-06-22T10:00:00Z")];
+
+	agentsToPrune(agents, "stn", 1, 1).should.equal(["b2", "b1"]);
+}

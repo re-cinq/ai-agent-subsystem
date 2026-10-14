@@ -51,6 +51,9 @@ interface KubeClient
 	/// Merge-patch the Agent's `/status` subresource.
 	void patchAgentStatus(string ns, string name, Json statusPatch);
 
+	/// JSON-patch (RFC 6902) the Agent object itself (not its `/status`), e.g. its `metadata.finalizers`.
+	void patchAgent(string ns, string name, Json patch);
+
 	/// Delete a pruned Agent by name. A non-empty `resourceVersion` is sent as a
 	/// delete precondition, so a stale-cache delete of an Agent that has since changed
 	/// 409s instead of removing the newer object; empty means an unconditional delete.
@@ -63,4 +66,7 @@ interface KubeClient
 	/// The run pod's terminal result — the `agent` container's exit code and its
 	/// captured stdout — used to enrich the Agent status on a terminal transition.
 	PodResult podResult(string ns, string podName);
+
+	/// The decoded value of `key` in Secret `name`; throws `NotFound` when either is absent.
+	string secretValue(string ns, string name, string key);
 }

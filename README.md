@@ -90,7 +90,11 @@ flowchart LR
 
 The controller watches Agents, builds a Job per run, supervises it, patches the Agent's status, and
 prunes old runs. The agent toolchain is *injected* into the run Pod, so Stations only need a
-glibc-based base image.
+glibc-based base image. A recipe with `execution: batch` skips the Pod: the controller sends the
+prompt to the Anthropic Message Batches API itself, at about half the price, and records the result
+in the Agent's status ([batch runs](https://re-cinq.github.io/ai-agent-subsystem/tasks/batch-runs/)).
+Batch is opt-in: install with the `deploy/components/batch` kustomize component, which also grants
+the controller read access to the `agent-secrets` Secret.
 
 ## Architecture
 
@@ -107,6 +111,7 @@ flowchart TB
     CORE --> INIT
     CORE --> SUP
     CTRL <-->|watch / create / patch| K8S[("Kubernetes API")]
+    CTRL <-->|batch: submit / poll| BATCH[("Provider batch API")]
     INIT -->|provisions| POD["Agent Pod"]
     SUP -->|runs inside| POD
 ```

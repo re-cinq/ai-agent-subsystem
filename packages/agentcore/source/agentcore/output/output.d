@@ -2,6 +2,7 @@ module agentcore.output.output;
 
 import vibe.data.json : Json, parseJsonString;
 import std.process : environment;
+import std.functional : toDelegate;
 import std.stdio : File, stdout;
 
 import agentcore.crds.enums : SinkType;
@@ -51,20 +52,25 @@ OutputSink[] sinksFromEnv()
 /// uses vibe's HTTP client. `headers` is the resolved auth-header block (newline-
 /// separated `Name: value` lines, empty when the sink has no `headers_secret`).
 /// Must not throw.
-alias HttpSink = void function(string url, string line, string headers) nothrow;
+alias HttpSink = void delegate(string url, string line, string headers) nothrow;
+
+/// Resolves an http sink's `headers_secret` to its header block: from the env inside a run
+/// pod (`sinkHeaders`), from the agent-secrets Secret in the controller. Must not throw.
+alias HeaderResolver = string delegate(string headersSecret) nothrow;
 
 /// Dispatch `line` to every configured sink: http via the caller's `postHttp` (with
 /// the sink's resolved auth headers), file by appending, stdout a no-op (callers
 /// already echo to their own stdout). Fire-and-forget — a failing file sink is
 /// logged with `tag` and never disrupts the run.
-void deliverSinks(const OutputSink[] sinks, string line, HttpSink postHttp, string tag) nothrow
+void deliverSinks(const OutputSink[] sinks, string line, HttpSink postHttp, string tag,
+	HeaderResolver headersFor = toDelegate(&sinkHeaders)) nothrow
 {
 	foreach (s; sinks)
 	{
 		final switch (s.type)
 		{
 		case SinkType.http:
-			postHttp(s.url, line, sinkHeaders(s.headersSecret));
+			postHttp(s.url, line, headersFor(s.headersSecret));
 			break;
 		case SinkType.file:
 			appendFile(s.path, line, tag);
@@ -132,10 +138,18 @@ void emitEvent(const OutputSink[] sinks, in EventSource src, string payload,
 	}
 	// stdout always gets every event; sink delivery is gated by the recipe's
 	// output.select (the caller passes the verdict).
-	if (!toSinks)
-		return;
+	if (toSinks)
+		deliverEvent(sinks, src, payload, postHttp, tag);
+}
+
+/// Fan `payload`, wrapped in the `{"source", "event"}` envelope for `src`, out to every sink,
+/// with no stdout echo: the controller's own stdout is not a run's log, `status.output` is.
+/// Fire-and-forget; never throws.
+void deliverEvent(const OutputSink[] sinks, in EventSource src, string payload, HttpSink postHttp,
+	string tag, HeaderResolver headersFor = toDelegate(&sinkHeaders)) nothrow
+{
 	try
-		deliverSinks(sinks, wrapEvent(src, payload), postHttp, tag);
+		deliverSinks(sinks, wrapEvent(src, payload), postHttp, tag, headersFor);
 	catch (Exception e)
 		logError(tag ~ " BUG: " ~ e.msg);
 }
@@ -216,7 +230,7 @@ unittest
 		OutputSink(SinkType.file, "", "", path),
 		OutputSink(SinkType.stdout),
 	];
-	deliverSinks(sinks, "hello", &recordPost, "[test]");
+	deliverSinks(sinks, "hello", toDelegate(&recordPost), "[test]");
 
 	g_posted.should.equal("http://x hello");
 	readText(path).should.equal("hello\n");
@@ -233,10 +247,10 @@ unittest
 
 	g_posted = "";
 	g_postedHeaders = "";
-	deliverSinks([OutputSink(SinkType.http, "http://x", "SINK_HEADERS")], "hi", &recordPost, "[test]");
+	deliverSinks([OutputSink(SinkType.http, "http://x", "SINK_HEADERS")], "hi", toDelegate(&recordPost), "[test]");
 	g_postedHeaders.should.equal("Authorization: Bearer tok\nX-Env: prod");
 
 	g_postedHeaders = "sentinel";
-	deliverSinks([OutputSink(SinkType.http, "http://x")], "hi", &recordPost, "[test]");
+	deliverSinks([OutputSink(SinkType.http, "http://x")], "hi", toDelegate(&recordPost), "[test]");
 	g_postedHeaders.should.equal("");
 }

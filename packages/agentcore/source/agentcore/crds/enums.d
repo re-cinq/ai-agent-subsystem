@@ -52,6 +52,20 @@ enum ConcurrencyPolicy : string
 	replace = "Replace",
 }
 
+/// How a definition runs: interactively as a CLI Job, or as a provider batch request.
+enum Execution : string
+{
+	interactive = "interactive",
+	batch = "batch",
+}
+
+/// What happens when a batch request outlives its timeout.
+enum BatchTimeoutAction : string
+{
+	fail = "fail",
+	fallback = "fallback",
+}
+
 version (unittest) import fluent.asserts;
 
 @safe unittest

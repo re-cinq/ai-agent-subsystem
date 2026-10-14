@@ -28,6 +28,15 @@ itest: ## Host-level integration tests (no cluster, no docker)
 itest-controller: ## Controller integration tests (needs kind/minikube + docker)
 	./scripts/itest-controller.sh
 
+.PHONY: record-fixtures
+record-fixtures: ## Re-record the claude CLI and Anthropic batch fixtures (needs ANTHROPIC_API_KEY)
+	./scripts/record-cli-events.sh
+	./scripts/record-batch-response.sh
+
+.PHONY: itest-batch
+itest-batch: ## Live CLI-vs-batch event parity check (needs ANTHROPIC_API_KEY)
+	./scripts/itest-batch.sh
+
 .PHONY: ctest
 ctest: ## Cross-distro container tests (needs docker)
 	./scripts/ctest-supervisor.sh

@@ -12,6 +12,7 @@ ai-agent-subsystem/
 ├── dub.json                       # root: targetType none, lists the sub-packages
 ├── packages/
 │   ├── agentcore/                 # shared library
+│   │   ├── testdata/              # recorded CLI event streams and batch API responses (fixtures)
 │   │   └── source/agentcore/      # one folder per domain (no package.d):
 │   │       ├── crds/              #   CR types + schema (UDAs)
 │   │       ├── reconcile/         #   decide() state machine, driver, pruning, concurrency
@@ -19,9 +20,10 @@ ai-agent-subsystem/
 │   │       ├── vendors/           #   agent adapters + installers (claude/codex/gemini/opencode/exec)
 │   │       ├── tools/             #   init-container tools (supervisor/git/agent/skills/conversation)
 │   │       ├── pkgmanager/        #   apt/dnf/apk detection + bootstrap
-│   │       ├── output/            #   event wrapping, sinks, lifecycle, output.select, file events
-│   │       └── core/              #   types, env names, exec, prompt, log
-│   ├── controller/                # binary: the operator
+│   │       ├── batch/             #   batch providers (Anthropic), result -> CLI event translation
+│   │       ├── output/            #   event wrapping, sinks, lifecycle, output.select, file events, event contract
+│   │       └── core/              #   types, env names, exec, prompt, log, vendor routing (vendor.d)
+│   ├── controller/                # binary: the operator (batchhttp.d: HTTPS transport for batch APIs)
 │   ├── initializer/               # binary: the in-pod init container (ai-agent-init)
 │   ├── supervisor/                # binary: the in-pod supervisor
 │   ├── crdgen/                    # dev/CI tool: generates deploy/crds from the structs
