@@ -1,0 +1,15 @@
+# Opt-in model catalog. Adds the controller's read grant on the agent-secrets Secret
+# (the controller lists each vendor's models with the API keys AgentDefinitions map
+# from it) and sets MODEL_CATALOG_ENABLED=true. The controller then keeps the
+# `default` ModelCatalog in its namespace current. Without this component it holds no
+# Secret access and writes no ModelCatalog.
+#
+# Enable it from your own kustomization:
+#   resources: [<path or URL to deploy>]
+#   components: [<path or URL to deploy/components/model-catalog>]
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - secret-reader-rbac.yaml
+patches:
+  - path: model-catalog-enabled-patch.yaml

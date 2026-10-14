@@ -22,7 +22,17 @@ struct ClusterConfig
 	string identity; /// this replica's leader-election identity (its Pod name)
 	size_t batchPollSeconds = defaultBatchPollSeconds; /// how often an in-flight batch is polled
 	bool batchEnabled; /// whether the controller submits batch-execution Agents (opt-in)
+	bool modelCatalogEnabled; /// whether the controller publishes the ModelCatalog (opt-in)
+	size_t modelCatalogRefreshSeconds = defaultModelCatalogRefreshSeconds; /// how often the ModelCatalog is refreshed
 }
+
+/// Env setting that opts the controller into publishing the ModelCatalog; off unless set to "true".
+enum envModelCatalogEnabled = "MODEL_CATALOG_ENABLED";
+
+/// Env setting for how often the ModelCatalog is refreshed, and its default.
+enum envModelCatalogRefreshSeconds = "MODEL_CATALOG_REFRESH_SECONDS";
+/// ditto
+enum size_t defaultModelCatalogRefreshSeconds = 3600;
 
 /// Env setting that opts the controller into batch execution; off unless set to "true".
 enum envBatchEnabled = "BATCH_ENABLED";
@@ -72,6 +82,9 @@ ClusterConfig loadClusterConfig()
 	config.batchPollSeconds = parseCount(envBatchPollSeconds,
 		environment.get(envBatchPollSeconds, defaultBatchPollSeconds.to!string));
 	config.batchEnabled = parseFlag(envBatchEnabled, environment.get(envBatchEnabled, "false"));
+	config.modelCatalogEnabled = parseFlag(envModelCatalogEnabled, environment.get(envModelCatalogEnabled, "false"));
+	config.modelCatalogRefreshSeconds = parseCount(envModelCatalogRefreshSeconds,
+		environment.get(envModelCatalogRefreshSeconds, defaultModelCatalogRefreshSeconds.to!string));
 	config.identity = environment.get("POD_NAME", environment.get("HOSTNAME", "agent-controller"));
 	return config;
 }

@@ -96,6 +96,12 @@ in the Agent's status ([batch runs](https://re-cinq.github.io/ai-agent-subsystem
 Batch is opt-in: install with the `deploy/components/batch` kustomize component, which also grants
 the controller read access to the `agent-secrets` Secret.
 
+A fourth, controller-owned resource, **ModelCatalog** (`kubectl get mc default -n ai-agents`), lists
+the models the subsystem can run with the API keys AgentDefinitions map from `agent-secrets`, so an
+orchestrator can discover them
+([ModelCatalog](https://re-cinq.github.io/ai-agent-subsystem/reference/crd-modelcatalog/)). It is
+opt-in through the `deploy/components/model-catalog` kustomize component.
+
 ## Architecture
 
 A single dub monorepo (every package under `packages/`) producing **three runtime binaries** and a

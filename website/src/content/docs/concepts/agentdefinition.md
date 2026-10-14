@@ -19,7 +19,8 @@ flowchart LR
 - **`prompt`**: the task template. Supports `{placeholder}` tokens filled from an Agent's
   `parameters` at run time (see [Prompt templating](../reference/prompt-templating.md)).
 - **`model`**: the model id (for example `claude-sonnet-4-6`). If omitted, the runtime default is
-  used.
+  used. With the model catalog enabled, the [ModelCatalog](../reference/crd-modelcatalog.md) lists
+  the ids the subsystem can run with its API keys.
 - **`allowed_tools` / `disallowed_tools`**: permission rules, e.g. `Bash(npm run test:*)` or
   `Bash(rm *)`.
 - **`permission_mode`**: `auto` (the default) enforces the allow/deny lists; `bypass` grants all

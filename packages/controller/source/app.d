@@ -8,6 +8,7 @@ import vibe.core.core : runEventLoop, runTask;
 import vibe.core.log : logInfo;
 
 import httpkube : HttpKubeClient;
+import catalogloop : runModelCatalogLoop;
 import health : startHealthServer;
 import incluster : loadClusterConfig;
 import leaderelection : Leadership, runLeaderElection;
@@ -54,6 +55,11 @@ else
 		runTask(() nothrow {
 			runControlLoop(client, config.namespace, settings, leadership, readiness);
 		});
+		if (config.modelCatalogEnabled)
+			runTask(() nothrow {
+				runModelCatalogLoop(client, config.namespace, (request) => batchTransport(request),
+					config.modelCatalogRefreshSeconds.seconds, leadership);
+			});
 		return runEventLoop();
 	}
 }

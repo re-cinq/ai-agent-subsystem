@@ -23,6 +23,7 @@ import agentcore.kube.jobspec : agentContainerName;
 import agentcore.kube.jsonbody : AgentListPage, parseAgentDefinition, parseAgentListPage, parseJobOutcome, parseStation;
 import agentcore.kube.kubeclient : KubeClient, NotFound, PodResult;
 import agentcore.kube.outputcap : capOutput;
+import agentcore.models.catalog : ModelCatalogClient, modelCatalogName;
 import agentcore.reconcile.reconcile : JobOutcome;
 
 import incluster : ClusterConfig;
@@ -37,6 +38,10 @@ enum crGroup = "agents.re-cinq.com";
 enum maxWatchLineBytes = 4 * 1024 * 1024;
 enum maxResponseBytes = 64 * 1024 * 1024;
 enum crVersion = "v1alpha1";
+
+/// Server-side apply as the controller's field manager, taking over fields another manager set.
+enum applyQuery = "?fieldManager=ai-agent-controller&force=true";
+enum applyContentType = "application/apply-patch+yaml";
 
 /// Last lines requested from a pod's log: a coarse cap on what crosses the wire.
 /// The byte-accurate tail kept in status.output is enforced by `capOutput`.
@@ -109,7 +114,7 @@ interface LeaseClient
 /// bearer-token auth, the cluster CA added to the TLS trust store, and
 /// merge-patch for the status subresource. The long-lived watch stream
 /// (`watchAgents`) is controller-only and sits beside the interface.
-final class HttpKubeClient : KubeClient, LeaseClient, AgentInformerClient
+final class HttpKubeClient : KubeClient, LeaseClient, AgentInformerClient, ModelCatalogClient
 {
 	private ClusterConfig config;
 	private HTTPClientSettings settings; /// normal requests: short read timeout
@@ -248,6 +253,26 @@ final class HttpKubeClient : KubeClient, LeaseClient, AgentInformerClient
 	{
 		return secretKeyValue(getJson(config.apiBase ~ "/api/v1/namespaces/" ~ ns ~ "/secrets/" ~ name,
 			"Secret " ~ name), key);
+	}
+
+	override AgentDefinition[] listAgentDefinitions(string ns)
+	{
+		import std.algorithm.iteration : map;
+		import std.array : array;
+
+		return getJson(crCollectionUrl(ns, "agentdefinitions"), "agentdefinitions")["items"]
+			.opt!(Json[])(null)
+			.map!(item => parseAgentDefinition(item))
+			.array;
+	}
+
+	/// Server-side apply the ModelCatalog, then its status: the status subresource ignores
+	/// what an apply to the object carries, and an apply to `/status` needs the object to exist.
+	override void applyModelCatalog(string ns, Json catalog)
+	{
+		const url = crUrl(ns, "modelcatalogs", modelCatalogName);
+		send(HTTPMethod.PATCH, url ~ applyQuery, catalog, applyContentType, [200, 201]);
+		send(HTTPMethod.PATCH, url ~ "/status" ~ applyQuery, catalog, applyContentType, [200, 201]);
 	}
 
 	/// Stream Agent watch events (one newline-delimited JSON object per line) to
@@ -659,4 +684,57 @@ unittest // patchAgent sends the finalizer patch as application/json-patch+json 
 
 	received.should.equal("PATCH /apis/agents.re-cinq.com/v1alpha1/namespaces/ai-agents/agents/run-1 "
 		~ `application/json-patch+json [{"op":"remove","path":"/metadata/finalizers/0"}]`);
+}
+
+unittest // applyModelCatalog server-side applies the default ModelCatalog, then its status
+{
+	import vibe.http.server : HTTPServerRequest, HTTPServerResponse, HTTPServerSettings, listenHTTP;
+	import vibe.stream.operations : readAllUTF8;
+
+	string[] received;
+	auto settings = new HTTPServerSettings;
+	settings.port = 0;
+	settings.bindAddresses = ["127.0.0.1"];
+	auto listener = listenHTTP(settings, (scope HTTPServerRequest req, scope HTTPServerResponse res) {
+		received ~= req.method.httpMethodString ~ " " ~ req.requestURI ~ " " ~ req.contentType ~ " "
+			~ req.bodyReader.readAllUTF8;
+		res.writeBody("{}", "application/json");
+	});
+	scope (exit)
+		listener.stopListening();
+	const apiBase = "http://127.0.0.1:" ~ listener.bindAddresses[0].port.to!string;
+	auto client = new HttpKubeClient(ClusterConfig(apiBase, "tok", "", "", "ai-agents"));
+
+	client.applyModelCatalog("ai-agents", parseJsonString(`{"kind":"ModelCatalog"}`));
+
+	const url = "/apis/agents.re-cinq.com/v1alpha1/namespaces/ai-agents/modelcatalogs/default";
+	received.should.equal([
+		"PATCH " ~ url ~ `?fieldManager=ai-agent-controller&force=true application/apply-patch+yaml {"kind":"ModelCatalog"}`,
+		"PATCH " ~ url ~ `/status?fieldManager=ai-agent-controller&force=true application/apply-patch+yaml {"kind":"ModelCatalog"}`
+	]);
+}
+
+unittest // listAgentDefinitions reads the namespace's AgentDefinitions review and triage
+{
+	import std.algorithm.iteration : map;
+	import std.array : array;
+	import vibe.http.server : HTTPServerRequest, HTTPServerResponse, HTTPServerSettings, listenHTTP;
+
+	string requested;
+	auto settings = new HTTPServerSettings;
+	settings.port = 0;
+	settings.bindAddresses = ["127.0.0.1"];
+	auto listener = listenHTTP(settings, (scope HTTPServerRequest req, scope HTTPServerResponse res) {
+		requested = req.requestURI;
+		res.writeBody(`{"kind":"AgentDefinitionList","items":[{"metadata":{"name":"review"},"spec":{"prompt":"p"}},
+			{"metadata":{"name":"triage"},"spec":{"prompt":"p"}}]}`, "application/json");
+	});
+	scope (exit)
+		listener.stopListening();
+	const apiBase = "http://127.0.0.1:" ~ listener.bindAddresses[0].port.to!string;
+	auto client = new HttpKubeClient(ClusterConfig(apiBase, "tok", "", "", "ai-agents"));
+
+	client.listAgentDefinitions("ai-agents").map!(definition => definition.metadata.name).array
+		.should.equal(["review", "triage"]);
+	requested.should.equal("/apis/agents.re-cinq.com/v1alpha1/namespaces/ai-agents/agentdefinitions");
 }

@@ -103,6 +103,26 @@ kubectl apply -k .
 
 From a source checkout, list `deploy` and `deploy/components/batch` as local paths instead.
 
+## Enable the model catalog (optional)
+
+The [ModelCatalog](../reference/crd-modelcatalog.md) lists the models the subsystem can run with the
+API keys in `agent-secrets`. It is off by default. To enable it, add the `components/model-catalog`
+component, which grants the controller `get` on the `agent-secrets` Secret and sets
+`MODEL_CATALOG_ENABLED=true`:
+
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - https://github.com/re-cinq/ai-agent-subsystem//deploy?ref=v0.12.0
+components:
+  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/model-catalog?ref=v0.12.0
+```
+
+List both components to enable batch runs and the catalog together. From a source checkout, use
+`deploy/components/model-catalog` as a local path. Once the controller has refreshed, read the
+catalog with `kubectl get mc default -n ai-agents -o yaml`.
+
 ## Verify the deployment
 
 ```sh

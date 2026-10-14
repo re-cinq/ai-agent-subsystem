@@ -13,7 +13,7 @@ The recipe. It has a `spec` and no `status`.
 | Field | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `description` | string |  | Human summary for operators. |
-| `model` | string | runtime default | Model id, e.g. `claude-sonnet-4-6`. Selects the tool adapter. |
+| `model` | string | runtime default | Model id, e.g. `claude-sonnet-4-6`. Selects the tool adapter. The [ModelCatalog](./crd-modelcatalog.md) lists the ids the configured keys can run; the value is not checked against it. |
 | `prompt` | string |  | Task template; `{placeholder}` tokens filled from Agent `parameters`. |
 | `allowed_tools` | []string |  | Permission rules, e.g. `Bash(npm run test:*)`. |
 | `disallowed_tools` | []string |  | Scoped denials, e.g. `Bash(rm *)`. |

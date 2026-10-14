@@ -6,6 +6,7 @@ resources:
   - crds/agentdefinition.yaml
   - crds/station.yaml
   - crds/agent.yaml
+  - crds/modelcatalog.yaml
   - rbac/controller-rbac.yaml
   - rbac/caller-rbac.yaml
   - rbac/networkpolicy.yaml

@@ -11,6 +11,8 @@ The controller's ServiceAccount is granted exactly what reconciliation needs:
 
 - **Agents**: watch, list, get, and patch (including `status`); delete (for history pruning).
 - **Stations** and **AgentDefinitions**: get and list (read-only).
+- **ModelCatalogs**: get, create, and patch (including `status`), to server-side apply the
+  [ModelCatalog](./crd-modelcatalog.md) when the model catalog component is enabled.
 - **Jobs**: create and get.
 - **Pods**: list and read logs (to capture `status.output`).
 - **Leases** (`coordination.k8s.io`): get, create, and patch — one Lease the
@@ -36,12 +38,28 @@ read every key in `agent-secrets`, though it only reads the key a batch definiti
 `resources.secrets`. Leave the component out if you never use `execution: batch`; batch Agents then
 fail with `batch execution is disabled on this controller`.
 
+### Model catalog component (opt-in)
+
+The [ModelCatalog](./crd-modelcatalog.md) is filled by the controller calling each vendor's
+list-models API with the keys AgentDefinitions map from `agent-secrets`. The
+`deploy/components/model-catalog` kustomize component adds a separate
+`agent-controller-model-catalog` Role and RoleBinding with `get` on the `agent-secrets` Secret only,
+and sets `MODEL_CATALOG_ENABLED=true`. The tradeoff is the same as for
+the batch component. Without it the controller does nothing for the catalog.
+
+```yaml
+components:
+  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/model-catalog?ref=v0.12.0
+```
+
 ## Caller role
 
 A separate, narrower role lets other in-cluster apps launch and inspect runs **without** touching
 Jobs or pods:
 
 - **Agents**: create, get, list, watch.
+- **ModelCatalogs**: get, list, watch, to discover which models the subsystem can run (see
+  [ModelCatalog](./crd-modelcatalog.md)).
 
 This is the role a UI or upstream pipeline binds to when it only needs to start runs and read their
 status.
@@ -70,7 +88,7 @@ flowchart LR
     X(("ingress")) -. denied .-> POD
 ```
 
-## Controller egress for batch runs
+## Controller egress
 
 The NetworkPolicy above selects run pods only. The controller pod is not selected by it, so its
 egress is whatever your cluster allows by default; with no other policy in place, it can already
@@ -82,6 +100,11 @@ Gemini batch support is coming and will need `api.openai.com` and
 
 The controller polls each in-flight batch at most once every `BATCH_POLL_SECONDS` seconds (default
 `60`), set as an environment variable on the controller Deployment.
+
+With the model catalog component, the controller also calls the list-models endpoints of the vendors
+whose keys AgentDefinitions map: `api.anthropic.com`, `api.openai.com` and
+`generativelanguage.googleapis.com`. Allow HTTPS to the ones you use if you restrict the controller's
+egress.
 
 Tighten the HTTPS egress further — to specific provider CIDRs or through an egress proxy — if your
 environment allows.
