@@ -2,7 +2,8 @@ module agentcore.vendors.codex.agent;
 
 import agentcore.vendors.base.agent : Agent, ConversationArgs;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
-import agentcore.crds.enums : PermissionMode;
+import agentcore.crds.enums : McpTransport, PermissionMode;
+import agentcore.crds.mcp_server : McpServer, headerEnvName;
 
 /// OpenAI Codex CLI adapter: `codex exec --json …`. Codex governs tool access
 /// through its sandbox/approval model rather than per-tool flags, so the recipe's
@@ -37,9 +38,8 @@ final class CodexAgent : Agent
 		// positional rather than after `--` (`codex exec resume <id> <prompt>`) —
 		// the reason the conversation id is a parameter of command() instead of an
 		// argv fragment a caller could append.
-		string[] cmd = conv.resume.length
-			? ["codex", "exec", "resume", conv.resume, "--json"]
-			: ["codex", "exec", "--json"];
+		string[] cmd = ["codex"] ~ mcpOverrides(recipe.resources.mcpServers)
+			~ (conv.resume.length ? ["exec", "resume", conv.resume, "--json"] : ["exec", "--json"]);
 		if (recipe.model.length)
 			cmd ~= ["--model", recipe.model];
 		if (recipe.permissionMode == PermissionMode.bypass)
@@ -47,6 +47,43 @@ final class CodexAgent : Agent
 		cmd ~= conv.resume.length ? [renderedPrompt] : ["--", renderedPrompt];
 		return cmd;
 	}
+}
+
+/// The recipe's `mcp_servers` as Codex `-c key=value` config overrides, one per field,
+/// so nothing has to be written to `config.toml` (`mcp_servers.<name>.<field>`, values
+/// in TOML). A `headers_secret` maps to `env_http_headers`: Codex reads the
+/// Authorization value from the env var the controller injects, so the token stays out
+/// of argv. Codex speaks streamable HTTP only; sse is rejected before a run starts.
+private string[] mcpOverrides(in McpServer[] servers) @safe
+{
+	import std.json : JSONOptions, JSONValue;
+
+	// TOML basic strings share JSON's escapes except `\/`, so slashes stay unescaped.
+	string toml(JSONValue value)
+	{
+		return value.toString(JSONOptions.doNotEscapeSlashes);
+	}
+
+	string[] args;
+	void set(string name, string field, string tomlValue)
+	{
+		args ~= ["-c", "mcp_servers." ~ name ~ "." ~ field ~ "=" ~ tomlValue];
+	}
+
+	foreach (server; servers)
+	{
+		if (server.transport == McpTransport.stdio)
+		{
+			set(server.name, "command", toml(JSONValue(server.command)));
+			if (server.args.length)
+				set(server.name, "args", toml(JSONValue(server.args.dup)));
+			continue;
+		}
+		set(server.name, "url", toml(JSONValue(server.url)));
+		if (server.headersSecret.length)
+			set(server.name, "env_http_headers", `{Authorization="` ~ headerEnvName(server) ~ `"}`);
+	}
+	return args;
 }
 
 version (unittest) import fluent.asserts;
@@ -112,4 +149,24 @@ version (unittest) import fluent.asserts;
 	// Codex has no pin flag — only `resume`. An empty result is how the adapter says
 	// the id is assigned by the CLI, rather than pretending it can be chosen.
 	(new CodexAgent).pinConversationArgs("sess-1").should.equal(cast(string[])[]);
+}
+
+@safe unittest
+{
+	// mcp_servers become -c overrides before the subcommand; the credential is an env
+	// var name, never the token.
+	AgentDefinitionSpec recipe;
+	recipe.resources.mcpServers = [
+		McpServer("tools", McpTransport.http, "", null, "https://tools-mcp/mcp", "tools-mcp-auth"),
+		McpServer("local", McpTransport.stdio, "mcp-local", ["--stdio"], "", ""),
+	];
+
+	(new CodexAgent).command(recipe, "p")[0 .. 10].should.equal([
+		"codex",
+		"-c", `mcp_servers.tools.url="https://tools-mcp/mcp"`,
+		"-c", `mcp_servers.tools.env_http_headers={Authorization="TOOLS_MCP_AUTH"}`,
+		"-c", `mcp_servers.local.command="mcp-local"`,
+		"-c", `mcp_servers.local.args=["--stdio"]`,
+		"exec",
+	]);
 }

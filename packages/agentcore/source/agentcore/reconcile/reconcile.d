@@ -42,7 +42,7 @@ enum ActionKind
 	none, /// nothing to do (still running, or already terminal)
 	startRun, /// create the Job and move to Running
 	replaceRun, /// preempt the Station's oldest run (Replace policy), then start this one
-	failMissingRef, /// a referenced Station/AgentDefinition is missing
+	failMissingRef, /// a referenced Station/AgentDefinition is missing, or its spec cannot run
 	complete, /// move to a terminal phase from the Job outcome
 }
 
@@ -61,10 +61,12 @@ struct Decision
  * performed by the caller based on the returned Decision. `atCapacity` is true
  * when the Station is already at its effective concurrent-run limit; what a Pending
  * Agent does then depends on `policy`: Allow/Forbid wait, Replace preempts the
- * Station's oldest run and starts (`ActionKind.replaceRun`).
+ * Station's oldest run and starts (`ActionKind.replaceRun`). A non-empty
+ * `specViolation` (the resolved definition cannot run as configured) fails it.
  */
 Decision decide(Phase current, bool refsResolved, bool hasOutcome, JobOutcome outcome,
-	bool atCapacity = false, ConcurrencyPolicy policy = ConcurrencyPolicy.allow) @safe pure
+	bool atCapacity = false, ConcurrencyPolicy policy = ConcurrencyPolicy.allow,
+	string specViolation = "") @safe pure
 {
 	final switch (current)
 	{
@@ -72,6 +74,8 @@ Decision decide(Phase current, bool refsResolved, bool hasOutcome, JobOutcome ou
 		if (!refsResolved)
 			return Decision(ActionKind.failMissingRef, Phase.failed, 0,
 				"Station or AgentDefinition not found");
+		if (specViolation.length > 0)
+			return Decision(ActionKind.failMissingRef, Phase.failed, 0, specViolation);
 		if (atCapacity)
 			return policy == ConcurrencyPolicy.replace
 				? Decision(ActionKind.replaceRun, Phase.running)
@@ -121,6 +125,12 @@ version (unittest) import fluent.asserts;
 	const waiting = decide(Phase.pending, true, false, no, true);
 	waiting.kind.should.equal(ActionKind.none);
 	waiting.phase.should.equal(Phase.pending);
+}
+
+@safe unittest // a spec violation fails a Pending Agent with it as the reason, even at capacity
+{
+	decide(Phase.pending, true, false, JobOutcome.init, true, ConcurrencyPolicy.allow, "bad spec")
+		.should.equal(Decision(ActionKind.failMissingRef, Phase.failed, 0, "bad spec"));
 }
 
 @safe unittest

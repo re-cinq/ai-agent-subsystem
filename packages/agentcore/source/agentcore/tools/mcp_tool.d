@@ -103,6 +103,16 @@ unittest
 	stepsFor(none)[0][$ - 1].should.equal("{}");
 }
 
+unittest // an OpenCode run merges its servers into the `mcp` key; Codex takes them as -c flags
+{
+	import agentcore.kube.bundle : opencodeMcpSettingsPath;
+
+	const steps = stepsFor(withServers("opencode/anthropic/claude-sonnet-4-6"));
+	steps.length.should.equal(1);
+	steps[0][2 .. 4].should.equal([opencodeMcpSettingsPath, "mcp"]);
+	stepsFor(withServers("gpt-5-codex")).length.should.equal(0);
+}
+
 @safe unittest
 {
 	// The step re-enters the init binary baked into the agent image, by absolute path:
