@@ -37,7 +37,8 @@ spec:
   [Prompt templating](../reference/prompt-templating.md).
 - **`permission_mode: auto`** (the default) enforces the `allowed_tools` / `disallowed_tools` lists.
   Use `bypass` to grant all tools.
-- **Beyond the minimum**, `resources` can also declare `mcp_servers`, `skills` / `skills_source`
+- **Beyond the minimum**, `resources` can also declare `mcp_servers` (see
+  [Connect MCP servers](./connect-mcp-servers.md)), `skills` / `skills_source`
   (a source also supplies the vendor's hook bundle, see
   [hooks](../concepts/agent-runtime.md#hooks)), and a `conversation` to continue, and `output` can
   declare `watch` entries for files the run is expected to produce. See the

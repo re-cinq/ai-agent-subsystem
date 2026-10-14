@@ -41,6 +41,10 @@ enum claudeSettingsPath = "/agent/.claude/settings.json";
 /// (the mcp tool runs last), so the init rewrites only `mcpServers`, never the file.
 enum geminiMcpSettingsPath = "/agent/.gemini/settings.json";
 
+/// Where the init (McpTool) merges a recipe's MCP servers for OpenCode: its global
+/// config under the shared `$HOME`'s XDG config dir. Only the `mcp` key is rewritten.
+enum opencodeMcpSettingsPath = "/agent/.config/opencode/opencode.json";
+
 /// Where the init writes gemini-cli's experiments file and where the agent's
 /// `GEMINI_EXP` points: under the shared `$HOME`, so the init's write is the agent's
 /// read.

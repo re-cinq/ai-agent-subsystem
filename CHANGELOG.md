@@ -6,6 +6,27 @@ the npm package versions.
 
 ## Unreleased
 
+### Added
+- **`mcp_servers` take any number of secret-backed `headers` (http/sse) and `env` vars (stdio).**
+  Each is `{name, ref}` with `ref` an `agent-secrets` key, injected as `MCP_<SERVER>_<NAME>` and
+  referenced by every CLI, so servers that want `X-API-Key`, several headers, or a token in a
+  stdio process's environment work without anyone logging in.
+- **`resources.mcp_servers` now reach Codex and OpenCode runs**, not only Claude and Gemini.
+  Codex gets them as `-c mcp_servers.<name>.…` overrides, OpenCode as the `mcp` key of its
+  global config; `headers_secret` is referenced from the pod env as for the other CLIs, so the
+  token never reaches argv or disk. New guide: *Connect MCP servers*.
+
+### Deprecated
+- `mcp_servers[].headers_secret`: use `headers: [{name: Authorization, ref: <key>}]`. It keeps
+  working unchanged.
+
+### Fixed
+- **Invalid `resources.mcp_servers` now fail the Agent instead of being silently dropped.** An
+  `exec` definition with MCP servers, a duplicate or empty server name, an `http`/`sse` server
+  without `url`, a `stdio` server without `command`, a name other than letters, digits, `_`
+  and `-`, or `sse` on Codex moves the Agent to `Failed` with the
+  reason in `status.failureReason`, and no Job is created.
+
 ## v0.12.0
 
 ### Added

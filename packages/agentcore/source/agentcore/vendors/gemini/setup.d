@@ -31,7 +31,7 @@ final class GeminiSetup : AgentSetup, McpSettings
 {
 	/// gemini-cli has no flag for MCP servers; it reads them from `mcpServers` in its
 	/// settings. The init re-enters its own binary to merge this run's servers into the
-	/// CLI's user settings file (`initializerPath mcp-settings <file> <servers>`): the
+	/// CLI's user settings file (`initializerPath mcp-settings <file> mcpServers <servers>`): the
 	/// system scope v0.11.2 used is refused for a directory uid 1000 owns, and the
 	/// slim init image has nothing that can merge JSON in a shell. Emitted for every
 	/// Gemini run, servers or none: a continued conversation restores `.gemini` whole,
@@ -52,7 +52,7 @@ final class GeminiSetup : AgentSetup, McpSettings
 		enum write = `mkdir -p "$(dirname "$1")" && printf '%s\n' "$2" > "$1"`;
 
 		return [
-			[initializerPath, "mcp-settings", geminiMcpSettingsPath, geminiMcpServersJson(servers)],
+			[initializerPath, "mcp-settings", geminiMcpSettingsPath, "mcpServers", geminiMcpServersJson(servers)],
 			["bash", "-c", write, "write-experiments", geminiExperimentsPath, geminiExperimentsJson],
 			["bash", "-c", write, "write-policy", geminiBypassPolicyPath, geminiBypassPolicyToml],
 		];
@@ -130,8 +130,8 @@ version (unittest)
 	// reference gemini-cli expands, never a value.
 	const steps = (new GeminiSetup).mcpSteps(tools);
 	steps.length.should.equal(3);
-	steps[0][0 .. 3].should.equal([initializerPath, "mcp-settings", "/agent/.gemini/settings.json"]);
-	const servers = parseJSON(steps[0][3]);
+	steps[0][0 .. 4].should.equal([initializerPath, "mcp-settings", "/agent/.gemini/settings.json", "mcpServers"]);
+	const servers = parseJSON(steps[0][4]);
 	servers["tools"]["httpUrl"].str.should.equal("https://tools-mcp/mcp");
 	servers["tools"]["headers"]["Authorization"].str.should.equal("${TOOLS_MCP_AUTH}");
 }
@@ -142,7 +142,7 @@ version (unittest)
 	// brought back from a run that had some.
 	const steps = (new GeminiSetup).mcpSteps([]);
 	steps.length.should.equal(3);
-	steps[0][3].should.equal("{}");
+	steps[0][4].should.equal("{}");
 }
 
 @safe unittest

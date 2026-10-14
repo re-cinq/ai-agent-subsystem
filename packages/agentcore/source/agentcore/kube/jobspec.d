@@ -15,7 +15,7 @@ import agentcore.crds.output_sink : OutputSink;
 import agentcore.crds.enums : SinkType;
 import agentcore.crds.repo_ref : RepoRef;
 import agentcore.crds.input_file : InputFile;
-import agentcore.crds.mcp_server : headerEnvName;
+import agentcore.crds.mcp_server : credentials;
 import agentcore.crds.station : Station;
 import agentcore.crds.serialization : toJson;
 import agentcore.vendors.select : agentForModel, agentSetupForModel;
@@ -533,19 +533,16 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe,
 			secretVar(sink.headersSecret, sink.headersSecret);
 			secretsInjected[sink.headersSecret] = true;
 		}
-	// A live mcp_servers entry's `headers_secret` names an agent-secrets key holding its
-	// auth credential; inject it as a secretKeyRef env under the shell-safe name the
-	// Claude adapter references as `${NAME}` inside --mcp-config (headerEnvName). Without
-	// it the pod's `claude` connects to the gateway with no Authorization header and 401s.
+	// Each mcp_servers header and stdio env names an agent-secrets key; inject it as a
+	// secretKeyRef env under the shell-safe name every vendor adapter references from its
+	// MCP config (McpCredential.envVar). Without it the CLI connects with no credential.
 	foreach (server; recipe.resources.mcpServers)
-	{
-		const mcpEnv = headerEnvName(server);
-		if (mcpEnv.length && !isReservedEnvName(mcpEnv) && mcpEnv !in secretsInjected)
-		{
-			secretVar(mcpEnv, server.headersSecret);
-			secretsInjected[mcpEnv] = true;
-		}
-	}
+		foreach (credential; credentials(server))
+			if (!isReservedEnvName(credential.envVar) && credential.envVar !in secretsInjected)
+			{
+				secretVar(credential.envVar, credential.secret);
+				secretsInjected[credential.envVar] = true;
+			}
 	// The servers themselves, for a vendor whose CLI reads them from a settings file the
 	// init writes (gemini-cli has no MCP flag). Names and URLs only: the credential is
 	// the env var above, which the CLI expands when it loads the file.
@@ -1391,6 +1388,27 @@ unittest
 	auto container = agentContainer(buildJob(agent, station, definition, "img"));
 
 	envSecretKey(container, "TOOLS_MCP_AUTH").should.equal("tools-mcp-auth");
+}
+
+unittest // mcp_servers headers and stdio env each inject their agent-secrets key as MCP_<SERVER>_<NAME>
+{
+	import agentcore.crds.mcp_server : McpHeader, McpServer;
+	import agentcore.crds.enums : McpTransport;
+	import agentcore.crds.secret_ref : SecretRef;
+
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.resources.mcpServers = [
+		McpServer("tools", McpTransport.http, "", null, "https://tools-mcp/mcp", "", [McpHeader("X-Api-Key", "tools-key")]),
+		McpServer("gh", McpTransport.stdio, "gh-mcp", null, "", "", [], [SecretRef("GITHUB_TOKEN", "gh-token")]),
+	];
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img"));
+
+	[envSecretKey(container, "MCP_TOOLS_X_API_KEY"), envSecretKey(container, "MCP_GH_GITHUB_TOKEN")]
+		.should.equal(["tools-key", "gh-token"]);
 }
 
 unittest

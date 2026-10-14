@@ -59,6 +59,7 @@ export default defineConfig({
 						{ label: 'Launch an agent', slug: 'tasks/launch-an-agent' },
 						{ label: 'Setting limits', slug: 'tasks/set-limits' },
 						{ label: 'Collect output', slug: 'tasks/collect-output' },
+						{ label: 'Connect MCP servers', slug: 'tasks/connect-mcp-servers' },
 						{ label: 'Receive notifications', slug: 'tasks/receive-notifications' },
 						{ label: 'Examples', slug: 'tasks/examples' },
 					],

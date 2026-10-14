@@ -29,7 +29,7 @@ The recipe. It has a `spec` and no `status`.
 | --- | --- | --- |
 | `env` | [] `{name, value}` | Plain environment variables. |
 | `secrets` | [] `{name, ref}` | `name` is the env var; `ref` is an allowlisted secret-store key. |
-| `mcp_servers` | [] object | `{name, transport(stdio\|http\|sse), command?, args?, url?, headers_secret?}`. |
+| `mcp_servers` | [] object | `{name, transport(stdio\|http\|sse), command?, args?, url?, headers?: [{name, ref}], env?: [{name, ref}], headers_secret?}`. `headers` (http/sse) and `env` (stdio) take their values from `agent-secrets` keys; `headers_secret` is the deprecated single-`Authorization` form. See [Connect MCP servers](../tasks/connect-mcp-servers.md). Names must be unique; `http`/`sse` need `url`, `stdio` needs `command`; header and env names must be valid and unique. Not supported by the `exec` model; Codex does not support `sse`. A violation fails the Agent with the reason instead of starting a Job. |
 | `repos` | [] object | `{name, url, ref?, path?, token_secret?}`. |
 | `skills` | []string | Skill names staged into the run's `$HOME/.claude/skills`, fetched from `skills_source` as `<source>/<name>.tar.gz`. The recipe declares intent; each adapter realizes it. |
 | `skills_source` | string | Base URL of the skill/settings registry. The init also fetches `<source>/settings.json` (Claude's flat session settings) and `<source>/hooks/<vendor>.tar.gz` — the hook bundle for the vendor the `model` routes to, in that vendor's native format, extracted relative to `$HOME`. Empty means no fetch — the cloned repo's own `.claude/skills` is still staged. |

@@ -27,7 +27,7 @@ flowchart LR
   (see [Gemini under bypass](agent-runtime.md)).
 - **`max_turns`**: optional cap on agentic turns; omit for uncapped.
 - **`resources`**: what the run needs available to it — `env`, `secrets` (env-var name plus an
-  allowlisted secret-store key), `mcp_servers`, `repos`, `skills` / `skills_source` (skills fetched
+  allowlisted secret-store key), `mcp_servers` (each with secret-backed `headers` or `env`), `repos`, `skills` / `skills_source` (skills fetched
   into the run's `$HOME/.claude`, plus the source's hook bundle for the vendor the model routes
   to, extracted relative to `$HOME`), and `conversation` (a previous run this one continues).
 - **`output`**: the result contract: `format` (`text` / `json` / `stream-json`), an optional

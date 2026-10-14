@@ -2,6 +2,7 @@ module agentcore.reconcile.reconcile_driver;
 
 import agentcore.crds.agent : Agent;
 import agentcore.crds.agent_definition : AgentDefinition;
+import agentcore.crds.mcp_server : mcpViolation;
 import agentcore.crds.station : Station;
 import agentcore.reconcile.concurrency : effectiveMaxRuns, oldestRunningRun, stationAtCapacity;
 import agentcore.kube.jobs : jobNameFor;
@@ -11,6 +12,7 @@ import agentcore.kube.kubeclient : KubeClient, NotFound, PodResult;
 import agentcore.reconcile.prune : agentsToPrune;
 import agentcore.reconcile.reconcile : ActionKind, coherentExitCode, decide, Decision, JobOutcome, JobState;
 import agentcore.core.types : Phase;
+import agentcore.vendors.select : agentForModel;
 
 /// Status reason when the run Job was garbage-collected before the controller could
 /// observe its result — the controller was down or backlogged past the Job's
@@ -59,9 +61,13 @@ ReconcileEffect reconcileAgent(KubeClient client, string ns, Agent agent, string
 	AgentDefinition definition;
 	bool refsResolved = true;
 	bool atCapacity = false;
+	string specViolation;
 	if (phase == Phase.pending)
 	{
 		refsResolved = resolveRefs(client, ns, agent, station, definition);
+		if (refsResolved)
+			specViolation = mcpViolation(definition.spec.resources.mcpServers,
+				agentForModel(definition.spec.model).name);
 		if (refsResolved)
 			atCapacity = stationAtCapacity(cached, agent.spec.stationRef,
 				effectiveMaxRuns(station.spec.concurrencyPolicy, station.spec.maxConcurrentRuns));
@@ -83,7 +89,7 @@ ReconcileEffect reconcileAgent(KubeClient client, string ns, Agent agent, string
 	}
 
 	const decision = decide(phase, refsResolved, hasOutcome, outcome, atCapacity,
-		station.spec.concurrencyPolicy);
+		station.spec.concurrencyPolicy, specViolation);
 
 	final switch (decision.kind)
 	{
@@ -337,6 +343,26 @@ unittest
 	client.statusPatches[0]["status"]["phase"].get!string.should.equal("Failed");
 	client.statusPatches[0]["status"]["failureReason"].get!string.should
 		.equal("Station or AgentDefinition not found");
+}
+
+unittest // an exec definition with mcp_servers fails Pending with the violation, no Job
+{
+	import agentcore.crds.enums : McpTransport;
+	import agentcore.crds.mcp_server : McpServer;
+
+	auto client = new FakeKubeClient;
+	client.station.metadata.name = "stn";
+	client.station.spec.agentDefRef = "def";
+	client.definition.spec.model = "exec";
+	client.definition.spec.resources.mcpServers = [
+		McpServer("tools", McpTransport.http, "", null, "https://tools-mcp/mcp", ""),
+	];
+
+	reconcileAgent(client, "ai-agents", pendingAgent("run-3", "stn"), "img", "2026-06-22T12:00:00Z", null);
+
+	client.createdJobs.length.should.equal(0);
+	client.statusPatches[0]["status"]["failureReason"].get!string.should
+		.equal("the exec model does not support resources.mcp_servers");
 }
 
 unittest
