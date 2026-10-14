@@ -44,6 +44,16 @@ interface BatchProvider
 	void cleanup(string id);
 }
 
+/// Thrown by `BatchProvider.cleanup` when the batch has not reached a terminal state yet (a
+/// cancel still settling), so what it will leave behind cannot be deleted until a later try.
+class BatchNotSettled : Exception
+{
+	this(string msg, string file = __FILE__, size_t line = __LINE__) @safe pure nothrow
+	{
+		super(msg, file, line);
+	}
+}
+
 /// One HTTPS call a batch provider makes, and its answer; providers send them through an
 /// injected `HttpTransport` so they stay testable without a network.
 struct HttpRequest
@@ -91,6 +101,12 @@ enum batchCleanupFinalizer = "agents.re-cinq.com/batch-cleanup";
 
 /// Failed cleanups after which the finalizer is released anyway, leaving the provider object behind.
 enum int maxBatchCleanupAttempts = 5;
+
+/// Minutes after a batch Agent's `startedAt` that a cleanup reporting `BatchNotSettled` keeps
+/// its finalizer without counting a failed attempt. Every provider expires a batch 24 hours
+/// after submission and a cancel settles within minutes, so a batch still unsettled at 48
+/// hours is stuck; its cleanups then count toward `maxBatchCleanupAttempts`.
+enum int batchSettleMinutes = 48 * 60;
 
 /// The model a batch request names: the run's model, or `claude-opus-5-5` when it names none.
 /// The CLI falls back to its own default model; a batch request must name one.

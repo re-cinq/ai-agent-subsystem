@@ -20,6 +20,24 @@ the npm package versions.
   `ModelCatalog`, `ModelCatalogStatus`, `VendorModels` and `ModelInfo` types. AgentDefinition models
   are not checked against the catalog. New reference page: *ModelCatalog CRD*.
 
+- **`execution: batch` works for OpenAI models through the OpenAI Batch API.** A batch definition
+  whose model routes to Codex (`gpt-*`, `o1`/`o3`/`o4*`, `*codex*`, for example `gpt-5-mini`) is
+  submitted by the controller as a one-line JSONL file of `POST /v1/responses` calls (`/v1/files`,
+  then `/v1/batches`) with the `OPENAI_API_KEY` entry of `resources.secrets`, shows
+  `status.batchProvider: openai`, and is polled and cancelled like the other batches; cleanup
+  deletes the batch's input, output and error files, since OpenAI batch objects cannot be deleted,
+  treating a file already gone as deleted. A response that only refuses fails the run with the
+  refusal text. Cleanup of an OpenAI or Anthropic batch now waits for a cancel to settle (the batch
+  stays `cancelling`/`canceling` for minutes) instead of running right after it, keeping the
+  `agents.re-cinq.com/batch-cleanup` finalizer meanwhile without counting failed attempts, up to 48
+  hours after `startedAt`; before, a deleted or timed-out Anthropic batch's cleanup failed and an
+  OpenAI batch's late output file was left behind.
+  `status.output` and the sinks get the codex CLI's `exec --json` lines for a single-turn run
+  (`thread.started`, `turn.started`, an `agent_message` item and `turn.completed` with `usage`, or
+  `error` and `turn.failed`); there is no cost field, as the CLI has none. An `output.schema` is
+  sent as a strict `json_schema` `text.format`. The Floor parses no codex events yet, so a codex
+  run's text and usage do not reach it, CLI or batch. Opencode models are still rejected. The
+  controller needs HTTPS egress to `api.openai.com` for OpenAI batch runs.
 - **`execution: batch` works for Gemini models through the Gemini Batch API.** A batch definition
   whose model routes to Gemini (for example `gemini-3.1-flash-lite`) is submitted by the controller
   to `models/<model>:batchGenerateContent` with the `GEMINI_API_KEY` entry of `resources.secrets`,
@@ -93,6 +111,9 @@ the npm package versions.
   `resources.secrets` or `resources.env` and no `CODEX_API_KEY` of its own now also gets
   `CODEX_API_KEY` with the same value: a second `secretKeyRef` to the same `agent-secrets` key for
   a secret, the same literal for an env entry. Either name works; other vendors are unchanged.
+- **A codex run that ends in `turn.failed` is reported `Failed` as soon as that line arrives.** The
+  supervisor took only `turn.completed` as codex's final event, so a codex CLI that lingered after a
+  failed turn kept the Job running until its deadline.
 - **A gemini run whose `result` line says `"status":"error"` no longer reports success when the
   CLI has to be stopped after it.** The supervisor read a gemini `result` like a Claude one and,
   finding no `is_error`, took every gemini result as a success; when the CLI then lingered and was

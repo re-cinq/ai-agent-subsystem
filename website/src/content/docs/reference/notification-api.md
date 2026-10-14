@@ -191,7 +191,7 @@ The agent's terminal event, emitted once when the run finishes.
 
 ## Consumer contract
 
-The fields below are the stable contract for Claude and Gemini runs. A CLI run and a [batch run](../tasks/batch-runs.md) both emit every required field with the type shown; other fields may be added, removed or differ between the two and are not part of it. A field present with another type should be treated as invalid: the Floor drops such a line. The contract is the `consumerFields` table in `packages/agentcore/source/agentcore/output/contract.d`, checked in `dub test :agentcore` against recorded Claude and gemini CLI runs and against the batch translations of a Message Batches result and a Gemini Batch API result.
+The fields below are the stable contract for Claude, Gemini and Codex runs. A CLI run and a [batch run](../tasks/batch-runs.md) both emit every required field with the type shown; other fields may be added, removed or differ between the two and are not part of it. A field present with another type should be treated as invalid: the Floor drops such a line. The contract is the `consumerFields` table in `packages/agentcore/source/agentcore/output/contract.d`, checked in `dub test :agentcore` against recorded Claude, gemini and codex CLI runs and against the batch translations of a Message Batches result, a Gemini Batch API result and an OpenAI Batch API result.
 
 ### Claude
 
@@ -222,6 +222,17 @@ The fields below are the stable contract for Claude and Gemini runs. A CLI run a
 | `message` (`role: "assistant"`) | `type`, `role`, `content` | string | yes |
 
 A consumer joins the assistant `message` lines' `content` for the run's text, since the gemini `result` carries none. A gemini run reports no cost. The gemini CLI's `timestamp` fields and its `message` echoing the user prompt are not part of the contract; a batch run omits both.
+
+### Codex
+
+| Event | Field | Type | Required |
+| --- | --- | --- | --- |
+| `turn.completed` | `type` | string | yes |
+| `turn.completed` | `usage` | object | yes |
+| `turn.completed` | `usage.input_tokens`, `usage.cached_input_tokens`, `usage.output_tokens` | number | yes |
+| `item.completed` (`item.type: "agent_message"`) | `item.text` | string | yes |
+
+A codex stream starts with `thread.started` and ends with `turn.completed` when the run succeeded or `turn.failed` (with `error.message`) when it failed. The run's text is the `agent_message` item's `text`; codex reports no cost. The Floor does not parse codex events yet, so for codex runs (CLI or batch) the final text and usage do not reach it; these rows are the minimum a parser needs, and only the lifecycle events below are consumed today.
 
 ### Lifecycle (every vendor)
 

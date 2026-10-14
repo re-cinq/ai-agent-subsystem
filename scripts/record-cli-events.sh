@@ -2,7 +2,7 @@
 # Record an agent CLI's stream-json events for a single-turn, no-tool run into
 # <testdata>/events/<vendor>-cli.jsonl (default testdata: packages/agentcore/testdata).
 #
-# Usage: record-cli-events.sh [testdata] [claude|gemini]   (vendor defaults to claude)
+# Usage: record-cli-events.sh [testdata] [claude|gemini|codex]   (vendor defaults to claude)
 #
 # claude: uses the CLI version pinned in scripts/container/Dockerfile.agent (downloaded and
 # checksum-verified, as the image build does) with the flags vendors/claude/agent.d passes.
@@ -15,8 +15,14 @@
 # gemini-3.1-flash-lite call. Set GEMINI_CLI to an installed binary (e.g. /usr/local/bin/gemini)
 # to skip the download.
 #
+# codex: installs the codex CLI with the installer vendors/codex/setup.d runs, which is not
+# pinned, so it records the latest release (set CODEX_RELEASE to pick one) with the flags
+# vendors/codex/agent.d passes. Needs OPENAI_API_KEY, handed to the CLI as CODEX_API_KEY
+# (`codex exec` does not read OPENAI_API_KEY); the run costs one gpt-5-mini call. Set
+# CODEX_CLI to an installed binary to skip the install.
+#
 # Either way the fixture is what a run pod prints; with a CLI override the recording
-# reflects that version, not the pinned one. Each run gets an isolated HOME.
+# reflects that version, not the pinned one. Each run gets an isolated HOME (and CODEX_HOME).
 set -euo pipefail
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
@@ -59,6 +65,12 @@ download_pinned_gemini() {
 	echo "$scratch/gemini"
 }
 
+install_codex() {
+	curl -fsSL https://chatgpt.com/codex/install.sh |
+		CODEX_INSTALL_DIR="$scratch/bin" CODEX_HOME="$scratch/codex-install" CODEX_NON_INTERACTIVE=1 sh >&2
+	echo "$scratch/bin/codex"
+}
+
 case "$vendor" in
 claude)
 	: "${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY must be set}"
@@ -74,8 +86,18 @@ gemini)
 	}
 	succeeded='"status":"success"'
 	;;
+codex)
+	: "${OPENAI_API_KEY:?OPENAI_API_KEY must be set}"
+	cli="${CODEX_CLI:-$(install_codex)}"
+	run() {
+		mkdir -p "$scratch/codex-home"
+		CODEX_HOME="$scratch/codex-home" CODEX_API_KEY="$OPENAI_API_KEY" \
+			"$cli" exec --json --skip-git-repo-check --model gpt-5-mini -- "$prompt" </dev/null
+	}
+	succeeded='"type":"turn.completed"'
+	;;
 *)
-	echo "unknown vendor: $vendor (want claude or gemini)" >&2
+	echo "unknown vendor: $vendor (want claude, gemini or codex)" >&2
 	exit 1
 	;;
 esac

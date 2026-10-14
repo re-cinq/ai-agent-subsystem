@@ -5,11 +5,14 @@
 # with, then delete the batch. The run costs one small call at the batch price and can
 # take minutes.
 #
-# Usage: record-batch-response.sh [testdata] [anthropic|gemini]   (vendor defaults to anthropic)
+# Usage: record-batch-response.sh [testdata] [anthropic|gemini|openai]   (vendor defaults to anthropic)
 #
 # anthropic: needs ANTHROPIC_API_KEY; saves the ended batch object to
 #   anthropic-batch-ended.json and its results line to anthropic-result-succeeded.json.
 # gemini: needs GEMINI_API_KEY; saves the ended batch operation to gemini-batch-succeeded.json.
+# openai: needs OPENAI_API_KEY; uploads the one-line input file, saves the ended batch object to
+#   openai-batch-completed.json and its output file's line to openai-output-succeeded.json,
+#   then deletes both files (a batch object cannot be deleted).
 set -euo pipefail
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
@@ -84,12 +87,52 @@ JSON
 	echo "recorded $name ($state) to $testdata/batch/" >&2
 }
 
+record_openai() {
+	: "${OPENAI_API_KEY:?OPENAI_API_KEY must be set}"
+	local api=https://api.openai.com/v1 input file batch_id batch status output
+
+	openai() {
+		curl -fsS -H "authorization: Bearer $OPENAI_API_KEY" "$@"
+	}
+
+	input="$(mktemp --suffix=.jsonl)"
+	cat >"$input" <<'JSON'
+{"custom_id":"record-fixtures","method":"POST","url":"/v1/responses","body":{"model":"gpt-5-mini","input":"Reply with the single word: ok","max_output_tokens":16000}}
+JSON
+	file="$(openai -F purpose=batch -F "file=@$input;type=application/jsonl" "$api/files" | field id)"
+	rm -f "$input"
+	batch_id="$(openai -H "content-type: application/json" -X POST \
+		--data "{\"input_file_id\":\"$file\",\"endpoint\":\"/v1/responses\",\"completion_window\":\"24h\"}" \
+		"$api/batches" | field id)"
+	echo "submitted $batch_id over $file" >&2
+
+	while :; do
+		batch="$(openai "$api/batches/$batch_id")"
+		status="$(field status <<<"$batch")"
+		case "$status" in
+		completed | failed | expired | cancelled) break ;;
+		esac
+		echo "$batch_id is $status; polling again in 30s" >&2
+		sleep 30
+	done
+
+	printf '%s\n' "$batch" >"$testdata/batch/openai-batch-completed.json"
+	output="$(field output_file_id <<<"$batch")"
+	if [ -n "$output" ]; then
+		openai "$api/files/$output/content" | head -n 1 >"$testdata/batch/openai-output-succeeded.json"
+		openai -X DELETE "$api/files/$output" >/dev/null
+	fi
+	openai -X DELETE "$api/files/$file" >/dev/null
+	echo "recorded $batch_id ($status) to $testdata/batch/" >&2
+}
+
 mkdir -p "$testdata/batch"
 case "$vendor" in
 anthropic) record_anthropic ;;
 gemini) record_gemini ;;
+openai) record_openai ;;
 *)
-	echo "unknown vendor: $vendor (want anthropic or gemini)" >&2
+	echo "unknown vendor: $vendor (want anthropic, gemini or openai)" >&2
 	exit 1
 	;;
 esac

@@ -94,10 +94,11 @@ The NetworkPolicy above selects run pods only. The controller pod is not selecte
 egress is whatever your cluster allows by default; with no other policy in place, it can already
 reach the providers on 443. For batch runs the controller itself calls the Anthropic Message
 Batches API (`https://api.anthropic.com/v1/messages/batches`) for Claude models and the Gemini
-Batch API (`https://generativelanguage.googleapis.com/v1beta/`) for Gemini models to submit, poll,
-cancel and delete batches. If you restrict the controller's egress, allow HTTPS to
-`api.anthropic.com` and `generativelanguage.googleapis.com` (only the ones whose models you batch).
-OpenAI batch support is coming and will need `api.openai.com`.
+Batch API (`https://generativelanguage.googleapis.com/v1beta/`) for Gemini models and the OpenAI
+Batch and Files APIs (`https://api.openai.com/v1/batches`, `https://api.openai.com/v1/files`) for
+Codex-routed models to submit, poll, cancel and delete batches. If you restrict the controller's
+egress, allow HTTPS to `api.anthropic.com`, `generativelanguage.googleapis.com` and
+`api.openai.com` (only the ones whose models you batch).
 
 The controller polls each in-flight batch at most once every `BATCH_POLL_SECONDS` seconds (default
 `60`), set as an environment variable on the controller Deployment.

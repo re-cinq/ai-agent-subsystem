@@ -3,7 +3,8 @@
 # vendor, put the recordings in place of packages/agentcore/testdata's fixtures, and run
 # `dub test :agentcore`, whose contract and structural-diff tests compare the two. The
 # original fixtures are restored afterwards unless KEEP_FIXTURES=1.
-# VENDOR=claude (default) needs ANTHROPIC_API_KEY; VENDOR=gemini needs GEMINI_API_KEY.
+# VENDOR=claude (default) needs ANTHROPIC_API_KEY; VENDOR=gemini needs GEMINI_API_KEY;
+# VENDOR=openai (the codex CLI against the OpenAI Batch API) needs OPENAI_API_KEY.
 # SKIP_CLI=1 records only the batch round trip and keeps the CLI fixture as it is.
 set -euo pipefail
 
@@ -22,8 +23,14 @@ gemini)
 	batch_vendor=gemini
 	fixtures=(batch/gemini-batch-succeeded.json)
 	;;
+openai)
+	: "${OPENAI_API_KEY:?OPENAI_API_KEY must be set}"
+	batch_vendor=openai
+	vendor=codex
+	fixtures=(batch/openai-batch-completed.json batch/openai-output-succeeded.json)
+	;;
 *)
-	echo "unknown VENDOR: $vendor (want claude or gemini)" >&2
+	echo "unknown VENDOR: $vendor (want claude, gemini or openai)" >&2
 	exit 1
 	;;
 esac
