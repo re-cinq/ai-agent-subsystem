@@ -33,13 +33,25 @@ export interface SecretRef {
   ref: string;
 }
 
+export interface McpHeader {
+  /** HTTP header name, e.g. X-API-Key. */
+  name: string;
+  /** Allowlisted secret-store key holding the header value. */
+  ref: string;
+}
+
 export interface McpServer {
   name: string;
   transport: McpTransport;
   command?: string;
   args?: string[];
   url?: string;
+  /** Deprecated: use headers. Allowlisted secret-store key sent as the Authorization header. */
   headers_secret?: string;
+  /** http/sse: headers whose values come from the secret store. */
+  headers?: McpHeader[];
+  /** stdio: environment variables for the server process whose values come from the secret store. */
+  env?: SecretRef[];
 }
 
 export interface RepoRef {

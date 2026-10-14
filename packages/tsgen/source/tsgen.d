@@ -21,7 +21,7 @@ import agentcore.core.types : Phase;
 import agentcore.crds.object_meta : ObjectMeta;
 import agentcore.crds.env_var : EnvVar;
 import agentcore.crds.secret_ref : SecretRef;
-import agentcore.crds.mcp_server : McpServer;
+import agentcore.crds.mcp_server : McpHeader, McpServer;
 import agentcore.crds.repo_ref : RepoRef;
 import agentcore.crds.conversation_ref : ConversationRef;
 import agentcore.crds.agent_resources : AgentResources;
@@ -45,7 +45,7 @@ private alias AllEnums = AliasSeq!(PermissionMode, McpTransport, OutputFormat,
 
 /// The structs emitted as TypeScript interfaces (dependency-first for readability;
 /// TS does not require forward declaration).
-private alias AllStructs = AliasSeq!(ObjectMeta, EnvVar, SecretRef, McpServer, RepoRef,
+private alias AllStructs = AliasSeq!(ObjectMeta, EnvVar, SecretRef, McpHeader, McpServer, RepoRef,
 	ConversationRef, AgentResources, OutputSelector, OutputSink, WatchUpload, OutputWatch, OutputSpec,
 	AgentDefinitionSpec, AgentDefinition, StationSpec, Station, InputFile, AgentSpec, AgentStatus, Agent);
 

@@ -3,10 +3,10 @@ module agentcore.vendors.gemini.mcp;
 import std.json : JSONOptions, JSONValue, parseJSON;
 
 import agentcore.crds.enums : McpTransport;
-import agentcore.crds.mcp_server : McpServer, headerEnvName;
+import agentcore.crds.mcp_server : McpServer, headerCredentials, stdioLaunch;
 
-/// The recipe's `mcp_servers` as gemini-cli's `mcpServers` settings object. An
-/// Authorization header is a `${NAME}` reference, not the credential: gemini-cli
+/// The recipe's `mcp_servers` as gemini-cli's `mcpServers` settings object. A header
+/// value is a `${NAME}` reference, not the credential: gemini-cli
 /// expands `${VAR}` in every settings string when it loads the file, from the pod env
 /// where the controller injects the resolved `headers_secret` — the same variable the
 /// Claude adapter's `--mcp-config` references, so the token never reaches disk.
@@ -30,17 +30,17 @@ private JSONValue[string] entryOf(in McpServer server) @safe
 		entry["url"] = server.url;
 		break;
 	case stdio:
-		entry["command"] = server.command;
-		if (server.args.length)
-			entry["args"] = JSONValue(server.args.dup);
+		const argv = stdioLaunch(server);
+		entry["command"] = argv[0];
+		if (argv.length > 1)
+			entry["args"] = JSONValue(argv[1 .. $]);
 		break;
 	}
-	if (server.headersSecret.length && server.transport != McpTransport.stdio)
-	{
-		JSONValue[string] headers;
-		headers["Authorization"] = JSONValue("${" ~ headerEnvName(server) ~ "}");
+	JSONValue[string] headers;
+	foreach (header; headerCredentials(server))
+		headers[header.name] = JSONValue("${" ~ header.envVar ~ "}");
+	if (headers.length)
 		entry["headers"] = JSONValue(headers);
-	}
 	return entry;
 }
 

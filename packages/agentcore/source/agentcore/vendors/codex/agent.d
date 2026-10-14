@@ -3,7 +3,7 @@ module agentcore.vendors.codex.agent;
 import agentcore.vendors.base.agent : Agent, ConversationArgs;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 import agentcore.crds.enums : McpTransport, PermissionMode;
-import agentcore.crds.mcp_server : McpServer, headerEnvName;
+import agentcore.crds.mcp_server : McpServer, envCredentials, headerCredentials, stdioLaunch;
 
 /// OpenAI Codex CLI adapter: `codex exec --json …`. Codex governs tool access
 /// through its sandbox/approval model rather than per-tool flags, so the recipe's
@@ -51,11 +51,13 @@ final class CodexAgent : Agent
 
 /// The recipe's `mcp_servers` as Codex `-c key=value` config overrides, one per field,
 /// so nothing has to be written to `config.toml` (`mcp_servers.<name>.<field>`, values
-/// in TOML). A `headers_secret` maps to `env_http_headers`: Codex reads the
-/// Authorization value from the env var the controller injects, so the token stays out
-/// of argv. Codex speaks streamable HTTP only; sse is rejected before a run starts.
+/// in TOML). Headers map to `env_http_headers`: Codex reads each value from the env var
+/// the controller injects, so the token stays out of argv. A stdio server's secrets are
+/// whitelisted with `env_vars`, since Codex hands stdio servers a minimal environment. Codex speaks streamable HTTP only; sse is rejected before a run starts.
 private string[] mcpOverrides(in McpServer[] servers) @safe
 {
+	import std.algorithm.iteration : map;
+	import std.array : array, join;
 	import std.json : JSONOptions, JSONValue;
 
 	// TOML basic strings share JSON's escapes except `\/`, so slashes stay unescaped.
@@ -74,14 +76,19 @@ private string[] mcpOverrides(in McpServer[] servers) @safe
 	{
 		if (server.transport == McpTransport.stdio)
 		{
-			set(server.name, "command", toml(JSONValue(server.command)));
-			if (server.args.length)
-				set(server.name, "args", toml(JSONValue(server.args.dup)));
+			const argv = stdioLaunch(server);
+			set(server.name, "command", toml(JSONValue(argv[0])));
+			if (argv.length > 1)
+				set(server.name, "args", toml(JSONValue(argv[1 .. $])));
+			const forwarded = envCredentials(server).map!(c => c.envVar).array;
+			if (forwarded.length)
+				set(server.name, "env_vars", toml(JSONValue(forwarded)));
 			continue;
 		}
 		set(server.name, "url", toml(JSONValue(server.url)));
-		if (server.headersSecret.length)
-			set(server.name, "env_http_headers", `{Authorization="` ~ headerEnvName(server) ~ `"}`);
+		const headers = headerCredentials(server).map!(c => c.name ~ `="` ~ c.envVar ~ `"`).array;
+		if (headers.length)
+			set(server.name, "env_http_headers", "{" ~ headers.join(",") ~ "}");
 	}
 	return args;
 }
@@ -168,5 +175,27 @@ version (unittest) import fluent.asserts;
 		"-c", `mcp_servers.local.command="mcp-local"`,
 		"-c", `mcp_servers.local.args=["--stdio"]`,
 		"exec",
+	]);
+}
+
+@safe unittest
+{
+	// Every header maps into env_http_headers; a stdio server's env secrets run it under
+	// the sh export wrapper and are whitelisted with env_vars.
+	import agentcore.crds.mcp_server : McpHeader;
+	import agentcore.crds.secret_ref : SecretRef;
+
+	AgentDefinitionSpec recipe;
+	recipe.resources.mcpServers = [
+		McpServer("tools", McpTransport.http, "", null, "https://t/mcp", "", [McpHeader("X-Api-Key", "k"), McpHeader("X-Org", "o")]),
+		McpServer("gh", McpTransport.stdio, "gh-mcp", null, "", "", [], [SecretRef("GITHUB_TOKEN", "gh-token")]),
+	];
+
+	(new CodexAgent).command(recipe, "p")[1 .. 11].should.equal([
+		"-c", `mcp_servers.tools.url="https://t/mcp"`,
+		"-c", `mcp_servers.tools.env_http_headers={X-Api-Key="MCP_TOOLS_X_API_KEY",X-Org="MCP_TOOLS_X_ORG"}`,
+		"-c", `mcp_servers.gh.command="sh"`,
+		"-c", `mcp_servers.gh.args=["-c","export GITHUB_TOKEN=\"$MCP_GH_GITHUB_TOKEN\"; exec \"$0\" \"$@\"","gh-mcp"]`,
+		"-c", `mcp_servers.gh.env_vars=["MCP_GH_GITHUB_TOKEN"]`,
 	]);
 }

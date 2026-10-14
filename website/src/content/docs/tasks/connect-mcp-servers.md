@@ -23,21 +23,38 @@ spec:
       - name: tools                    # letters, digits, _ and - only; unique per definition
         transport: http                # http | sse | stdio
         url: https://tools.example.com/mcp
-        headers_secret: tools-mcp-auth # agent-secrets key; its value is the Authorization header
-      - name: local
+        headers:                       # http/sse only
+          - name: Authorization
+            ref: tools-mcp-auth        # agent-secrets key holding the whole value
+          - name: X-Org-Id
+            ref: tools-org
+      - name: github
         transport: stdio
-        command: mcp-local             # must already exist in the agent image
-        args: ["--readonly"]
+        command: github-mcp-server     # must already exist in the agent image
+        args: ["stdio"]
+        env:                           # stdio only
+          - name: GITHUB_PERSONAL_ACCESS_TOKEN
+            ref: gh-token
 ```
 
-`headers_secret` names a key in the `agent-secrets` Secret (see
-[prerequisites](../setup/prerequisites.md)). Its value is sent as the whole `Authorization` header,
-so store the scheme with it:
+Each `ref` names a key in the `agent-secrets` Secret (see
+[prerequisites](../setup/prerequisites.md)). A header's value is sent as is, so store the scheme
+with it:
 
 ```sh
 kubectl -n ai-agents create secret generic agent-secrets \
-  --from-literal=tools-mcp-auth="Bearer $TOOLS_TOKEN"   # add to your existing keys
+  --from-literal=tools-mcp-auth="Bearer $TOOLS_TOKEN" \
+  --from-literal=tools-org="$ORG_ID" \
+  --from-literal=gh-token="$GITHUB_TOKEN"   # add to your existing keys
 ```
+
+The controller injects each secret into the run pod as `MCP_<SERVER>_<NAME>` (for example
+`MCP_TOOLS_X_ORG_ID`) and every CLI reads it from there, so no token appears in argv or on disk.
+A stdio server with `env` is started through `sh`, which exports each value under the name the
+server expects before it `exec`s the command.
+
+`headers_secret: <key>` is the older, deprecated form of a single `Authorization` header; it still
+works, but cannot be combined with an `Authorization` entry in `headers`.
 
 ## Which agent CLIs support it
 
@@ -51,7 +68,8 @@ kubectl -n ai-agents create secret generic agent-secrets \
 
 A definition the CLI cannot honour fails the Agent before a Job is created, with the reason in
 `status.failureReason`. That covers `mcp_servers` on `exec`, `sse` on Codex, a duplicate or invalid
-name, `http`/`sse` without `url`, and `stdio` without `command`.
+name, `http`/`sse` without `url`, `stdio` without `command`, `headers` on a stdio server or `env`
+on a remote one, a header or variable name that is invalid or repeated, and an entry without `ref`.
 
 A headless gemini-cli run can only call MCP tools under `permission_mode: bypass`; see
 [agent runtime](../concepts/agent-runtime.md).
@@ -89,5 +107,5 @@ egress rule for it**, for example:
 
 Runs are headless, so the browser-based OAuth flow the MCP spec defines for HTTP servers cannot
 complete. Use a credential the server accepts without a login: an API key, personal access token
-or service token, stored in `agent-secrets` and referenced by `headers_secret`. OpenCode's OAuth
-auto-discovery is switched off for a server that has one.
+or service token, stored in `agent-secrets` and referenced from `headers` (remote) or `env`
+(stdio). OpenCode's OAuth auto-discovery is switched off for a server that has headers.

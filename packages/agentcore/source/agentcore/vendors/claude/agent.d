@@ -5,7 +5,7 @@ import std.conv : to;
 import agentcore.vendors.base.agent : Agent, ConversationArgs;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 import agentcore.crds.enums : PermissionMode, McpTransport;
-import agentcore.crds.mcp_server : McpServer, headerEnvName;
+import agentcore.crds.mcp_server : McpServer, headerCredentials, stdioLaunch;
 import agentcore.kube.bundle : claudeSettingsPath;
 import agentcore.core.env : defaultModel;
 
@@ -99,8 +99,7 @@ final class ClaudeAgent : Agent
 
 /// Render the recipe's `mcp_servers` into Claude Code's `--mcp-config` JSON
 /// (`{"mcpServers":{name:{type,url,headers…}}}`). Empty when the recipe declares
-/// none. An http/sse entry with a `headers_secret` gets an `Authorization` header
-/// whose value is a `${ENV}` placeholder Claude expands at runtime.
+/// none. Each http/sse header's value is a `${ENV}` placeholder Claude expands at runtime.
 private string mcpConfigJson(in McpServer[] servers) @safe
 {
 	import std.json : JSONValue, JSONOptions;
@@ -123,18 +122,18 @@ private string mcpConfigJson(in McpServer[] servers) @safe
 			entry["url"] = server.url;
 			break;
 		case stdio:
+			const argv = stdioLaunch(server);
 			entry["type"] = "stdio";
-			entry["command"] = server.command;
-			if (server.args.length)
-				entry["args"] = JSONValue(server.args.dup);
+			entry["command"] = argv[0];
+			if (argv.length > 1)
+				entry["args"] = JSONValue(argv[1 .. $]);
 			break;
 		}
-		if (server.headersSecret.length && server.transport != McpTransport.stdio)
-		{
-			JSONValue[string] headers;
-			headers["Authorization"] = JSONValue("${" ~ headerEnvName(server) ~ "}");
+		JSONValue[string] headers;
+		foreach (header; headerCredentials(server))
+			headers[header.name] = JSONValue("${" ~ header.envVar ~ "}");
+		if (headers.length)
 			entry["headers"] = JSONValue(headers);
-		}
 		byName[server.name] = JSONValue(entry);
 	}
 	JSONValue root;

@@ -3,11 +3,11 @@ module agentcore.vendors.opencode.mcp;
 import std.json : JSONOptions, JSONValue;
 
 import agentcore.crds.enums : McpTransport;
-import agentcore.crds.mcp_server : McpServer, headerEnvName;
+import agentcore.crds.mcp_server : McpServer, headerCredentials, stdioLaunch;
 
 /// The recipe's `mcp_servers` as OpenCode's `mcp` config object: `local` for stdio
-/// (`command` is the whole argv), `remote` for http and sse. An Authorization header is
-/// a `{env:NAME}` reference OpenCode expands when it loads the config, from the pod env
+/// (`command` is the whole argv), `remote` for http and sse. A header value is a
+/// `{env:NAME}` reference OpenCode expands when it loads the config, from the pod env
 /// where the controller injects the resolved `headers_secret`, so the token never
 /// reaches disk. A server with a credential also turns OAuth discovery off: the header
 /// is its auth, and a headless run has nobody to complete a browser flow.
@@ -26,14 +26,17 @@ private JSONValue[string] entryOf(in McpServer server) @safe
 	if (server.transport == McpTransport.stdio)
 	{
 		entry["type"] = "local";
-		entry["command"] = JSONValue([server.command] ~ server.args.dup);
+		entry["command"] = JSONValue(stdioLaunch(server));
 		return entry;
 	}
 	entry["type"] = "remote";
 	entry["url"] = server.url;
-	if (server.headersSecret.length)
+	string[string] headers;
+	foreach (header; headerCredentials(server))
+		headers[header.name] = "{env:" ~ header.envVar ~ "}";
+	if (headers.length)
 	{
-		entry["headers"] = JSONValue(["Authorization": "{env:" ~ headerEnvName(server) ~ "}"]);
+		entry["headers"] = JSONValue(headers);
 		entry["oauth"] = false;
 	}
 	return entry;
@@ -64,4 +67,15 @@ version (unittest)
 @safe unittest
 {
 	opencodeMcpJson(null).should.equal("{}");
+}
+
+@safe unittest
+{
+	import agentcore.crds.mcp_server : McpHeader;
+
+	const json = parseJSON(opencodeMcpJson([
+		McpServer("tools", McpTransport.http, "", null, "https://t/mcp", "", [McpHeader("X-Api-Key", "k")]),
+	]));
+
+	json["tools"]["headers"].should.equal(parseJSON(`{"X-Api-Key": "{env:MCP_TOOLS_X_API_KEY}"}`));
 }

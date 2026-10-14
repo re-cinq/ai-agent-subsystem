@@ -115,6 +115,37 @@ spec:
                             type: string
                           headers_secret:
                             type: string
+                            description: "Deprecated: use headers. Allowlisted secret-store key sent as the Authorization header."
+                          headers:
+                            type: array
+                            description: "http/sse: headers whose values come from the secret store."
+                            items:
+                              type: object
+                              required:
+                                - name
+                                - ref
+                              properties:
+                                name:
+                                  type: string
+                                  description: "HTTP header name, e.g. X-API-Key."
+                                ref:
+                                  type: string
+                                  description: "Allowlisted secret-store key holding the header value."
+                          env:
+                            type: array
+                            description: "stdio: environment variables for the server process whose values come from the secret store."
+                            items:
+                              type: object
+                              required:
+                                - name
+                                - ref
+                              properties:
+                                name:
+                                  type: string
+                                  description: "Environment variable name to expose the secret as."
+                                ref:
+                                  type: string
+                                  description: "Allowlisted secret-store key."
                     repos:
                       type: array
                       items:
