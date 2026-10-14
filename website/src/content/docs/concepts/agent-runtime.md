@@ -304,6 +304,13 @@ strips leading slashes and refuses `..` members, so a bundle cannot write outsid
   `resources.env` entries are injected as literal env vars. The supervisor inherits this environment
   and passes it to the agent CLI; it stages nothing itself.
 
+  **Codex keys.** `codex exec` reads its key only from `CODEX_API_KEY` and ignores
+  `OPENAI_API_KEY`. Either name works in `resources.secrets` or `resources.env`: for a Codex run
+  with an `OPENAI_API_KEY` entry and no `CODEX_API_KEY` of its own (in `secrets` or `env`), the
+  controller also injects `CODEX_API_KEY` with whatever `OPENAI_API_KEY` resolves to in the pod. A
+  secret becomes a second `secretKeyRef` to the same `agent-secrets` key, so the key still never
+  reaches argv or disk; a literal `env` value is copied as is. Other vendors are unaffected.
+
   **Batch exception.** For a definition with `execution: batch` there is no run pod: the controller
   itself reads the key the `ANTHROPIC_API_KEY` entry of `resources.secrets` points at from
   `agent-secrets` and sends it to the provider's batch API. This is the one case where a provider key
