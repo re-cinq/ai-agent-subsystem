@@ -538,7 +538,8 @@ private void errorBackoff(int attempt) nothrow
 	backoff(secs);
 }
 
-private string nowRfc3339()
+/// The current UTC time as an RFC3339 timestamp.
+string nowRfc3339()
 {
 	return Clock.currTime(UTC()).toISOExtString();
 }

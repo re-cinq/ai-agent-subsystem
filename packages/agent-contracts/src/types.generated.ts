@@ -239,3 +239,36 @@ export interface Agent {
   spec?: AgentSpec;
   status?: AgentStatus;
 }
+
+export interface ModelInfo {
+  /** Model id to set as an AgentDefinition's or Agent's model. */
+  id?: string;
+  /** The vendor's human-readable name for the model. */
+  displayName?: string;
+}
+
+export interface VendorModels {
+  /** Agent CLI vendor the subsystem routes these model ids to. */
+  vendor?: string;
+  /** Provider API whose list-models endpoint was queried. */
+  provider?: string;
+  /** agent-secrets keys that were queried; an AgentDefinition can run these models when its resources.secrets maps one of them. */
+  secretRefs?: string[];
+  /** Why the last refresh could not list models with some of the keys; empty when every key answered. */
+  error?: string;
+  models?: ModelInfo[];
+}
+
+export interface ModelCatalogStatus {
+  /** RFC3339 timestamp of the last refresh. */
+  refreshedAt?: string;
+  vendors?: VendorModels[];
+}
+
+/** The models the subsystem can run, written by the controller from each vendor's list-models API. */
+export interface ModelCatalog {
+  apiVersion?: string;
+  kind?: string;
+  metadata?: ObjectMeta;
+  status?: ModelCatalogStatus;
+}

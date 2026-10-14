@@ -19,6 +19,10 @@ rules:
   - apiGroups: ["agents.re-cinq.com"]
     resources: ["stations", "agentdefinitions"]
     verbs: ["get", "list", "watch"]
+  # The ModelCatalog the controller server-side applies (an apply that creates needs create).
+  - apiGroups: ["agents.re-cinq.com"]
+    resources: ["modelcatalogs", "modelcatalogs/status"]
+    verbs: ["get", "create", "patch"]
   - apiGroups: ["batch"]
     resources: ["jobs"]
     verbs: ["create", "get", "list", "watch", "delete"]
@@ -28,8 +32,9 @@ rules:
   - apiGroups: [""]
     resources: ["pods/log"]
     verbs: ["get"]
-  # No Secret access here: batch execution, the one feature that needs the controller
-  # to read agent-secrets, is opt-in via the deploy/components/batch kustomize component.
+  # No Secret access here: batch execution and the model catalog, the features that need
+  # the controller to read agent-secrets, are opt-in via the deploy/components/batch and
+  # deploy/components/model-catalog kustomize components.
   # Leader election: replicas contend for a single Lease so only one reconciles.
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]

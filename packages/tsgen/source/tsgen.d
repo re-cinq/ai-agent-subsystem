@@ -38,6 +38,7 @@ import agentcore.crds.station : Station;
 import agentcore.crds.agent_spec : AgentSpec;
 import agentcore.crds.agent_status : AgentStatus;
 import agentcore.crds.agent : Agent;
+import agentcore.crds.model_catalog : ModelCatalog, ModelCatalogStatus, ModelInfo, VendorModels;
 
 /// The enums emitted as TypeScript string-union types, in declaration order.
 private alias AllEnums = AliasSeq!(PermissionMode, McpTransport, OutputFormat,
@@ -47,7 +48,8 @@ private alias AllEnums = AliasSeq!(PermissionMode, McpTransport, OutputFormat,
 /// TS does not require forward declaration).
 private alias AllStructs = AliasSeq!(ObjectMeta, EnvVar, SecretRef, McpHeader, McpServer, RepoRef,
 	ConversationRef, AgentResources, OutputSelector, OutputSink, WatchUpload, OutputWatch, OutputSpec,
-	BatchSpec, AgentDefinitionSpec, AgentDefinition, StationSpec, Station, InputFile, AgentSpec, AgentStatus, Agent);
+	BatchSpec, AgentDefinitionSpec, AgentDefinition, StationSpec, Station, InputFile, AgentSpec, AgentStatus, Agent,
+	ModelInfo, VendorModels, ModelCatalogStatus, ModelCatalog);
 
 /// The TypeScript type expression for D type `FT`. Mirrors `crdgen.emitType`'s
 /// dispatch: a `Json` preserve-unknown object becomes `unknown`; an enum and a

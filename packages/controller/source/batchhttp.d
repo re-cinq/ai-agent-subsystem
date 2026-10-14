@@ -27,7 +27,7 @@ HttpSink sinkPoster() nothrow
 	}, "[controller]");
 }
 
-/// The `HttpTransport` batch providers reach their vendor's API through: one HTTPS request
+/// The `HttpTransport` batch providers and the model catalog reach vendor APIs through: one HTTPS request
 /// with connect and read timeouts, trusting the system CA store.
 HttpResponse batchTransport(HttpRequest request)
 {

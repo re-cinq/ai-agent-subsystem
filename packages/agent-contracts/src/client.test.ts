@@ -10,7 +10,7 @@ import {
   type KubeTransport,
 } from "./client.js";
 import { enforce } from "./enforce.js";
-import type { Agent, AgentDefinition, Station } from "./types.generated.js";
+import type { Agent, AgentDefinition, ModelCatalog, Station } from "./types.generated.js";
 
 // A real in-memory transport: returns queued responses and records the requests
 // it saw. No mocking library — a genuine fake implementation.
@@ -69,6 +69,38 @@ describe("getAgent", () => {
     const t = new FakeTransport([{ status: 404, body: { message: "not found" } }]);
     const client = new AgentContractsClient(t);
     await expect(client.getAgent("missing")).rejects.toThrow(/kube request failed \(404\)/);
+  });
+});
+
+describe("getModelCatalog", () => {
+  it("GETs the default model catalog in the configured namespace", async () => {
+    const catalog: ModelCatalog = {
+      metadata: { name: "default" },
+      status: {
+        refreshedAt: "2026-10-14T12:00:00Z",
+        vendors: [
+          {
+            vendor: "claude",
+            provider: "anthropic",
+            secretRefs: ["anthropic-key"],
+            models: [{ id: "claude-opus-5-5", displayName: "Claude Opus 5.5" }],
+          },
+        ],
+      },
+    };
+    const t = new FakeTransport([ok(catalog)]);
+    const client = new AgentContractsClient(t, "team-ns");
+    expect(await client.getModelCatalog()).toEqual(catalog);
+    expect(t.seen[0]).toEqual({
+      method: "GET",
+      path: `/apis/${GROUP}/${VERSION}/namespaces/team-ns/modelcatalogs/default`,
+    });
+  });
+
+  it("throws on a 404 when the catalog is not enabled", async () => {
+    const t = new FakeTransport([{ status: 404, body: { message: "not found" } }]);
+    const client = new AgentContractsClient(t);
+    await expect(client.getModelCatalog()).rejects.toThrow(/kube request failed \(404\)/);
   });
 });
 

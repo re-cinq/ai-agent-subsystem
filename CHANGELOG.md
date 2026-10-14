@@ -7,6 +7,18 @@ the npm package versions.
 ## Unreleased
 
 ### Added
+- **A `ModelCatalog` resource lists the models the subsystem can run.** The controller keeps one
+  object, `default` (short name `mc`), in its namespace. It collects the `agent-secrets` keys that
+  AgentDefinitions map as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or `GEMINI_API_KEY`, calls each
+  vendor's list-models API with them, and writes `status.vendors[]`: the `vendor` CLI and `provider`,
+  the `secretRefs` queried, an `error` for keys that failed, and the `models` (`id`, `displayName`)
+  the subsystem would route to that vendor. It refreshes when a replica becomes leader and then every
+  `MODEL_CATALOG_REFRESH_SECONDS` (default 3600). The catalog is opt-in through the
+  `deploy/components/model-catalog` kustomize component, which grants the controller `get` on the
+  `agent-secrets` Secret and sets `MODEL_CATALOG_ENABLED=true`. The caller role can `get`, `list` and
+  `watch` `modelcatalogs`, and `@re-cinq/agent-contracts` adds `AgentContractsClient.getModelCatalog()` with the
+  `ModelCatalog`, `ModelCatalogStatus`, `VendorModels` and `ModelInfo` types. AgentDefinition models
+  are not checked against the catalog. New reference page: *ModelCatalog CRD*.
 - **`mcp_servers` take any number of secret-backed `headers` (http/sse) and `env` vars (stdio).**
   Each is `{name, ref}` with `ref` an `agent-secrets` key, injected as `MCP_<SERVER>_<NAME>` and
   referenced by every CLI, so servers that want `X-API-Key`, several headers, or a token in a

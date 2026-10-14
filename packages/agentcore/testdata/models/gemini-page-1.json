@@ -1,0 +1,15 @@
+{
+  "models": [
+    {
+      "name": "models/gemini-3.1-pro",
+      "displayName": "Gemini 3.1 Pro",
+      "supportedGenerationMethods": ["generateContent", "countTokens", "batchGenerateContent"]
+    },
+    {
+      "name": "models/gemini-embedding-001",
+      "displayName": "Gemini Embedding 001",
+      "supportedGenerationMethods": ["embedContent", "countTextTokens"]
+    }
+  ],
+  "nextPageToken": "Cg+next"
+}

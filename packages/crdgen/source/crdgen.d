@@ -21,6 +21,7 @@ import openapi.definitions : SchemaType;
 import agentcore.crds.schema;
 import agentcore.crds.agent : Agent;
 import agentcore.crds.agent_definition : AgentDefinition;
+import agentcore.crds.model_catalog : ModelCatalog;
 import agentcore.crds.station : Station;
 
 /// Renders an open-api `SchemaType` to its wire string (e.g. `object` -> "object").
@@ -262,9 +263,12 @@ string crdYaml(T)()
 	enum plural = pluralOf!T;
 	enum shortNames = shortNamesOf!T;
 	enum columns = printerColumnsOf!T;
+	enum hasSpec = __traits(hasMember, T, "spec");
 	enum hasStatus = __traits(hasMember, T, "status");
-	alias SpecT = typeof(T.init.spec);
-	enum specDescription = descriptionOf!SpecT;
+	static if (hasSpec)
+		enum crdDescription = descriptionOf!(typeof(T.init.spec));
+	else
+		enum crdDescription = descriptionOf!T;
 
 	string s;
 	s ~= "apiVersion: apiextensions.k8s.io/v1\n";
@@ -300,13 +304,19 @@ string crdYaml(T)()
 	s ~= "      schema:\n";
 	s ~= "        openAPIV3Schema:\n";
 	s ~= "          type: object\n";
-	static if (specDescription.length > 0)
-		s ~= "          description: " ~ yamlStr(specDescription) ~ "\n";
-	s ~= "          required:\n";
-	s ~= "            - spec\n";
+	static if (crdDescription.length > 0)
+		s ~= "          description: " ~ yamlStr(crdDescription) ~ "\n";
+	static if (hasSpec)
+	{
+		s ~= "          required:\n";
+		s ~= "            - spec\n";
+	}
 	s ~= "          properties:\n";
-	s ~= "            spec:\n";
-	s ~= emitType!SpecT(7, Deco.init);
+	static if (hasSpec)
+	{
+		s ~= "            spec:\n";
+		s ~= emitType!(typeof(T.init.spec))(7, Deco.init);
+	}
 	static if (hasStatus)
 	{
 		alias StatusT = typeof(T.init.status);
@@ -329,13 +339,13 @@ int writeStructures(string[] args)
 
 	const dir = args[1];
 	mkdirRecurse(dir);
-	static foreach (T; AliasSeq!(AgentDefinition, Station, Agent))
+	static foreach (T; AliasSeq!(AgentDefinition, Station, Agent, ModelCatalog))
 	{{
 		enum yaml = crdYaml!T();
 		write(buildPath(dir, toLower(T.init.kind) ~ ".yaml"), yaml);
 	}}
 
-	writeln("wrote agentdefinition.yaml, station.yaml, agent.yaml to ", dir);
+	writeln("wrote agentdefinition.yaml, station.yaml, agent.yaml, modelcatalog.yaml to ", dir);
 	return 0;
 }
 
@@ -398,4 +408,11 @@ unittest
 	const yaml = emitType!string(0, d);
 	yaml.canFind(`pattern: "^[a-z0-9]+$"`).should.equal(true);
 	yaml.canFind("maxLength: 253").should.equal(true);
+}
+
+unittest // ModelCatalog has no spec, so its schema neither requires nor declares one and takes its own description
+{
+	const yaml = crdYaml!ModelCatalog();
+	[yaml.canFind("- spec"), yaml.canFind("            spec:"), yaml.canFind("status: {}"),
+		yaml.canFind(`description: "The models the subsystem can run`)].should.equal([false, false, true, true]);
 }

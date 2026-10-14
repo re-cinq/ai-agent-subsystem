@@ -71,6 +71,7 @@ export default defineConfig({
 						{ label: 'AgentDefinition CRD', slug: 'reference/crd-agentdefinition' },
 						{ label: 'Station CRD', slug: 'reference/crd-station' },
 						{ label: 'Agent CRD', slug: 'reference/crd-agent' },
+						{ label: 'ModelCatalog CRD', slug: 'reference/crd-modelcatalog' },
 						{ label: 'Notification API', slug: 'reference/notification-api' },
 						{ label: 'Prompt templating', slug: 'reference/prompt-templating' },
 						{ label: 'RBAC & network', slug: 'reference/rbac-and-network' },

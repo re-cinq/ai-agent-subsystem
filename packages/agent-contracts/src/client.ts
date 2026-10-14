@@ -3,7 +3,7 @@
 // testable with an in-memory fake (no cluster, no mocks). A concrete transport
 // (fetch / @kubernetes/client-node) is supplied by the consumer (an orchestrator or UI).
 
-import type { Agent, AgentDefinition, Station, Phase } from "./types.generated.js";
+import type { Agent, AgentDefinition, ModelCatalog, Station, Phase } from "./types.generated.js";
 import { enforce, enforceHTTPSuccess } from "./enforce.js";
 
 export const GROUP = "agents.re-cinq.com";
@@ -11,6 +11,7 @@ export const VERSION = "v1alpha1";
 export const DEFAULT_NAMESPACE = "ai-agents";
 
 const FIELD_MANAGER = "agent-contracts";
+const MODEL_CATALOG_NAME = "default";
 const TERMINAL_PHASES: readonly Phase[] = ["Succeeded", "Failed"];
 
 export interface KubeRequest {
@@ -75,6 +76,15 @@ export class AgentContractsClient {
     });
     const list = enforceHTTPSuccess(res) as { items?: Agent[] };
     return list.items ?? [];
+  }
+
+  /** Read the models the subsystem can run (the controller's `default` ModelCatalog). */
+  async getModelCatalog(): Promise<ModelCatalog> {
+    const res = await this.transport.request({
+      method: "GET",
+      path: `${namespacedPath("modelcatalogs", this.namespace)}/${MODEL_CATALOG_NAME}`,
+    });
+    return enforceHTTPSuccess(res) as ModelCatalog;
   }
 
   /** Server-side apply an AgentDefinition (the UI uses this to push edited YAML). */

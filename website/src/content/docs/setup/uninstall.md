@@ -8,7 +8,7 @@ kustomization) that stood the subsystem up also tears it down, so one `kubectl d
 controller, its RBAC and NetworkPolicy, the Custom Resource Definitions, and the namespace.
 
 :::caution
-Deleting the CRDs deletes **every** `Agent`, `Station`, and `AgentDefinition` in the cluster (CRDs are
+Deleting the CRDs deletes **every** `Agent`, `Station`, `AgentDefinition`, and `ModelCatalog` in the cluster (CRDs are
 cluster-scoped, not confined to `ai-agents`), which cascades their Jobs and pods. Any run in flight is
 killed. There is no separate "drain" step — make sure nothing important is still running first.
 :::
@@ -38,7 +38,7 @@ kubectl delete -k deploy
 - **The namespace `ai-agents`** and everything in it: the `agent-controller` Deployment, the
   controller and caller RBAC, the run-pod NetworkPolicy, and any `agent-secrets` Secret you created
   out of band. Namespace termination drains the contained objects, so this can take a moment.
-- **The three CRDs** (`agents`, `stations`, `agentdefinitions` under `agents.re-cinq.com`) and, with
+- **The four CRDs** (`agents`, `stations`, `agentdefinitions`, `modelcatalogs` under `agents.re-cinq.com`) and, with
   them, all custom resources of those kinds across every namespace. Agents own their Jobs through
   owner references, so deleting an Agent garbage-collects its Job and pod; there are no finalizers to
   unstick.
