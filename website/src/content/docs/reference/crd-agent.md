@@ -29,7 +29,7 @@ its contents, so a run's inputs can be larger than etcd's per-object limit would
 | --- | --- | --- |
 | `path` | string | *Required.* Destination. A relative path resolves against `WORKSPACE_DIR` (`/workspace`); an absolute one must already be inside it. |
 | `url` | string | *Required.* `http://` or `https://` URL the file is streamed from. No other scheme is fetched. |
-| `headers_secret` | string | Optional. A key in the `agent-secrets` Secret holding a header block (`Name: value` lines) sent with the download — the same convention as a sink's or an MCP server's `headers_secret`. |
+| `headers_secret` | string | Optional. A key in the `agent-secrets` Secret holding a header block (`Name: value` lines) sent with the download — the same convention as a sink's `headers_secret`. |
 
 ```yaml
 spec:
