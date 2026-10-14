@@ -48,13 +48,17 @@ if [ -n "$glibc_targets" ] || [ "${BUILD_ONLY:-0}" = 1 ]; then
 		# archive.debian.org, bullseye's permanent home, and only bullseye-security comes
 		# from snapshot.debian.org, pinned to when it was whole — a handful of glibc and
 		# kernel-header debs, because the snapshot service resets connections under load.
-		# Both indexes are past Valid-Until, so that check is off; signatures are still
+		# archive.debian.org has since lost debs too (libgphobos1 10.2.1-6 answers 404), so
+		# the same snapshot also lists bullseye main: apt fetches a version from any source
+		# that carries it, falling back to the snapshot when the archive 404s.
+		# All indexes are past Valid-Until, so that check is off; signatures are still
 		# verified. Plain http: the image has no CA certificates.
 		"$engine" run --rm -v "$PWD:/src" -w /src -e DEBIAN_SNAPSHOT="${DEBIAN_SNAPSHOT:-20260830T000000Z}" "$builder" sh -euc '
 			export DEBIAN_FRONTEND=noninteractive
 			snap="http://snapshot.debian.org/archive"
 			printf "%s\n" \
 				"deb http://archive.debian.org/debian bullseye main" \
+				"deb $snap/debian/$DEBIAN_SNAPSHOT bullseye main" \
 				"deb $snap/debian-security/$DEBIAN_SNAPSHOT bullseye-security main" \
 				>/etc/apt/sources.list
 			rm -f /etc/apt/sources.list.d/*.list
