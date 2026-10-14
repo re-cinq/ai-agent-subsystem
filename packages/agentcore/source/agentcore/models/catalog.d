@@ -68,7 +68,7 @@ void refreshModelCatalog(ModelCatalogClient client, string ns, HttpTransport tra
 
 /// The distinct agent-secrets keys `definitions` map under a vendor's API key env name,
 /// ordered by vendor then key.
-VendorKey[] vendorKeys(const AgentDefinition[] definitions)
+VendorKey[] vendorKeys(AgentDefinition[] definitions)
 {
 	auto keys = definitions
 		.map!(definition => definition.spec.resources.secrets)
@@ -117,7 +117,7 @@ private ModelInfo[] distinctById(ModelInfo[] models)
 
 /// The ModelCatalog object to server-side apply: only the fields the controller owns, so
 /// the apply claims no metadata it does not set.
-Json catalogObject(const ModelCatalogStatus status)
+Json catalogObject(ModelCatalogStatus status)
 {
 	return Json([
 		"apiVersion": Json(ModelCatalog.init.apiVersion),
