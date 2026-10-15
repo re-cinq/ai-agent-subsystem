@@ -32,12 +32,22 @@ fi
 
 if [ "${SKIP_BUILD:-0}" != 1 ]; then
   echo ">> building supervisor stack on $builder"
+  # Linked with lld, not Rocky 9's ld.bfd: binutils 2.35 predates SHF_GNU_RETAIN, so it
+  # puts a retained thread-local in a second .tbss at the SAME address as the first, and
+  # two TLS variables share storage. Which ones depends on the build; one bad link aliased
+  # vibe's thread allocator with its HTTP client's connection proxy, so every read after
+  # the first successful POST failed. DFLAGS replaces dub's debug build-type flags, hence
+  # the -g -d-debug alongside the linker switch.
   "$engine" run --rm -v "$PWD:/src" -w /src -v "$stage:/out" "$builder" sh -euc '
     dnf install -y epel-release >/dev/null
-    dnf install -y ldc dub gcc git openssl-devel zlib-devel >/dev/null
-    for pkg in supervisor mockagent itest; do dub build :$pkg --compiler=ldc2; done
+    dnf install -y ldc dub gcc git lld openssl-devel zlib-devel >/dev/null
+    for pkg in supervisor mockagent itest; do DFLAGS="-g -d-debug --linker=lld" dub build :$pkg --compiler=ldc2; done
     cp packages/supervisor/ai-agent-supervisor packages/mockagent/ai-agent-mock packages/itest/ai-agent-itest /out/
     cp /usr/lib64/libphobos2-ldc-shared.so.* /usr/lib64/libdruntime-ldc-shared.so.* /out/
+    for bin in /out/ai-agent-*; do
+      [ "$(readelf -SW "$bin" | grep -c " \.tbss ")" -le 1 ] \
+        || { echo "$bin: split .tbss, so thread-locals alias each other" >&2; exit 1; }
+    done
   '
 fi
 chmod +x "$stage"/ai-agent-* 2>/dev/null || true
