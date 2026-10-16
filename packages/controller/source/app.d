@@ -12,11 +12,12 @@ import catalogloop : runModelCatalogLoop;
 import health : startHealthServer;
 import incluster : loadClusterConfig;
 import leaderelection : Leadership, runLeaderElection;
+import promptapi : KubePromptCluster, PromptApiConfig, startPromptApi;
 import readiness : Readiness;
 import watchpoll : ControlSettings, runControlLoop;
 
 import agentcore.batch.translate : batchProvidersOver;
-import agentcore.reconcile.reconcile_driver : BatchConfig;
+import agentcore.reconcile.reconcile_driver : BatchConfig, RealtimeConfig;
 
 import batchhttp : batchTransport, sinkPoster;
 
@@ -43,12 +44,18 @@ else
 		auto settings = ControlSettings(agentImage,
 			BatchConfig(config.batchEnabled ? batchProvidersOver((request) => batchTransport(request)) : null,
 				config.maxOutputBytes, sinkPoster()),
-			config.batchPollSeconds.seconds);
+			config.batchPollSeconds.seconds,
+			RealtimeConfig(config.realtimeEnabled ? config.realtimeSigningKey : ""));
 
 		logInfo("ai-agent-controller: namespace=%s identity=%s health=:%s agentImage=%s",
 			config.namespace, config.identity, healthPort, agentImage);
 
 		startHealthServer(healthPort, readiness);
+		// Served by every replica, leader or not: routing a prompt only reads the cluster.
+		if (config.realtimeEnabled)
+			startPromptApi(config.realtimeApiPort,
+				PromptApiConfig(config.namespace, config.realtimeApiToken, config.realtimeSigningKey),
+				new KubePromptCluster(client));
 		runTask(() nothrow {
 			runLeaderElection(client, config.namespace, config.identity, leadership, readiness);
 		});

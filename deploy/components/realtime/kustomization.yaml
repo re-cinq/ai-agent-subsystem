@@ -1,0 +1,23 @@
+# Opt-in realtime execution (AgentDefinition `execution: realtime`). The controller serves
+# the prompt API on 8082 behind the agent-controller-api Service and forwards each prompt
+# to the run pod's supervisor on 8090, which the extra NetworkPolicy admits from
+# controller pods only. Both secrets come from the agent-realtime Secret, which you
+# create before applying:
+#
+#   kubectl -n ai-agents create secret generic agent-realtime \
+#     --from-literal=api-token="$(openssl rand -hex 32)" \
+#     --from-literal=signing-key="$(openssl rand -hex 32)"
+#
+# Without this component the controller fails realtime runs with
+# "realtime execution is disabled on this controller".
+#
+# Enable it from your own kustomization:
+#   resources: [<path or URL to deploy>]
+#   components: [<path or URL to deploy/components/realtime>]
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - service.yaml
+  - networkpolicy.yaml
+patches:
+  - path: realtime-enabled-patch.yaml

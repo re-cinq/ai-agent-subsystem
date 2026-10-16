@@ -24,7 +24,26 @@ struct ClusterConfig
 	bool batchEnabled; /// whether the controller submits batch-execution Agents (opt-in)
 	bool modelCatalogEnabled; /// whether the controller publishes the ModelCatalog (opt-in)
 	size_t modelCatalogRefreshSeconds = defaultModelCatalogRefreshSeconds; /// how often the ModelCatalog is refreshed
+	string realtimeApiToken; /// the bearer prompt API callers present
+	string realtimeSigningKey; /// the key realtime run tokens are derived from
+	ushort realtimeApiPort = defaultRealtimeApiPort; /// where the prompt API listens
+
+	/// Realtime execution runs only with both secrets set (the realtime component).
+	bool realtimeEnabled() const @safe pure nothrow
+	{
+		return realtimeApiToken.length > 0 && realtimeSigningKey.length > 0;
+	}
 }
+
+/// Env settings for realtime execution: the prompt API's caller bearer, the key run tokens
+/// are derived from, and the prompt API's port, with its default.
+enum envRealtimeApiToken = "REALTIME_API_TOKEN";
+/// ditto
+enum envRealtimeSigningKey = "REALTIME_SIGNING_KEY";
+/// ditto
+enum envRealtimeApiPort = "REALTIME_API_PORT";
+/// ditto
+enum ushort defaultRealtimeApiPort = 8082;
 
 /// Env setting that opts the controller into publishing the ModelCatalog; off unless set to "true".
 enum envModelCatalogEnabled = "MODEL_CATALOG_ENABLED";
@@ -86,6 +105,10 @@ ClusterConfig loadClusterConfig()
 	config.modelCatalogRefreshSeconds = parseCount(envModelCatalogRefreshSeconds,
 		environment.get(envModelCatalogRefreshSeconds, defaultModelCatalogRefreshSeconds.to!string));
 	config.identity = environment.get("POD_NAME", environment.get("HOSTNAME", "agent-controller"));
+	config.realtimeApiToken = environment.get(envRealtimeApiToken, "");
+	config.realtimeSigningKey = environment.get(envRealtimeSigningKey, "");
+	config.realtimeApiPort = parseCount(envRealtimeApiPort,
+		environment.get(envRealtimeApiPort, defaultRealtimeApiPort.to!string)).to!ushort;
 	return config;
 }
 
@@ -153,4 +176,15 @@ unittest // BATCH_ENABLED "true" parses true, "false" false, "yes" fails naming 
 	[parseFlag(envBatchEnabled, "true"), parseFlag(envBatchEnabled, "false")].should.equal([true, false]);
 	({ parseFlag(envBatchEnabled, "yes"); }).should.throwException!Exception
 		.withMessage.equal(`BATCH_ENABLED must be "true" or "false", got: "yes"`);
+}
+
+unittest // realtime is enabled only with both the API token and the signing key
+{
+	ClusterConfig config;
+	const neither = config.realtimeEnabled;
+	config.realtimeApiToken = "api";
+	const tokenOnly = config.realtimeEnabled;
+	config.realtimeSigningKey = "key";
+
+	[neither, tokenOnly, config.realtimeEnabled].should.equal([false, false, true]);
 }

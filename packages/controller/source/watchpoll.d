@@ -15,7 +15,7 @@ import agentcore.crds.agent : Agent;
 import agentcore.kube.jsonbody : parseAgent;
 import agentcore.kube.kubeclient : NotFound;
 import agentcore.reconcile.prune : agentsToPrune;
-import agentcore.reconcile.reconcile_driver : BatchConfig, reconcileAgent, ReconcileEffect,
+import agentcore.reconcile.reconcile_driver : BatchConfig, RealtimeConfig, reconcileAgent, ReconcileEffect,
 	resourceVersionByName;
 
 import cache : AgentCache;
@@ -123,12 +123,15 @@ struct ControlSettings
 	string agentImage;
 	BatchConfig batch;
 	BatchPollClock batchPolls;
+	RealtimeConfig realtime;
 
-	this(string agentImage, BatchConfig batch = BatchConfig.init, Duration batchPollInterval = 60.seconds)
+	this(string agentImage, BatchConfig batch = BatchConfig.init, Duration batchPollInterval = 60.seconds,
+		RealtimeConfig realtime = RealtimeConfig.init)
 	{
 		this.agentImage = agentImage;
 		this.batch = batch;
 		this.batchPolls = new BatchPollClock(batchPollInterval);
+		this.realtime = realtime;
 	}
 }
 
@@ -440,7 +443,8 @@ private ReconcileEffect reconcileOne(AgentInformerClient client, string ns, Agen
 			return ReconcileEffect.init;
 		logInfo("reconcile %s (phase=%s)", agent.metadata.name, cast(string) agent.status.phase);
 		const now = nowRfc3339();
-		const effect = reconcileAgent(client, ns, agent, settings.agentImage, now, cached, settings.batch);
+		const effect = reconcileAgent(client, ns, agent, settings.agentImage, now, cached, settings.batch,
+			settings.realtime);
 		recordReconcile("success", elapsedSeconds(start));
 		recordRunEffect(agent, effect, now);
 		return effect;

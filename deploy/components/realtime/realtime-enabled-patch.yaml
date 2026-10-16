@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-controller
+  namespace: ai-agents
+spec:
+  template:
+    spec:
+      containers:
+        - name: controller
+          env:
+            - name: REALTIME_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: agent-realtime
+                  key: api-token
+            - name: REALTIME_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: agent-realtime
+                  key: signing-key
+            - name: REALTIME_API_PORT
+              value: "8082"
+          ports:
+            - name: realtime-api
+              containerPort: 8082
