@@ -133,7 +133,8 @@ names, only while its run is open.
 
 Before running the tools it **self-bootstraps prerequisites**: any executable a tool needs (`git`,
 `bash`, `curl`, `sha256sum`, `base64`) that isn't on `PATH` is installed using the package manager detected
-from the distro (`apt`/`dnf`/`apk`). The staging tools add `sh`, `curl`, and `tar` when they are
+from the distro (`apt`/`dnf`/`apk`); `curl` is installed together with `ca-certificates`, so its
+https downloads verify on a bare base image too. The staging tools add `sh`, `curl`, and `tar` when they are
 active. On a base image that already ships these, nothing is installed.
 
 Throughout, the init reports its own lifecycle (`started`, per-tool `running`, `succeeded`,

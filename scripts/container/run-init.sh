@@ -89,11 +89,6 @@ fi
 if [ "${CTEST_CODEX:-0}" = "1" ]; then
 	# Drop Test A's stub so the `command -v codex` guard lets the real install run.
 	rm -f /usr/local/bin/codex
-	# The init installs curl but not the CA bundle it needs for https (apt runs with
-	# --no-install-recommends), so a bare base image gets it here, as in Test B.
-	{ command -v apt-get >/dev/null 2>&1 && apt-get install -y --no-install-recommends ca-certificates; } >/dev/null 2>&1 || true
-	{ command -v dnf >/dev/null 2>&1 && dnf install -y ca-certificates; } >/dev/null 2>&1 || true
-	{ command -v apk >/dev/null 2>&1 && apk add --no-cache ca-certificates; } >/dev/null 2>&1 || true
 	HOME=/root AGENT_MODEL=gpt-5-codex WORKSPACE_DIR=/workspace-codex ai-agent-init
 	rc=$?
 	chk "codex install exits 0" "$([ $rc -eq 0 ] && echo 0 || echo 1)"

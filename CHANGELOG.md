@@ -113,6 +113,11 @@ the npm package versions.
   working unchanged.
 
 ### Fixed
+- **The init can download over https on a bare Debian or Ubuntu image.** When curl was
+  missing, the init installed it with `apt-get install --no-install-recommends`, which skips
+  `ca-certificates`. Every https download after that, from agent CLI installs to skills and input
+  files, then failed with `curl: (77) error setting certificate file`. The init now installs
+  `ca-certificates` with curl through apt, dnf and apk.
 - **A failed gemini-cli download fails the init.** The Gemini install step ran its commands
   inside `command -v gemini || { … }`, where bash ignores `set -e`, so only the final `chmod`
   decided its exit status: a download or extract error still reported success and left a

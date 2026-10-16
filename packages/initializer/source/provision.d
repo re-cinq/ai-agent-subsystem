@@ -1,6 +1,6 @@
 module provision;
 
-import std.algorithm.iteration : filter, map;
+import std.algorithm.iteration : filter, joiner, map;
 import std.algorithm.searching : canFind;
 import std.array : array, join;
 import std.conv : to;
@@ -30,7 +30,7 @@ import agentcore.core.log : logError;
 import agentcore.output.retry : backoffMs, RetryPolicy, shouldRetry;
 import agentcore.crds.output_sink : OutputSink;
 import agentcore.output.output : sinksFromEnv;
-import agentcore.pkgmanager.packagemanager : packageFor;
+import agentcore.pkgmanager.packagemanager : packagesFor;
 import agentcore.pkgmanager.packagemanagerselect : packageManagerByName;
 import agentcore.tools.agent_tool : AgentTool;
 import agentcore.tools.files_tool : fileHeadersEnv, parseInputFiles;
@@ -365,7 +365,7 @@ private int ensurePrerequisites(Tool[] active, const OutputSink[] sinks, in Even
 			failedReason("no-package-manager"), 2);
 
 	notify(sinks, source, LifecycleEvent(Phase.init_, Status.installing, pmName).toJson);
-	auto pkgs = missing.map!packageFor.array;
+	auto pkgs = missing.map!packagesFor.joiner.array;
 	foreach (step; packageManagerByName(pmName).installSteps(pkgs))
 	{
 		const code = runStep(step);
