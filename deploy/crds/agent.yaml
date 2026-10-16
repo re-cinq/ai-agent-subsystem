@@ -82,6 +82,9 @@ spec:
                       headers_secret:
                         type: string
                         description: "Secret key holding the header block sent with the download."
+                resumeSession:
+                  type: string
+                  description: "Session id of an earlier realtime run to continue: its saved conversation is restored and the definition's prompt is not sent."
             status:
               type: object
               properties:

@@ -31,7 +31,7 @@ import agentcore.crds.output_watch : OutputWatch;
 import agentcore.crds.watch_upload : WatchUpload;
 import agentcore.crds.input_file : InputFile;
 import agentcore.crds.output_spec : OutputSpec;
-import agentcore.crds.agent_definition_spec : AgentDefinitionSpec, BatchSpec;
+import agentcore.crds.agent_definition_spec : AgentDefinitionSpec, BatchSpec, RealtimeSpec;
 import agentcore.crds.agent_definition : AgentDefinition;
 import agentcore.crds.station_spec : StationSpec;
 import agentcore.crds.station : Station;
@@ -48,7 +48,7 @@ private alias AllEnums = AliasSeq!(PermissionMode, McpTransport, OutputFormat,
 /// TS does not require forward declaration).
 private alias AllStructs = AliasSeq!(ObjectMeta, EnvVar, SecretRef, McpHeader, McpServer, RepoRef,
 	ConversationRef, AgentResources, OutputSelector, OutputSink, WatchUpload, OutputWatch, OutputSpec,
-	BatchSpec, AgentDefinitionSpec, AgentDefinition, StationSpec, Station, InputFile, AgentSpec, AgentStatus, Agent,
+	BatchSpec, RealtimeSpec, AgentDefinitionSpec, AgentDefinition, StationSpec, Station, InputFile, AgentSpec, AgentStatus, Agent,
 	ModelInfo, VendorModels, ModelCatalogStatus, ModelCatalog);
 
 /// The TypeScript type expression for D type `FT`. Mirrors `crdgen.emitType`'s

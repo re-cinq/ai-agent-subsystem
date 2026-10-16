@@ -52,11 +52,13 @@ enum ConcurrencyPolicy : string
 	replace = "Replace",
 }
 
-/// How a definition runs: interactively as a CLI Job, or as a provider batch request.
+/// How a definition runs: interactively as a CLI Job, as a provider batch request, or
+/// as a realtime session that takes prompts over HTTP until it idles out or is closed.
 enum Execution : string
 {
 	interactive = "interactive",
 	batch = "batch",
+	realtime = "realtime",
 }
 
 /// What happens when a batch request outlives its timeout.

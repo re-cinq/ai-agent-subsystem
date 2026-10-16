@@ -3,7 +3,7 @@ module agentcore.reconcile.reconcile_driver;
 import agentcore.crds.agent : Agent;
 import agentcore.crds.agent_definition : AgentDefinition;
 import agentcore.crds.mcp_server : mcpViolation;
-import agentcore.crds.agent_definition_spec : AgentDefinitionSpec, batchViolation;
+import agentcore.crds.agent_definition_spec : AgentDefinitionSpec, batchViolation, realtimeViolation;
 import agentcore.crds.station : Station;
 import agentcore.reconcile.concurrency : effectiveMaxRuns, oldestRunningRun, stationAtCapacity;
 import agentcore.kube.jobs : jobNameFor;
@@ -76,7 +76,8 @@ struct ReconcileEffect
  * the `ReconcileEffect` so a batch pass can keep its concurrency count honest.
  */
 ReconcileEffect reconcileAgent(KubeClient client, string ns, Agent agent, string agentImage, string now,
-	const Agent[] cached, BatchConfig batchConfig = BatchConfig.init)
+	const Agent[] cached, BatchConfig batchConfig = BatchConfig.init,
+	RealtimeConfig realtimeConfig = RealtimeConfig.init)
 {
 	const phase = agent.status.phase;
 	auto run = AgentReconcile(client, ns, agent, Station.init, AgentDefinition.init, agentImage, now,
@@ -116,9 +117,21 @@ ReconcileEffect reconcileAgent(KubeClient client, string ns, Agent agent, string
 
 	return run.apply(decide(phase, refsResolved, observesJob, outcome, atCapacity,
 		run.station.spec.concurrencyPolicy,
-		runViolation(agent, run.definition.spec, batchConfig.providers !is null),
+		runViolation(agent, run.definition.spec, batchConfig.providers !is null, realtimeConfig.enabled),
 		BatchRun(run.definition.spec.execution == Execution.batch, agent.status.batchId,
 			agent.status.batchFallback, awaitingFallbackJob)));
+}
+
+/// How the controller runs realtime Agents: the key it derives each run's prompt token
+/// from. Without one, realtime execution is disabled.
+struct RealtimeConfig
+{
+	string signingKey;
+
+	bool enabled() const @safe pure nothrow
+	{
+		return signingKey.length > 0;
+	}
 }
 
 /// How the controller runs batch-executed Agents: the vendor providers it submits to, and
@@ -451,14 +464,25 @@ private bool batchCleanupDue(const Agent agent) @safe pure
 
 private enum batchDisabledReason = "batch execution is disabled on this controller";
 
-/// Why the Agent cannot run its resolved recipe, or "": the recipe's own batch violation,
-/// else, for a non-batch recipe, its invalid `resources.mcp_servers`, else a batch recipe on a controller without batch providers (`BATCH_ENABLED` unset), else
-/// per-run input files, which a batch request has no workspace to download into.
-private string runViolation(const Agent agent, const AgentDefinitionSpec recipe, bool batchEnabled) @safe
+/// Why the Agent cannot run its resolved recipe, or "": the recipe's own batch or realtime
+/// violation, else a `resumeSession` the recipe cannot honour, else a realtime recipe on a
+/// controller without a signing key, else, for a non-batch recipe, its invalid
+/// `resources.mcp_servers`, else a batch recipe on a controller without batch providers
+/// (`BATCH_ENABLED` unset), else per-run input files, which a batch request has no
+/// workspace to download into.
+private string runViolation(const Agent agent, const AgentDefinitionSpec recipe, bool batchEnabled,
+	bool realtimeEnabled) @safe
 {
-	const violation = batchViolation(recipe);
-	if (violation.length)
-		return violation;
+	import std.algorithm.searching : find;
+
+	const violations = [
+		batchViolation(recipe),
+		realtimeViolation(recipe),
+		resumeViolation(agent.spec.resumeSession, recipe),
+		recipe.execution == Execution.realtime && !realtimeEnabled ? realtimeDisabledReason : "",
+	].find!(violation => violation.length > 0);
+	if (violations.length)
+		return violations[0];
 	if (recipe.execution != Execution.batch)
 		return mcpViolation(recipe.resources.mcpServers, agentForModel(recipe.model).name);
 	if (!batchEnabled)
@@ -466,6 +490,25 @@ private string runViolation(const Agent agent, const AgentDefinitionSpec recipe,
 	if (agent.spec.files.length == 0)
 		return "";
 	return "batch execution does not support files";
+}
+
+private enum realtimeDisabledReason = "realtime execution is disabled on this controller";
+
+/// Why an Agent cannot resume `session` with `recipe`, or "" when it can (or resumes
+/// nothing): only a realtime run resumes, from the recipe's conversation source, with a
+/// vendor that keeps conversation state.
+private string resumeViolation(string session, const AgentDefinitionSpec recipe) @safe
+{
+	if (session.length == 0)
+		return "";
+	if (recipe.execution != Execution.realtime)
+		return "resumeSession requires realtime execution";
+	if (recipe.resources.conversation.source.length == 0)
+		return "resumeSession needs resources.conversation.source";
+	const vendor = agentForModel(recipe.model);
+	if (vendor.stateDir.length == 0)
+		return vendor.name ~ " cannot resume a session";
+	return "";
 }
 
 /// The agent-secrets key the `resources.secrets` entry named `env` points at, or "".
@@ -1999,4 +2042,65 @@ unittest // deleted batch Agent with the batch-cleanup finalizer on a controller
 	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:05:00Z", null);
 
 	client.agentPatches.should.equal([removeFirstFinalizer]);
+}
+
+version (unittest)
+{
+	/// The status a Pending Agent resuming `resumeSession` is patched to, on a controller
+	/// with `realtime` config, when its definition is built by `define`.
+	private Json realtimeOutcome(void delegate(ref AgentDefinitionSpec) define, string resumeSession,
+		RealtimeConfig realtime)
+	{
+		auto client = new FakeKubeClient;
+		client.station.metadata.name = "stn";
+		client.station.spec.agentDefRef = "def";
+		client.station.spec.template_ = parseJsonString(`{"spec":{"containers":[{"name":"agent"}]}}`);
+		client.definition.spec.model = "claude-sonnet-4-6";
+		client.definition.spec.prompt = "Fix it";
+		define(client.definition.spec);
+		Agent agent;
+		agent.metadata.name = "run-rt";
+		agent.spec.stationRef = "stn";
+		agent.spec.resumeSession = resumeSession;
+		agent.status.phase = Phase.pending;
+
+		reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null, BatchConfig.init, realtime);
+		return client.statusPatches[0]["status"];
+	}
+
+	private void realtimeFrom(ref AgentDefinitionSpec spec)
+	{
+		spec.execution = Execution.realtime;
+		spec.resources.conversation.source = "https://conv.example";
+	}
+}
+
+unittest // pending realtime agent on a controller without a signing key goes Failed "realtime execution is disabled on this controller"
+{
+	realtimeOutcome((ref s) { realtimeFrom(s); }, "", RealtimeConfig.init)["failureReason"].get!string
+		.should.equal("realtime execution is disabled on this controller");
+}
+
+unittest // pending agent with resumeSession on an interactive definition goes Failed "resumeSession requires realtime execution"
+{
+	realtimeOutcome((ref s) {}, "sess-1", RealtimeConfig("key"))["failureReason"].get!string
+		.should.equal("resumeSession requires realtime execution");
+}
+
+unittest // pending realtime agent resuming without a conversation source goes Failed "resumeSession needs resources.conversation.source"
+{
+	realtimeOutcome((ref s) { s.execution = Execution.realtime; }, "sess-1", RealtimeConfig("key"))["failureReason"]
+		.get!string.should.equal("resumeSession needs resources.conversation.source");
+}
+
+unittest // pending realtime opencode agent resuming a session goes Failed "opencode cannot resume a session"
+{
+	realtimeOutcome((ref s) { realtimeFrom(s); s.model = "opencode/anthropic/claude-sonnet-4"; }, "sess-1",
+		RealtimeConfig("key"))["failureReason"].get!string.should.equal("opencode cannot resume a session");
+}
+
+unittest // pending realtime claude agent resuming a session on an enabled controller goes Running
+{
+	realtimeOutcome((ref s) { realtimeFrom(s); }, "sess-1", RealtimeConfig("key"))["phase"].get!string
+		.should.equal("Running");
 }

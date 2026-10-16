@@ -65,6 +65,7 @@ spec:
                   enum:
                     - "interactive"
                     - "batch"
+                    - "realtime"
                 batch:
                   type: object
                   properties:
@@ -84,6 +85,14 @@ spec:
                       default: 16000
                       minimum: 1
                       description: "Output token ceiling (max_tokens) for the batch request."
+                realtime:
+                  type: object
+                  properties:
+                    idleTimeoutMinutes:
+                      type: integer
+                      default: 15
+                      minimum: 1
+                      description: "Minutes without a prompt or a running turn after which the session ends and its conversation is saved."
                 resources:
                   type: object
                   properties:
