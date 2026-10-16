@@ -95,9 +95,13 @@ int supervise(string[] agentArgv)
 		return 1;
 	}
 
-	ProcessPipes pipes;
+	string sessionId;
+	AgentProcess agent;
 	try
-		pipes = pipeProcess(agentArgv, Redirect.stdout | Redirect.stderr);
+		agent = new AgentProcess(agentArgv, false, provider, (string payload) nothrow {
+			emit(sinks, source, payload, selected(selectors, provider, payload));
+			announceSession(sinks, source, provider, payload, sessionId);
+		});
 	catch (Exception e)
 	{
 		logError("[supervisor] failed to start agent: " ~ e.msg);
@@ -105,39 +109,57 @@ int supervise(string[] agentArgv)
 		return 1;
 	}
 
-	g_childPid = pipes.process.pid;
 	emit(sinks, source, LifecycleEvent(Phase.agent, Status.started).toJson);
 
-	// The agent's terminal event, observed on stdout. Some agent CLIs emit this
-	// final event and then fail to exit (a lingering worker keeps the process
-	// alive), so the terminal event — not process exit — is the authoritative
-	// "work done" signal.
-	bool terminalSeen = false;
-	bool runOk = false;
-	bool readerDone = false; // the reader drained stdout to EOF (no output left to flush)
-	string sessionId; // the harness session id, once its stream announced one
+	const code = awaitOutcome(grace, deadline, agent);
 
-	// Stream stdout in its own task so the agent's *process exit* ends the run,
-	// not stdout EOF: a stray child that inherits and holds stdout open would
-	// otherwise keep the pipe from ever reaching EOF and hang the loop.
-	runTask(() nothrow {
-		try
-		{
-			while (!pipes.stdout.empty)
+	// Let the reader flush output buffered right up to the terminal event before we
+	// hard-exit. Wait for it to drain to EOF rather than a blind fixed sleep (which
+	// could cut off a large final burst), but cap the wait: a stray grandchild can hold
+	// stdout open forever, and pod teardown must not block on that (#58).
+	cast(void) waitFlag(agent.readerDone, drainDeadline);
+
+	finishRun(sinks, source, code, environment.get(envConversationPin, ""), sessionId);
+	assert(0, "unreachable");
+}
+
+/// One spawned agent process: its stdout streamed line by line to `onLine`, its stderr
+/// forwarded to the log, and its exit reaped — each in its own task, so the caller's wait
+/// loop reacts to whichever comes first. Spawning throws when the process cannot start.
+final class AgentProcess
+{
+	ProcessPipes pipes;
+	/// The agent's terminal event, observed on stdout. Some agent CLIs emit this final
+	/// event and then fail to exit (a lingering worker keeps the process alive), so the
+	/// terminal event — not process exit — is the authoritative "work done" signal.
+	bool terminalSeen;
+	bool runOk;
+	bool readerDone; /// the reader drained stdout to EOF (no output left to flush)
+	bool processExited;
+	int processCode = 1;
+
+	this(string[] argv, bool withStdin, string provider, void delegate(string) nothrow onLine)
+	{
+		const redirect = withStdin ? Redirect.stdout | Redirect.stderr | Redirect.stdin
+			: Redirect.stdout | Redirect.stderr;
+		pipes = pipeProcess(argv, redirect);
+		g_childPid = pipes.process.pid;
+
+		// Stream stdout in its own task so the agent's *process exit* ends the run,
+		// not stdout EOF: a stray child that inherits and holds stdout open would
+		// otherwise keep the pipe from ever reaching EOF and hang the loop.
+		runTask(() nothrow {
+			try
 			{
-				auto raw = pipes.stdout.readLine(maxEventLineBytes, "\n");
-				if (raw.length == 0)
-					continue;
-				const payload = cast(string) raw.idup;
-				emit(sinks, source, payload, selected(selectors, provider, payload));
-				const announced = sessionIdFor(provider, payload);
-				if (announced.length && announced != sessionId)
+				while (!pipes.stdout.empty)
 				{
-					sessionId = announced;
-					emit(sinks, source, sessionEvent(sessionId));
-				}
-				if (!terminalSeen)
-				{
+					auto raw = pipes.stdout.readLine(maxEventLineBytes, "\n");
+					if (raw.length == 0)
+						continue;
+					const payload = cast(string) raw.idup;
+					onLine(payload);
+					if (terminalSeen)
+						continue;
 					const terminal = terminalFor(provider, payload);
 					if (terminal.reached)
 					{
@@ -146,55 +168,62 @@ int supervise(string[] agentArgv)
 					}
 				}
 			}
-		}
-		catch (Exception)
-		{
-			// stdout closed (normal EOF) or the reader was interrupted on exit.
-		}
-		readerDone = true;
-	});
-
-	// Stream stderr too, tagged. Left inherited it lands raw in the pod log, interleaved
-	// with the JSONL event stream the controller caps into status.output — where a
-	// consumer parsing events cannot tell a crash trace from a malformed event. It is
-	// also the only place an agent CLI prints auth failures, rate limits and stack
-	// traces, so a failed run had an exit code and nothing to read (#47).
-	runTask(() nothrow {
-		try
-		{
-			while (!pipes.stderr.empty)
+			catch (Exception)
 			{
-				auto raw = pipes.stderr.readLine(maxEventLineBytes, "\n");
-				if (raw.length)
-					logError(agentStderrTag ~ cast(string) raw.idup);
+				// stdout closed (normal EOF) or the reader was interrupted on exit.
 			}
-		}
-		catch (Exception)
-		{
-			// stderr closed (normal EOF) or the reader was interrupted on exit.
-		}
-	});
+			readerDone = true;
+		});
 
-	// Reap the agent in its own task so the wait loop can react to the terminal
-	// event without blocking on a process that may never exit on its own.
-	int processCode = 1;
-	bool processExited = false;
-	runTask(() nothrow {
-		try
-			processCode = pipes.process.wait();
-		catch (Exception)
-			processCode = 1;
-		processExited = true;
-	});
+		// Stream stderr too, tagged. Left inherited it lands raw in the pod log, interleaved
+		// with the JSONL event stream the controller caps into status.output — where a
+		// consumer parsing events cannot tell a crash trace from a malformed event. It is
+		// also the only place an agent CLI prints auth failures, rate limits and stack
+		// traces, so a failed run had an exit code and nothing to read (#47).
+		runTask(() nothrow {
+			try
+			{
+				while (!pipes.stderr.empty)
+				{
+					auto raw = pipes.stderr.readLine(maxEventLineBytes, "\n");
+					if (raw.length)
+						logError(agentStderrTag ~ cast(string) raw.idup);
+				}
+			}
+			catch (Exception)
+			{
+				// stderr closed (normal EOF) or the reader was interrupted on exit.
+			}
+		});
 
-	const code = awaitOutcome(grace, deadline, processExited, processCode, terminalSeen, runOk);
+		// Reap the agent in its own task so the wait loop can react to the terminal
+		// event without blocking on a process that may never exit on its own.
+		runTask(() nothrow {
+			try
+				processCode = pipes.process.wait();
+			catch (Exception)
+				processCode = 1;
+			processExited = true;
+		});
+	}
+}
 
-	// Let the reader flush output buffered right up to the terminal event before we
-	// hard-exit. Wait for it to drain to EOF rather than a blind fixed sleep (which
-	// could cut off a large final burst), but cap the wait: a stray grandchild can hold
-	// stdout open forever, and pod teardown must not block on that (#58).
-	cast(void) waitFlag(readerDone, drainDeadline);
+/// Raise a session event when `payload` announces a session id other than `sessionId`,
+/// and remember it.
+void announceSession(const OutputSink[] sinks, in EventSource source, string provider, string payload,
+	ref string sessionId) nothrow
+{
+	const announced = sessionIdFor(provider, payload);
+	if (announced.length == 0 || announced == sessionId)
+		return;
+	sessionId = announced;
+	emit(sinks, source, sessionEvent(sessionId));
+}
 
+/// End the run with exit `code`: raise its declared artifacts, save its conversation as
+/// `pin`, repeat its session id, raise the terminal event, then hard-exit.
+void finishRun(const OutputSink[] sinks, in EventSource source, int code, string pin, string sessionId)
+{
 	// Raise the recipe's declared artifacts BEFORE the terminal event: a consumer that
 	// treats agent/succeeded|failed as end-of-stream must still receive them. The agent
 	// has exited and the workspace volume is still mounted, so this is the only point
@@ -203,7 +232,7 @@ int supervise(string[] agentArgv)
 	// Save this run's conversation so a later round can continue it. Before the
 	// terminal event for the same reason as the artifacts: a consumer that stops
 	// there must not miss it, and the state dir only exists while this pod does.
-	saveConversation();
+	saveConversation(pin);
 	// Repeat the session id right before the terminal event: the controller keeps only
 	// the tail of the pod log, and reads status.sessionId from it.
 	if (sessionId.length)
@@ -280,12 +309,11 @@ unittest
 /// Silent no-op unless the recipe declared a source, a pin, and the vendor reports a
 /// state dir. Best-effort throughout: a failed save costs the NEXT run its continuity,
 /// never this one its result.
-private void saveConversation() nothrow
+private void saveConversation(string pin) nothrow
 {
 	try
 	{
 		const src = environment.get(envConversationSource, "");
-		const pin = environment.get(envConversationPin, "");
 		const dir = agentForModel(environment.get(envModel, "")).stateDir;
 
 		if (src.length == 0 || pin.length == 0 || dir.length == 0)
@@ -315,34 +343,33 @@ private void saveConversation() nothrow
 /// SIGKILL force it down so the pod can terminate, and the code reflects the agent's
 /// own success/failure rather than the signal that killed it. An agent that does
 /// neither is forced down at `deadline` so the caller can still report a terminal event.
-private int awaitOutcome(Duration grace, Duration deadline, ref bool processExited,
-	ref int processCode, ref bool terminalSeen, ref bool runOk)
+private int awaitOutcome(Duration grace, Duration deadline, AgentProcess agent)
 {
 	// Bounded by the run deadline: with neither an exit nor a terminal event this would
 	// otherwise spin until the kubelet killed the pod at the Job's activeDeadlineSeconds,
 	// taking the agentExit event with it and leaving downstream with no terminal at all.
-	if (!waitOutcome(deadline, processExited, terminalSeen))
+	if (!waitOutcome(deadline, agent.processExited, agent.terminalSeen))
 	{
 		logError("[supervisor] run deadline expired with no terminal event; forcing the agent down");
-		forceDown(grace, processExited);
+		forceDown(grace, agent.processExited);
 		return deadlineExitCode;
 	}
 
 	// The process exited on its own (the normal path, and the mock/Codex path):
 	// its real exit code is authoritative.
-	if (processExited)
-		return reportedExitCode(true, processCode, runOk);
+	if (agent.processExited)
+		return reportedExitCode(true, agent.processCode, agent.runOk);
 
 	// The agent signalled it is done but the process is still up. Give it the grace
 	// window to exit cleanly first — if it does, that exit code is still its own.
-	if (waitFlag(processExited, grace))
-		return reportedExitCode(true, processCode, runOk);
+	if (waitFlag(agent.processExited, grace))
+		return reportedExitCode(true, agent.processCode, agent.runOk);
 
 	// It is lingering. Force it down so the pod can terminate. Any exit code now
 	// reflects the signal we sent, not the agent's work, so the terminal event's
 	// success/failure is authoritative.
-	forceDown(grace, processExited);
-	return reportedExitCode(false, processCode, runOk);
+	forceDown(grace, agent.processExited);
+	return reportedExitCode(false, agent.processCode, agent.runOk);
 }
 
 /// Escalate SIGTERM -> SIGKILL until the agent is gone, allowing `grace` at each step.
