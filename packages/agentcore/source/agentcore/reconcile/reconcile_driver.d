@@ -14,6 +14,7 @@ import agentcore.batch.translate : batchCliEvents;
 import agentcore.core.env : defaultMaxOutputBytes;
 import agentcore.core.log : logError;
 import agentcore.kube.outputcap : capOutput;
+import agentcore.output.session : lastSessionId;
 import std.array : join;
 import agentcore.core.prompt : renderPrompt;
 import agentcore.core.vendor : vendorOf;
@@ -521,6 +522,7 @@ private void enrichFromPod(KubeClient client, string ns, string jobName, ref Job
 		const pod = client.podResult(ns, podName);
 		outcome.exitCode = coherentExitCode(outcome.state, pod.exitCode);
 		outcome.output = pod.log;
+		outcome.sessionId = lastSessionId(pod.log);
 	}
 	catch (Exception)
 	{
@@ -950,6 +952,25 @@ unittest
 	client.deletedAgents.should.equal(["old-success"]);
 	// The pruning delete carries the Agent's resourceVersion as a precondition.
 	client.deletedVersions.should.equal(["rv-old-success"]);
+}
+
+unittest // a finished run records the last session id its pod log announced as status.sessionId
+{
+	auto client = new FakeKubeClient;
+	client.outcome = JobOutcome(JobState.succeeded);
+	client.podNameValue = "agent-job-run-4-abc";
+	client.podResultValue = PodResult(0, `{"source":{},"event":{"kind":"session","id":"sess-9"}}`);
+	client.station.metadata.name = "stn";
+
+	Agent agent;
+	agent.metadata.name = "run-4";
+	agent.spec.stationRef = "stn";
+	agent.status.phase = Phase.running;
+	agent.status.jobName = "agent-job-run-4";
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", []);
+
+	client.statusPatches[0]["status"]["sessionId"].get!string.should.equal("sess-9");
 }
 
 unittest

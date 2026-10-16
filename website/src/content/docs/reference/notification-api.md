@@ -55,6 +55,7 @@ Empty ids are omitted from `source`. A line that is not valid JSON is wrapped as
 The inner `event` is one of:
 
 - a **lifecycle event** — owned by the subsystem, tagged `"kind": "lifecycle"` (below).
+- a **session event** — owned by the subsystem, tagged `"kind": "session"` (below).
 - a **tool-native `stream-json` line** — the agent tool's output, passed through verbatim (below).
 
 ## Lifecycle events
@@ -85,6 +86,19 @@ Empty optional fields are omitted. Examples:
 ```
 
 A run that reaches the agent phase emits, at minimum, an `agent`/`started` at launch and an `agent`/`succeeded` or `agent`/`failed` (carrying `exitCode`) when it ends — so a hook can branch on the outcome without parsing logs.
+
+## Session events
+
+The supervisor raises a session event when the agent's stream announces its session id, and repeats
+it right before the final `agent` lifecycle event:
+
+```json
+{ "kind": "session", "id": "0f8c2a4e-5b7d-4c1e-9a3f-2d6b8e1c7a90" }
+```
+
+The id comes from Claude's `system`/`init` `session_id`, Codex's `thread.started` `thread_id`, or
+Gemini's `init` `session_id`. opencode and `exec` runs announce none. The controller records the last
+one as the Agent's `status.sessionId`.
 
 ## File events
 
@@ -241,6 +255,7 @@ A codex stream starts with `thread.started` and ends with `turn.completed` when 
 | lifecycle | `kind`, `phase`, `status` | string | yes |
 | lifecycle | `tool`, `reason` | string | no |
 | lifecycle | `exitCode` | number | no |
+| session | `kind`, `id` | string | yes |
 
 `apiKeySource` is `"none"` when the CLI ran on a subscription and anything else, such as `"ANTHROPIC_API_KEY"`, when it ran on an API key; a Claude batch run always reports `"ANTHROPIC_API_KEY"`. Nothing in Claude `assistant` events is part of the contract. A run ends, for a consumer, on a lifecycle event with `status: "failed"` in any phase, or with `phase: "agent"` and `status: "succeeded"`. Of the envelope, only the presence of `source` and `event` is part of the contract.
 

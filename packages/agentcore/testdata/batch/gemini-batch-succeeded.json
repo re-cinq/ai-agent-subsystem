@@ -1,1 +1,103 @@
-{"name":"batches/8tq3kz0w6x2v5p9r1m4n7b","metadata":{"@type":"type.googleapis.com/google.ai.generativelanguage.v1main.GenerateContentBatch","model":"models/gemini-3.1-flash-lite","displayName":"record-fixtures","createTime":"2026-10-14T17:45:10.402315Z","endTime":"2026-10-14T17:47:31.887104Z","updateTime":"2026-10-14T17:47:31.887104Z","batchStats":{"requestCount":"1","successfulRequestCount":"1"},"state":"BATCH_STATE_SUCCEEDED","name":"batches/8tq3kz0w6x2v5p9r1m4n7b"},"done":true,"response":{"@type":"type.googleapis.com/google.ai.generativelanguage.v1main.GenerateContentBatchOutput","inlinedResponses":{"inlinedResponses":[{"response":{"candidates":[{"content":{"parts":[{"text":"ok"}],"role":"model"},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":8,"candidatesTokenCount":1,"totalTokenCount":9,"promptTokensDetails":[{"modality":"TEXT","tokenCount":8}]},"modelVersion":"gemini-3.1-flash-lite","responseId":"Xw7uaLWnLJ6r1dkPqZ2X0Ak"},"metadata":{"key":"record-fixtures"}}]}}}
+{
+  "name": "batches/5n8j3agfp4jfmr55ex23hh503o4vvkvk7kel",
+  "metadata": {
+    "@type": "type.googleapis.com/google.ai.generativelanguage.v1main.GenerateContentBatch",
+    "model": "models/gemini-3.1-flash-lite",
+    "displayName": "record-fixtures",
+    "output": {
+      "inlinedResponses": {
+        "inlinedResponses": [
+          {
+            "response": {
+              "candidates": [
+                {
+                  "content": {
+                    "parts": [
+                      {
+                        "text": "ok",
+                        "thoughtSignature": "EnMKcQFpFH0T9OG0eYfftgzeZG3BJw1RZGQjHT37hjK0I82XyBBGF7B/O2hwdEK5mrxKkPnajrWBT9QrutG74SI5Rp7XBIF8bBj/MjSiMeQ+hofcXPag96JaT6uJlzMJ2uoczwBPyJLaE6qqQPqaPWP62zNp"
+                      }
+                    ],
+                    "role": "model"
+                  },
+                  "finishReason": "STOP",
+                  "index": 0
+                }
+              ],
+              "usageMetadata": {
+                "promptTokenCount": 8,
+                "candidatesTokenCount": 1,
+                "totalTokenCount": 9,
+                "promptTokensDetails": [
+                  {
+                    "modality": "TEXT",
+                    "tokenCount": 8
+                  }
+                ],
+                "serviceTier": "standard"
+              },
+              "modelVersion": "gemini-3.1-flash-lite",
+              "responseId": "YejRapG5IciBqtsP38i7wAk"
+            },
+            "metadata": {
+              "key": "record-fixtures"
+            }
+          }
+        ]
+      }
+    },
+    "createTime": "2026-10-16T09:01:18.715498005Z",
+    "endTime": "2026-10-16T09:03:40.157207887Z",
+    "updateTime": "2026-10-16T09:03:40.157207937Z",
+    "batchStats": {
+      "requestCount": "1",
+      "successfulRequestCount": "1"
+    },
+    "state": "BATCH_STATE_SUCCEEDED",
+    "name": "batches/5n8j3agfp4jfmr55ex23hh503o4vvkvk7kel"
+  },
+  "done": true,
+  "response": {
+    "@type": "type.googleapis.com/google.ai.generativelanguage.v1main.GenerateContentBatchOutput",
+    "inlinedResponses": {
+      "inlinedResponses": [
+        {
+          "response": {
+            "candidates": [
+              {
+                "content": {
+                  "parts": [
+                    {
+                      "text": "ok",
+                      "thoughtSignature": "EnMKcQFpFH0T9OG0eYfftgzeZG3BJw1RZGQjHT37hjK0I82XyBBGF7B/O2hwdEK5mrxKkPnajrWBT9QrutG74SI5Rp7XBIF8bBj/MjSiMeQ+hofcXPag96JaT6uJlzMJ2uoczwBPyJLaE6qqQPqaPWP62zNp"
+                    }
+                  ],
+                  "role": "model"
+                },
+                "finishReason": "STOP",
+                "index": 0
+              }
+            ],
+            "usageMetadata": {
+              "promptTokenCount": 8,
+              "candidatesTokenCount": 1,
+              "totalTokenCount": 9,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 8
+                }
+              ],
+              "serviceTier": "standard"
+            },
+            "modelVersion": "gemini-3.1-flash-lite",
+            "responseId": "YejRapG5IciBqtsP38i7wAk"
+          },
+          "metadata": {
+            "key": "record-fixtures"
+          }
+        }
+      ]
+    }
+  }
+}

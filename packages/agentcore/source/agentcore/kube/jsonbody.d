@@ -49,6 +49,8 @@ Json statusPatch(Decision decision, string jobName, string timestamp, string res
 		status["output"] = decision.output;
 		if (decision.failureReason.length)
 			status["failureReason"] = decision.failureReason;
+		if (decision.sessionId.length)
+			status["sessionId"] = decision.sessionId;
 		status["completedAt"] = timestamp;
 		break;
 	case ActionKind.none:
@@ -317,6 +319,17 @@ unittest
 	bad["status"]["phase"].get!string.should.equal("Failed");
 	bad["status"]["failureReason"].get!string.should.equal("boom");
 	bad["status"]["exitCode"].get!long.should.equal(1);
+}
+
+unittest // a completed run carries its session id, and one without a session omits the field
+{
+	auto withSession = statusPatch(Decision(ActionKind.complete, Phase.succeeded, 0, "", "out", "sess-1"),
+		"agent-job-x", "2026-06-22T13:00:00Z");
+	withSession["status"]["sessionId"].get!string.should.equal("sess-1");
+
+	auto without = statusPatch(Decision(ActionKind.complete, Phase.succeeded, 0, "", "out"),
+		"agent-job-x", "2026-06-22T13:00:00Z");
+	(("sessionId" in without["status"]) is null).should.equal(true);
 }
 
 unittest

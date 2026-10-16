@@ -13,6 +13,7 @@ module app;
 //   MOCK_STDERR_LINES how many times to write it (default 1). Enough of them overflow
 //               the stderr pipe buffer, which blocks the supervisor's write unless the
 //               reader drains stderr concurrently with stdout
+//   MOCK_SESSION a session id announced first, as Claude's `system/init` event does
 //   MOCK_MODE   "emit" (default) | "signal" | "crash" | "orphan" | "linger" | "wedge"
 //                 signal: emit `{"started":1}`, wait for SIGTERM/SIGINT, then
 //                         emit `{"signal":N}` and exit MOCK_EXIT
@@ -75,6 +76,10 @@ int main()
 			stderr.writeln(errLine);
 		stderr.flush();
 	}
+
+	const session = environment.get("MOCK_SESSION", "");
+	if (session.length)
+		emit(`{"type":"system","subtype":"init","session_id":"` ~ session ~ `"}`);
 
 	foreach (i; 0 .. lines)
 		emit(`{"i":` ~ i.to!string ~ `}`);

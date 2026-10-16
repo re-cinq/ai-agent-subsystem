@@ -7,6 +7,12 @@ the npm package versions.
 ## Unreleased
 
 ### Added
+- **Runs report their agent session id.** The supervisor raises a `{"kind":"session","id":…}` event
+  when the agent's stream announces its session (Claude `system`/`init`, Codex `thread.started`,
+  Gemini `init`), and again right before the final `agent` lifecycle event. The controller records
+  the last one as `status.sessionId` when the run ends. `@re-cinq/agent-contracts` adds
+  `AgentStatus.sessionId`.
+
 - **A `ModelCatalog` resource lists the models the subsystem can run.** The controller keeps one
   object, `default` (short name `mc`), in its namespace. It collects the `agent-secrets` keys that
   AgentDefinitions map as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or `GEMINI_API_KEY`, calls each

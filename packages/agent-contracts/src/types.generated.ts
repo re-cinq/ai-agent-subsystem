@@ -222,6 +222,8 @@ export interface AgentStatus {
   output?: string;
   failureReason?: string;
   prUrl?: string;
+  /** Harness session id of this run; pass it as spec.resumeSession to continue the conversation. */
+  sessionId?: string;
   /** Provider batch id while a batch-executed run is in flight. */
   batchId?: string;
   /** Provider the batch was submitted to. */
