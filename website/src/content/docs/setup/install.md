@@ -103,6 +103,12 @@ kubectl apply -k .
 
 From a source checkout, list `deploy` and `deploy/components/batch` as local paths instead.
 
+## Enable realtime sessions (optional)
+
+[Realtime sessions](../tasks/realtime-sessions.md) are off by default. To enable them, create the
+`agent-realtime` Secret and add the `components/realtime` component; the
+[guide](../tasks/realtime-sessions.md#enable-realtime-on-the-controller) has both steps.
+
 ## Enable the model catalog (optional)
 
 The [ModelCatalog](../reference/crd-modelcatalog.md) lists the models the subsystem can run with the

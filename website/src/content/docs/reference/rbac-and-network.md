@@ -52,6 +52,15 @@ components:
   - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/model-catalog?ref=v0.12.0
 ```
 
+### Realtime component (opt-in)
+
+[Realtime sessions](../tasks/realtime-sessions.md) need no extra RBAC. The
+`deploy/components/realtime` component sets `REALTIME_API_TOKEN` and `REALTIME_SIGNING_KEY` on the
+controller from the `agent-realtime` Secret (by `secretKeyRef`, so the controller still reads no
+Secret itself), opens the [prompt API](./prompt-api.md) on port 8082 behind the
+`agent-controller-api` Service, and adds the `agent-job-realtime-ingress` NetworkPolicy described
+[below](#network-policy-for-run-pods).
+
 ## Caller role
 
 A separate, narrower role lets other in-cluster apps launch and inspect runs **without** touching
@@ -74,6 +83,11 @@ Run pods get an **egress-only** NetworkPolicy. Ingress is denied; egress is limi
 - **HTTPS to the public internet** (model provider, source forges, registries), **excluding** RFC1918
   private ranges and link-local `169.254.0.0/16` — so the agent can't reach cluster-internal services
   (SSRF) or steal credentials from the cloud metadata endpoint `169.254.169.254`.
+
+With the realtime component, a second policy, `agent-job-realtime-ingress`, admits ingress to run pods
+labelled `agents.re-cinq.com/execution: realtime` from controller pods only, on TCP 8090, where the
+supervisor takes prompts. Policies add up, so every other ingress stays denied. Where the CNI does not
+enforce NetworkPolicy, the supervisor still refuses any request without the run's own token.
 
 The policy selects run pods by the `agents.re-cinq.com/component: job` label the
 controller stamps on every run pod. It also adds `agents.re-cinq.com/agent` and

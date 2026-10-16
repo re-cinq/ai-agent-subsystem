@@ -102,6 +102,20 @@ finalizer so the delete goes through. Failed cleanups are retried and counted in
 `status.batchCleanupAttempts`; after 5 the finalizer is removed anyway and the provider object is left
 behind; each failed attempt also increments `controller_batch_cleanup_failures_total`. Finalizer changes are JSON patches that touch only this one entry of `metadata.finalizers`.
 
+## Realtime runs
+
+An Agent whose AgentDefinition sets `execution: realtime` goes through the same phases and gets a Job
+like an interactive run. The controller fails it at Pending with
+`realtime execution is disabled on this controller` unless it runs with the realtime component. The
+Job's supervisor serves prompts on port 8090 and accepts only the run's own token, which the
+controller derives from the Agent's uid. The pod carries the `agents.re-cinq.com/execution: realtime`
+label. With `spec.resumeSession` set, the Job restores that conversation and sends no initial prompt.
+
+While the Agent is `Running`, the controller's [prompt API](../reference/prompt-api.md) forwards
+prompts and closes to the pod and patches `status.sessionId` when a prompt reveals a new one. The Job
+completes when the session ends, and the Agent goes terminal as any run does, with `status.sessionId`
+read from the pod log. See [realtime sessions](../tasks/realtime-sessions.md).
+
 ## Launch sequence
 
 ```mermaid

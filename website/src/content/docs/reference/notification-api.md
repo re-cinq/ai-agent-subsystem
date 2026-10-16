@@ -102,7 +102,7 @@ one as the Agent's `status.sessionId`.
 
 ## Turn events
 
-A [realtime session](./crd-agentdefinition.md#specrealtime) raises a turn event when each prompt starts and when it ends:
+A [realtime session](../tasks/realtime-sessions.md) raises a turn event when each prompt starts and when it ends:
 
 ```json
 { "kind": "turn", "turn": 1, "status": "started" }

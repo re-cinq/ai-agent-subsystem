@@ -178,6 +178,24 @@ The supervisor is the Pod's entrypoint (PID 1). It:
 
 It runs on vibe's event loop and uses vibe's HTTP client for http sinks.
 
+### Realtime mode
+
+For a [realtime session](../tasks/realtime-sessions.md) the controller sets `AGENT_REALTIME_STYLE`,
+and the supervisor runs a session instead of a single run:
+
+- It serves `POST /v1/prompt` and `POST /v1/close` on port 8090. It accepts only the run's token
+  (`AGENT_REALTIME_TOKEN`), which it removes from its environment before starting the agent, so the
+  agent cannot prompt its own session.
+- It runs prompts one turn at a time, in arrival order, starting with `AGENT_REALTIME_PROMPT` when it is
+  set. With style `stdin` (Claude) one long-lived process gets each prompt as a `stream-json` line on
+  stdin, and each `result` ends a turn. With style `turn` each prompt spawns its own process, and once
+  a session id is known the supervisor uses `AGENT_REALTIME_NEXT_ARGV`, which resumes it.
+- It raises a [turn event](../reference/notification-api.md#turn-events) when a turn starts and ends,
+  and a [session event](../reference/notification-api.md#session-events) when the session id is known.
+- It ends the session on a close (once queued turns ran), after `AGENT_REALTIME_IDLE_MS` with no turn,
+  or on `SIGTERM`, which in this mode it handles itself instead of forwarding. It then saves the
+  conversation under the session id and exits 0. The run deadline still applies and exits `124`.
+
 ## Pluggable agents
 
 The agent CLI is **not hardcoded**. `agentcore.agent.Agent` is a small interface (`name()` and
