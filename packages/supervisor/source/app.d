@@ -4,7 +4,11 @@ import std.algorithm.searching : countUntil;
 
 import vibe.core.core : runEventLoop, runTask, exitEventLoop;
 
+import std.process : environment;
+
+import agentcore.core.env : envRealtimeStyle;
 import agentcore.core.log : logError;
+import realtime : superviseRealtime;
 import supervise : supervise, installSignalForwarding;
 
 private __gshared int g_exitCode = 1;
@@ -30,7 +34,8 @@ int main(string[] args)
 
 	runTask(() nothrow {
 		try
-			g_exitCode = supervise(agentArgv);
+			g_exitCode = environment.get(envRealtimeStyle, "").length
+				? superviseRealtime(agentArgv) : supervise(agentArgv);
 		catch (Exception e)
 		{
 			logError("[supervisor] " ~ e.msg);

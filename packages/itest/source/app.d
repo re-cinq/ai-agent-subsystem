@@ -15,6 +15,8 @@ module app;
 //     event, and the agent's stderr reaches the pod log tagged
 //   - watched files are raised inline, or uploaded by reference to a local HTTP
 //     fixture with the event carrying size + digest
+//   - realtime sessions take prompts over HTTP, on one stdin session or one process
+//     per turn, and end on idle, close, SIGTERM or the deadline
 //
 //   usage: ai-agent-itest <supervisor-bin> <mock-bin>
 
@@ -29,7 +31,7 @@ import std.string : indexOf, splitLines, strip, toLower;
 
 import core.sys.posix.signal : kill, SIGINT, SIGPIPE, SIGTERM;
 import core.thread : Thread;
-import core.time : seconds;
+import core.time : msecs, MonoTime, seconds;
 
 private int failures = 0;
 private string supervisor;
@@ -179,6 +181,13 @@ int main(string[] args)
 	conversationSaved();
 	conversationNotSaved();
 	sessionAnnounced();
+	realtimeStdinTurns();
+	realtimeAuthAndClose();
+	realtimePerTurn();
+	realtimeResumeWaits();
+	realtimeSigterm();
+	realtimeDeadline();
+	realtimeNoContinuity();
 
 	writeln(failures == 0 ? "ALL PASSED" : failures.to!string ~ " CHECK(S) FAILED");
 	return failures == 0 ? 0 : 1;
@@ -735,4 +744,178 @@ private size_t contentLength(string headers)
 		if (line.toLower.startsWith("content-length:"))
 			return line[15 .. $].strip.to!size_t;
 	return 0;
+}
+
+private enum realtimeToken = "t-rt";
+
+/// Start a realtime supervisor on `port` over the mock, with `extra` on top of a stdin
+/// session that idles out after a minute.
+private ProcessPipes realtimeRun(ushort port, string[string] extra)
+{
+	string[string] env = [
+		"AGENT_MODEL": "claude-sonnet-4-6",
+		"AGENT_REALTIME_STYLE": "stdin",
+		"AGENT_REALTIME_TOKEN": realtimeToken,
+		"AGENT_REALTIME_PORT": port.to!string,
+		"AGENT_REALTIME_IDLE_MS": "60000",
+		"MOCK_MODE": "chat",
+		"MOCK_SESSION": "sess-rt",
+	];
+	foreach (k, v; extra)
+		env[k] = v;
+	return pipeProcess([supervisor, "--", mock], Redirect.stdout | Redirect.stderr, withSource(env));
+}
+
+/// POST `body_` to `path` on the realtime supervisor at `port`, retrying until it
+/// listens: the response status, or 0 when nothing answered within ten seconds.
+private int postRealtime(ushort port, string path, string token, string body_ = "")
+{
+	foreach (attempt; 0 .. 100)
+	{
+		try
+		{
+			auto sock = new TcpSocket(new InternetAddress("127.0.0.1", port));
+			scope (exit)
+				sock.close();
+			sock.setOption(SocketOptionLevel.SOCKET, SocketOption.RCVTIMEO, 10.seconds);
+			const auth = token.length ? "Authorization: Bearer " ~ token ~ "\r\n" : "";
+			sock.send("POST " ~ path ~ " HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n"
+				~ auth ~ "Content-Length: " ~ body_.length.to!string ~ "\r\nConnection: close\r\n\r\n" ~ body_);
+			char[512] buf;
+			const n = sock.receive(buf[]);
+			return n >= 12 ? buf[9 .. 12].to!int : 0;
+		}
+		catch (SocketException)
+			Thread.sleep(100.msecs);
+	}
+	return 0;
+}
+
+/// A stdin session runs its first prompt and every posted one in order on one process,
+/// announces its session, idles out with exit 0, and never hands the agent its token.
+private void realtimeStdinTurns()
+{
+	writeln("realtime stdin session runs posted turns and idles out");
+	auto pipes = realtimeRun(18_301, ["AGENT_REALTIME_PROMPT": "one", "AGENT_REALTIME_IDLE_MS": "1500"]);
+	const accepted = postRealtime(18_301, "/v1/prompt", realtimeToken, `{"prompt":"two"}`);
+	auto r = drain(pipes);
+
+	check("posted prompt accepted (202)", accepted == 202);
+	check("both turns answered in order", emitted(r.lines, `"result":"echo:one"`)
+		&& emitted(r.lines, `"result":"echo:two"`)
+		&& r.lines.countUntilContaining(`echo:one`) < r.lines.countUntilContaining(`echo:two`));
+	check("second turn completed ok", emitted(r.lines, `"kind":"turn","turn":2,"status":"completed","ok":true`));
+	check("session announced", emitted(r.lines, `"kind":"session","id":"sess-rt"`));
+	check("agent never sees the token", emitted(r.lines, `"token":""`));
+	check("idle end exits 0", r.code == 0);
+}
+
+/// Requests without the run's token or a prompt are refused, and a close ends the
+/// session once its queued turn ran, long before the idle window.
+private void realtimeAuthAndClose()
+{
+	writeln("realtime session refuses bad requests and ends on close");
+	const began = MonoTime.currTime;
+	auto pipes = realtimeRun(18_302, null);
+	const unauthorized = postRealtime(18_302, "/v1/prompt", "", `{"prompt":"x"}`);
+	const empty = postRealtime(18_302, "/v1/prompt", realtimeToken, `{"prompt":""}`);
+	const accepted = postRealtime(18_302, "/v1/prompt", realtimeToken, `{"prompt":"three"}`);
+	const closed = postRealtime(18_302, "/v1/close", realtimeToken);
+	auto r = drain(pipes);
+
+	check("no token refused (401)", unauthorized == 401);
+	check("empty prompt refused (400)", empty == 400);
+	check("prompt and close accepted (202)", accepted == 202 && closed == 202);
+	check("queued turn ran before the close", emitted(r.lines, `"result":"echo:three"`));
+	check("close ends the session with exit 0, before the idle window",
+		r.code == 0 && MonoTime.currTime - began < 30.seconds);
+}
+
+/// A per-turn vendor spawns a process per prompt, resuming the session the first turn
+/// announced on every later one.
+private void realtimePerTurn()
+{
+	writeln("realtime per-turn session resumes the announced thread");
+	auto pipes = realtimeRun(18_303, [
+		"AGENT_MODEL": "gpt-5-codex",
+		"AGENT_REALTIME_STYLE": "turn",
+		"AGENT_REALTIME_PROMPT": "one",
+		"AGENT_REALTIME_NEXT_ARGV": `["` ~ mock ~ `","resume","@@AGENT_SESSION@@","@@AGENT_PROMPT@@"]`,
+		"MOCK_MODE": "turn",
+		"MOCK_SESSION": "thr-1",
+	]);
+	const accepted = postRealtime(18_303, "/v1/prompt", realtimeToken, `{"prompt":"two"}`);
+	const closed = postRealtime(18_303, "/v1/close", realtimeToken);
+	auto r = drain(pipes);
+
+	check("prompt and close accepted (202)", accepted == 202 && closed == 202);
+	check("first turn ran the first argv", emitted(r.lines, `"argv":[]`));
+	check("second turn resumed the announced thread", emitted(r.lines, `"argv":["resume","thr-1","two"]`));
+	check("per-turn session exits 0", r.code == 0);
+}
+
+/// A resumed session sends no prompt of its own: it announces the session it continues
+/// and waits, running no turn, until it idles out.
+private void realtimeResumeWaits()
+{
+	writeln("resumed realtime session waits for prompts");
+	auto pipes = realtimeRun(18_304, [
+		"AGENT_CONVERSATION_PIN": "sess-old",
+		"MOCK_SESSION": "sess-old",
+		"AGENT_REALTIME_IDLE_MS": "800",
+	]);
+	auto r = drain(pipes);
+
+	check("resumed session announced", emitted(r.lines, `"kind":"session","id":"sess-old"`));
+	check("no turn ran", !emitted(r.lines, `"kind":"turn"`));
+	check("idle end exits 0", r.code == 0);
+}
+
+/// SIGTERM ends an idle session gracefully: exit 0 and a terminal event.
+private void realtimeSigterm()
+{
+	writeln("realtime session ends gracefully on SIGTERM");
+	auto pipes = realtimeRun(18_305, null);
+	const ready = postRealtime(18_305, "/v1/prompt", "wrong", `{"prompt":"x"}`);
+	kill(pipes.pid.processID, SIGTERM);
+	auto r = drain(pipes);
+
+	check("session was serving (401 for a wrong token)", ready == 401);
+	check("SIGTERM ends with exit 0", r.code == 0);
+	check("terminal event raised", r.lines.length > 0 && r.lines[$ - 1].canFind(`"status":"succeeded"`));
+}
+
+/// A session still open at the run deadline is ended with the timeout code.
+private void realtimeDeadline()
+{
+	writeln("realtime session ends at the run deadline");
+	auto r = drain(realtimeRun(18_306, ["AGENT_DEADLINE_MS": "1000"]));
+
+	check("deadline exits 124", r.code == 124);
+}
+
+/// A vendor that keeps no conversation state says so once: every turn starts fresh.
+private void realtimeNoContinuity()
+{
+	writeln("realtime session warns when turns cannot continue");
+	auto r = drain(realtimeRun(18_307, [
+		"AGENT_MODEL": "exec",
+		"AGENT_REALTIME_STYLE": "turn",
+		"AGENT_REALTIME_PROMPT": "one",
+		"AGENT_REALTIME_IDLE_MS": "800",
+		"MOCK_MODE": "turn",
+	]));
+
+	check("no-continuity warning raised", emitted(r.lines, `"reason":"no-continuity"`));
+	check("turn ran and the session exits 0", emitted(r.lines, `"kind":"turn","turn":1,"status":"completed"`)
+		&& r.code == 0);
+}
+
+/// Index of the first line containing `needle`, or the line count when none does.
+private size_t countUntilContaining(string[] lines, string needle)
+{
+	foreach (i, line; lines)
+		if (line.canFind(needle))
+			return i;
+	return lines.length;
 }

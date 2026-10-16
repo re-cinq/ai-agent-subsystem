@@ -32,7 +32,7 @@ import archive : collect, tarGz;
 import sink : emit, postConversation, postUpload;
 
 /// How often the wait loop polls the agent's exit / terminal-event state.
-private enum pollInterval = 20.msecs;
+enum pollInterval = 20.msecs;
 
 /// Defensive ceiling on a single stdout event line, so a malformed agent stream with no
 /// newline can't buffer without bound. Well above any real stream-json event; a line past
@@ -43,7 +43,7 @@ private enum maxEventLineBytes = 16 * 1024 * 1024;
 /// Cap on how long the final stdout drain waits for the reader to reach EOF before the
 /// hard exit — long enough to flush a large final burst, short enough that a grandchild
 /// holding the pipe open can't stall pod teardown.
-private enum drainDeadline = 2000.msecs;
+enum drainDeadline = 2000.msecs;
 
 /// Prefix on every forwarded agent stderr line, so the pod log distinguishes the agent's
 /// diagnostics from the supervisor's own and from the JSONL events on stdout.
@@ -56,10 +56,20 @@ enum deadlineExitCode = 124;
 /// PID of the spawned agent, shared with the signal handler.
 private __gshared pid_t g_childPid = 0;
 
-/// Forward a received termination signal to the agent for graceful shutdown.
+/// Set in realtime mode, where a termination signal ends the session gracefully — its
+/// conversation saved — instead of being forwarded to an agent that may be between turns.
+__gshared bool g_realtime = false;
+
+/// Set when a termination signal arrived in realtime mode.
+__gshared bool g_terminate = false;
+
+/// Forward a received termination signal to the agent for graceful shutdown, or, in
+/// realtime mode, ask the session loop to end.
 extern (C) private void forwardSignal(int sig) nothrow @nogc @system
 {
-	if (g_childPid > 0)
+	if (g_realtime)
+		g_terminate = true;
+	else if (g_childPid > 0)
 		kill(g_childPid, sig);
 }
 
@@ -373,7 +383,7 @@ private int awaitOutcome(Duration grace, Duration deadline, AgentProcess agent)
 }
 
 /// Escalate SIGTERM -> SIGKILL until the agent is gone, allowing `grace` at each step.
-private void forceDown(Duration grace, ref bool processExited)
+void forceDown(Duration grace, ref bool processExited)
 {
 	if (g_childPid > 0)
 		kill(g_childPid, SIGTERM);
@@ -406,7 +416,7 @@ int reportedExitCode(bool exitedOnOwn, int processCode, bool runOk) @safe pure n
 
 /// Poll a shared `flag` up to `limit`, yielding between checks; true if it became set
 /// within the window. Used both for "the process exited" and "the reader drained".
-private bool waitFlag(ref bool flag, Duration limit)
+bool waitFlag(ref bool flag, Duration limit)
 {
 	Duration waited;
 	while (!flag && waited < limit)
@@ -419,7 +429,7 @@ private bool waitFlag(ref bool flag, Duration limit)
 
 /// A positive-millisecond duration read from `name`, falling back to `whenUnset` when
 /// the variable is missing, non-numeric or non-positive.
-private Duration msFromEnv(string name, Duration whenUnset)
+Duration msFromEnv(string name, Duration whenUnset)
 {
 	try
 	{
@@ -439,7 +449,7 @@ private Duration msFromEnv(string name, Duration whenUnset)
 
 /// The terminal-event grace window from the environment, falling back to the
 /// default when unset or unparseable.
-private Duration exitGraceFromEnv()
+Duration exitGraceFromEnv()
 {
 	return msFromEnv(envExitGraceMs, defaultExitGraceMs.msecs);
 }
@@ -447,14 +457,14 @@ private Duration exitGraceFromEnv()
 /// The run deadline from the environment. Absent or unparseable means no supervisor-side
 /// deadline — the Job's activeDeadlineSeconds stays the only bound, which is the
 /// pre-#48 behaviour and the right default for a supervisor run outside a Job.
-private Duration deadlineFromEnv()
+Duration deadlineFromEnv()
 {
 	return msFromEnv(envDeadlineMs, Duration.zero);
 }
 
 /// An agent-phase `failed` event the supervisor itself raises (the agent never ran):
 /// `not-found` when the binary is missing, `spawn` when the process can't start.
-private LifecycleEvent agentFailed(string reason)
+LifecycleEvent agentFailed(string reason)
 {
 	LifecycleEvent ev = {phase: Phase.agent, status: Status.failed};
 	ev.reason = reason;
