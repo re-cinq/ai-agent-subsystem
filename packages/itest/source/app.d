@@ -178,6 +178,7 @@ int main(string[] args)
 	uploadTooLarge();
 	conversationSaved();
 	conversationNotSaved();
+	sessionAnnounced();
 
 	writeln(failures == 0 ? "ALL PASSED" : failures.to!string ~ " CHECK(S) FAILED");
 	return failures == 0 ? 0 : 1;
@@ -578,6 +579,22 @@ private string sha256Hex(string data)
 	import std.digest.sha : sha256Of;
 
 	return toHexString!(LetterCase.lower)(sha256Of(data)).idup;
+}
+
+/// The harness's session id is raised as a `kind:"session"` event when its stream
+/// announces it, and once more right before the terminal event, because the controller
+/// reads status.sessionId from the capped tail of the pod log.
+private void sessionAnnounced()
+{
+	writeln("session id announced");
+	auto r = run(["MOCK_SESSION": "sess-42", "MOCK_LINES": "1", "AGENT_MODEL": "claude-sonnet-4-6"]);
+	const sessionEvents = r.lines.count!(l => l.canFind(`"kind":"session","id":"sess-42"`));
+	const lastSession = r.lines.length >= 2 ? r.lines[$ - 2] : "";
+
+	check("run completes (exit 0)", r.code == 0);
+	check("session event raised on announce and before exit", sessionEvents == 2);
+	check("last session event precedes the terminal event",
+		lastSession.canFind(`"kind":"session"`) && r.lines[$ - 1].canFind(`"status":"succeeded"`));
 }
 
 /// The run's conversation state is archived and POSTed so a later run can continue

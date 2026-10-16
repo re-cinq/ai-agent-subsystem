@@ -26,6 +26,7 @@ import agentcore.output.lifecycle : LifecycleEvent, Phase, Status, toJson;
 import agentcore.core.log : logError;
 import agentcore.output.output : sinksFromEnv;
 import agentcore.output.selectmatcher : parseSelectors, selected;
+import agentcore.output.session : sessionEvent, sessionIdFor;
 import agentcore.output.terminal : terminalFor;
 import archive : collect, tarGz;
 import sink : emit, postConversation, postUpload;
@@ -114,6 +115,7 @@ int supervise(string[] agentArgv)
 	bool terminalSeen = false;
 	bool runOk = false;
 	bool readerDone = false; // the reader drained stdout to EOF (no output left to flush)
+	string sessionId; // the harness session id, once its stream announced one
 
 	// Stream stdout in its own task so the agent's *process exit* ends the run,
 	// not stdout EOF: a stray child that inherits and holds stdout open would
@@ -128,6 +130,12 @@ int supervise(string[] agentArgv)
 					continue;
 				const payload = cast(string) raw.idup;
 				emit(sinks, source, payload, selected(selectors, provider, payload));
+				const announced = sessionIdFor(provider, payload);
+				if (announced.length && announced != sessionId)
+				{
+					sessionId = announced;
+					emit(sinks, source, sessionEvent(sessionId));
+				}
 				if (!terminalSeen)
 				{
 					const terminal = terminalFor(provider, payload);
@@ -196,6 +204,10 @@ int supervise(string[] agentArgv)
 	// terminal event for the same reason as the artifacts: a consumer that stops
 	// there must not miss it, and the state dir only exists while this pod does.
 	saveConversation();
+	// Repeat the session id right before the terminal event: the controller keeps only
+	// the tail of the pod log, and reads status.sessionId from it.
+	if (sessionId.length)
+		emit(sinks, source, sessionEvent(sessionId));
 	emit(sinks, source, agentExit(code).toJson);
 
 	// Hard-exit instead of joining the reader/waiter and unwinding the event loop.

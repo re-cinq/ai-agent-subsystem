@@ -18,6 +18,7 @@ struct JobOutcome
 	int exitCode;
 	string reason;
 	string output;
+	string sessionId;
 }
 
 /// Reconcile the Job-level state with a pod-reported exit code so `status` never
@@ -77,6 +78,7 @@ struct Decision
 	int exitCode;
 	string failureReason;
 	string output;
+	string sessionId;
 }
 
 /**
@@ -119,9 +121,9 @@ Decision decide(Phase current, bool refsResolved, bool hasOutcome, JobOutcome ou
 			return Decision(ActionKind.none, Phase.running);
 		if (outcome.state == JobState.succeeded)
 			return Decision(ActionKind.complete, Phase.succeeded, outcome.exitCode, outcome.reason,
-					outcome.output);
-		return Decision(ActionKind.complete, Phase.failed, outcome.exitCode, outcome.reason, outcome
-				.output);
+					outcome.output, outcome.sessionId);
+		return Decision(ActionKind.complete, Phase.failed, outcome.exitCode, outcome.reason,
+				outcome.output, outcome.sessionId);
 	case Phase.succeeded:
 	case Phase.failed:
 		return Decision(ActionKind.none, current);
@@ -244,6 +246,12 @@ version (unittest) import fluent.asserts;
 	bad.phase.should.equal(Phase.failed);
 	bad.exitCode.should.equal(1);
 	bad.failureReason.should.equal("boom");
+}
+
+@safe unittest // a finished Job's session id is carried onto the completion decision
+{
+	decide(Phase.running, true, true, JobOutcome(JobState.succeeded, 0, "", "out", "sess-1"))
+		.should.equal(Decision(ActionKind.complete, Phase.succeeded, 0, "", "out", "sess-1"));
 }
 
 @safe unittest

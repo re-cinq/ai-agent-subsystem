@@ -64,6 +64,7 @@ spec:
 | `output` | string | Captured summary: the truncated tail of pod logs, capped at `MAX_OUTPUT_BYTES` (default 256 KiB) to stay under etcd's per-object limit. |
 | `failureReason` | string | Human-readable reason on failure. Also set when a run reaches a terminal phase but its result couldn't be fully read back, e.g. `run output unavailable: pod garbage-collected` or `run record unavailable: Job garbage-collected before its result was observed`. |
 | `prUrl` | string | Pull-request URL when applicable. |
+| `sessionId` | string | The agent CLI's session id, from the last [session event](./notification-api.md#session-events) in the run's pod log. Set when the run ends; empty for vendors that announce none. |
 | `batchId` | string | Batch runs only. The provider's batch id (for Anthropic, `msgbatch_...`), set when the controller submits the batch. Kept after a fallback for the audit trail. |
 | `batchProvider` | string | Batch runs only. The batch API the run was submitted to; `anthropic` today. |
 | `batchFallback` | bool | Batch runs only. `true` once the batch timed out with `onTimeout: fallback` and the run switched to a CLI Job. |
