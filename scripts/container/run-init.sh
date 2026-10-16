@@ -3,7 +3,9 @@
 # self-bootstraps its prerequisites through the distro package manager and then
 # provisions for real. Test A (git clone) always runs; Test B (the real Claude
 # install) is opt-in via CTEST_CLAUDE=1 and skips itself when claude.ai is
-# unreachable. POSIX sh (no bashisms) so it runs on Alpine's busybox shell too.
+# unreachable; Test C (the real, pinned Codex install) is opt-in via CTEST_CODEX=1
+# and checks `codex --version` against CTEST_CODEX_VERSION. POSIX sh (no bashisms)
+# so it runs on Alpine's busybox shell too.
 #
 # Test A's gpt-5-codex model routes to the Codex CLI installer; this script stages
 # a stub `codex` on PATH (below), so its `command -v` guard skips the real network
@@ -81,6 +83,24 @@ if [ "${CTEST_CLAUDE:-0}" = "1" ]; then
 	else
 		echo "  SKIP  claude install (downloads.claude.ai unreachable)"
 	fi
+fi
+
+# --- Test C (opt-in): real, pinned Codex CLI install ------------------------
+if [ "${CTEST_CODEX:-0}" = "1" ]; then
+	# Drop Test A's stub so the `command -v codex` guard lets the real install run.
+	rm -f /usr/local/bin/codex
+	# The init installs curl but not the CA bundle it needs for https (apt runs with
+	# --no-install-recommends), so a bare base image gets it here, as in Test B.
+	{ command -v apt-get >/dev/null 2>&1 && apt-get install -y --no-install-recommends ca-certificates; } >/dev/null 2>&1 || true
+	{ command -v dnf >/dev/null 2>&1 && dnf install -y ca-certificates; } >/dev/null 2>&1 || true
+	{ command -v apk >/dev/null 2>&1 && apk add --no-cache ca-certificates; } >/dev/null 2>&1 || true
+	HOME=/root AGENT_MODEL=gpt-5-codex WORKSPACE_DIR=/workspace-codex ai-agent-init
+	rc=$?
+	chk "codex install exits 0" "$([ $rc -eq 0 ] && echo 0 || echo 1)"
+	reported="$(/root/.local/bin/codex --version 2>/dev/null)"
+	echo "  codex --version: $reported"
+	chk "codex reports the pinned codex-cli ${CTEST_CODEX_VERSION:-}" \
+		"$([ "$reported" = "codex-cli ${CTEST_CODEX_VERSION:-}" ] && echo 0 || echo 1)"
 fi
 
 if [ "$fail" -eq 0 ]; then echo "CONTAINER TESTS PASSED"; else echo "CONTAINER TESTS FAILED"; fi

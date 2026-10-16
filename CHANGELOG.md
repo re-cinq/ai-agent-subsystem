@@ -86,6 +86,14 @@ the npm package versions.
   `controller_batch_cleanup_failures_total` on `/metrics` counts failed provider cleanups.
 
 ### Changed
+- **Codex CLI pinned to 0.142.5.** A Codex run used to install whatever `chatgpt.com/codex/install.sh`
+  called latest, so a CLI change such as 0.142 no longer reading `OPENAI_API_KEY` reached run pods
+  without notice. The init now downloads the 0.142.5 `codex-package-<arch>-unknown-linux-musl.tar.gz`
+  from the openai/codex GitHub release for `x86_64` or `aarch64`, checks its SHA-256 against the
+  pinned value before unpacking, and links `codex` into `$HOME/.local/bin` as the installer did. A
+  package with a different checksum, or any other architecture, fails the init. The init now also
+  needs `sha256sum`, and installs `coreutils` if the base image lacks it. The version is the
+  `codexCliVersion` constant, raised on purpose.
 - **The Notification API documents a consumer contract for Claude runs.** The reference lists the
   `result`, `system` init and lifecycle fields, with their JSON types, that both CLI and batch runs
   always emit; the unit tests check it against a recorded CLI run and a recorded batch result.

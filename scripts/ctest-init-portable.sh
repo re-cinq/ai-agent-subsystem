@@ -10,6 +10,7 @@
 #   BUILD_ONLY=1 STAGE_DIR=stage ./scripts/ctest-init-portable.sh     # stage the binary, skip tests
 #   SKIP_BUILD=1 STAGE_DIR=stage ./scripts/ctest-init-portable.sh     # test a prebuilt binary
 #   CONTAINER_ENGINE=podman ./scripts/ctest-init-portable.sh
+#   CTEST_CODEX=1 TARGETS="ubuntu:24.04" ./scripts/ctest-init-portable.sh  # also install the pinned Codex CLI
 set -euo pipefail
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
@@ -18,6 +19,8 @@ cd "$repo"
 engine="${CONTAINER_ENGINE:-docker}"
 builder="${BUILDER_IMAGE:-debian:bullseye}"
 targets="${TARGETS:-debian:bookworm-slim ubuntu:24.04 rockylinux:9 amazonlinux:2023 alpine:3.20}"
+codex_version="$(sed -n 's/^enum codexCliVersion = "\(.*\)";/\1/p' packages/agentcore/source/agentcore/vendors/codex/setup.d)"
+codex_env=(-e "CTEST_CODEX=${CTEST_CODEX:-0}" -e "CTEST_CODEX_VERSION=$codex_version")
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work" 2>/dev/null || true' EXIT
@@ -92,7 +95,7 @@ if [ -n "$glibc_targets" ]; then
 	chmod +x scripts/container/run-init.sh 2>/dev/null || true
 	for img in $glibc_targets; do
 		echo ">> $img"
-		"$engine" run --rm \
+		"$engine" run --rm "${codex_env[@]}" \
 			-v "$stage/ai-agent-init:/usr/local/bin/ai-agent-init:ro" \
 			-v "$origin:/origin:ro" \
 			-v "$PWD/scripts/container/run-init.sh:/run-init.sh:ro" \
@@ -102,7 +105,7 @@ fi
 
 for img in $musl_targets; do
 	echo ">> $img (native musl build)"
-	"$engine" run --rm -v "$PWD:/src" -w /src "$img" sh -euc '
+	"$engine" run --rm "${codex_env[@]}" -v "$PWD:/src" -w /src "$img" sh -euc '
 		apk add --no-cache ldc dub gcc musl-dev zlib-dev git >/dev/null
 		DFLAGS="-link-defaultlib-shared=false -L-lz" dub build :initializer --compiler=ldc2
 		install -m755 packages/initializer/ai-agent-init /usr/local/bin/ai-agent-init
