@@ -2,7 +2,7 @@ module agentcore.vendors.claude.agent;
 
 import std.conv : to;
 
-import agentcore.vendors.base.agent : Agent, ConversationArgs;
+import agentcore.vendors.base.agent : Agent, ConversationArgs, StdinSession;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 import agentcore.crds.enums : PermissionMode, McpTransport;
 import agentcore.crds.mcp_server : McpServer, headerCredentials, stdioLaunch;
@@ -11,8 +11,9 @@ import agentcore.core.env : defaultModel;
 
 /// Claude Code CLI adapter: maps the recipe to `claude --print --output-format
 /// stream-json …`. `bypass` permission mode skips the permission prompts; `auto`
-/// passes the recipe's allow/deny tool lists through.
-final class ClaudeAgent : Agent
+/// passes the recipe's allow/deny tool lists through. A realtime session keeps one
+/// process and feeds it user turns as `stream-json` lines on stdin.
+final class ClaudeAgent : Agent, StdinSession
 {
 	/// Un-hide the interface's no-conversation convenience overload, which this
 	/// class's own `command` would otherwise shadow.
@@ -35,6 +36,27 @@ final class ClaudeAgent : Agent
 
 	override string[] command(in AgentDefinitionSpec recipe, string renderedPrompt,
 		in ConversationArgs conv) const @safe
+	{
+		return flags(recipe, conv) ~ ["--", renderedPrompt];
+	}
+
+	override string[] sessionCommand(in AgentDefinitionSpec recipe, in ConversationArgs conv) const @safe
+	{
+		return flags(recipe, conv) ~ ["--input-format", "stream-json"];
+	}
+
+	override string userTurn(string prompt) const @trusted
+	{
+		import vibe.data.json : Json;
+
+		auto message = Json(["role": Json("user"),
+			"content": Json([Json(["type": Json("text"), "text": Json(prompt)])])]);
+		return Json(["type": Json("user"), "message": message]).toString();
+	}
+
+	/// Every argument but the prompt: the model, tools, MCP, settings, turn limit and
+	/// conversation wiring.
+	private string[] flags(in AgentDefinitionSpec recipe, in ConversationArgs conv) const @safe
 	{
 		string[] cmd = [
 			"claude",
@@ -91,8 +113,6 @@ final class ClaudeAgent : Agent
 		if (conv.resume.length && conv.pin.length)
 			cmd ~= "--fork-session";
 		cmd ~= pinConversationArgs(conv.pin);
-
-		cmd ~= ["--", renderedPrompt];
 		return cmd;
 	}
 }
@@ -302,4 +322,35 @@ version (unittest) import fluent.asserts;
 	cmd.should.contain("--session-id");
 	// Nothing to fork FROM, and the CLI rejects --fork-session without a resume.
 	cmd.should.not.contain("--fork-session");
+}
+
+@safe unittest // a fresh claude session reads stream-json turns on stdin, pins its id, and carries no prompt
+{
+	AgentDefinitionSpec recipe;
+	recipe.model = "claude-sonnet-4-6";
+	const cmd = (new ClaudeAgent).sessionCommand(recipe, ConversationArgs("", "uid-1"));
+
+	cmd[$ - 4 .. $].should.equal(["--session-id", "uid-1", "--input-format", "stream-json"]);
+	cmd.should.not.contain("--");
+}
+
+@safe unittest // a resumed claude session continues the same id without forking
+{
+	const cmd = (new ClaudeAgent).sessionCommand(AgentDefinitionSpec.init, ConversationArgs("sess-1", ""));
+
+	cmd[$ - 4 .. $].should.equal(["--resume", "sess-1", "--input-format", "stream-json"]);
+	cmd.should.not.contain("--fork-session");
+}
+
+unittest // a claude user turn is a stream-json user message whose text survives quotes and newlines
+{
+	import vibe.data.json : parseJsonString;
+
+	const line = (new ClaudeAgent).userTurn("say \"hi\"\nthen stop");
+
+	parseJsonString(line).should.equal(parseJsonString(
+		`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"say \"hi\"\nthen stop"}]}}`));
+	import std.algorithm.searching : canFind;
+
+	line.canFind('\n').should.equal(false);
 }
