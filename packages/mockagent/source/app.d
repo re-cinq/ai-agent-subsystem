@@ -24,6 +24,13 @@ module app;
 //                         finishes its work but never exits
 //                 wedge:  emit no terminal event, ignore SIGTERM and hang forever —
 //                         like an agent stuck on a call that never returns
+//                 chat:   a Claude-style stdin session: emits `{"token":…}` with the
+//                         value of AGENT_REALTIME_TOKEN it inherited, then, for each
+//                         stream-json user line on stdin, a `system/init` carrying
+//                         MOCK_SESSION and a `result` whose text is `echo:<prompt>`.
+//                         Exits MOCK_EXIT at stdin EOF
+//                 turn:   one Codex-style turn: `thread.started` carrying MOCK_SESSION,
+//                         `{"argv":[…]}` with its own arguments, then `turn.completed`
 //                 serve:  not an agent at all — a local HTTP fixture for the init's
 //                         file download. Listens on 127.0.0.1:MOCK_SERVE_PORT, answers
 //                         every request 200 with MOCK_SERVE_BODY, appends each request's
@@ -53,7 +60,7 @@ void emit(string line)
 	stdout.flush();
 }
 
-int main()
+int main(string[] args)
 {
 	const mode = environment.get("MOCK_MODE", "emit");
 	const lines = environment.get("MOCK_LINES", "0").to!int;
@@ -78,7 +85,7 @@ int main()
 	}
 
 	const session = environment.get("MOCK_SESSION", "");
-	if (session.length)
+	if (session.length && mode != "chat" && mode != "turn")
 		emit(`{"type":"system","subtype":"init","session_id":"` ~ session ~ `"}`);
 
 	foreach (i; 0 .. lines)
@@ -117,11 +124,45 @@ int main()
 	case "serve":
 		serve();
 		break;
+	case "chat":
+		chat(session);
+		break;
+	case "turn":
+		emit(`{"type":"thread.started","thread_id":"` ~ session ~ `"}`);
+		emit(`{"argv":` ~ jsonStrings(args[1 .. $]) ~ `}`);
+		emit(`{"type":"turn.completed","usage":{"input_tokens":1}}`);
+		break;
 	default:
 		break;
 	}
 
 	return code;
+}
+
+/// The `chat` mode: answer each stream-json user line on stdin until EOF.
+private void chat(string session)
+{
+	import std.string : indexOf;
+
+	emit(`{"token":"` ~ environment.get("AGENT_REALTIME_TOKEN", "") ~ `"}`);
+	foreach (line; stdin.byLine)
+	{
+		enum marker = `"text":"`;
+		const start = line.indexOf(marker);
+		const text = start < 0 ? "" : line[start + marker.length .. $].idup;
+		const prompt = text[0 .. text.indexOf('"') < 0 ? text.length : text.indexOf('"')];
+		emit(`{"type":"system","subtype":"init","session_id":"` ~ session ~ `"}`);
+		emit(`{"type":"result","subtype":"success","is_error":false,"result":"echo:` ~ prompt ~ `"}`);
+	}
+}
+
+/// `values` as a JSON array of strings; the itests pass no quotes or backslashes.
+private string jsonStrings(string[] values)
+{
+	import std.array : join;
+	import std.algorithm.iteration : map;
+
+	return "[" ~ values.map!(value => `"` ~ value ~ `"`).join(",") ~ "]";
 }
 
 /// The `serve` mode's HTTP fixture: one request per connection, answered in full.

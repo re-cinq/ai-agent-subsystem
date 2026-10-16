@@ -86,6 +86,23 @@ enum envDeadlineMs = "AGENT_DEADLINE_MS";
 // enough to SIGTERM the agent, wait a grace window, SIGKILL it, and flush the event.
 enum deadlineMarginMs = 10_000;
 
+// A realtime run: the supervisor keeps the agent CLI up and takes prompts over HTTP until
+// the session idles out or is closed. STYLE is `stdin` (one process fed every turn on
+// stdin) or `turn` (one process per turn); its presence selects realtime mode. PROMPT is
+// the first turn, empty when resuming. NEXT_ARGV is the JSON argv of every turn after a
+// session id is known (turn style only). TOKEN is the bearer the controller presents;
+// the supervisor removes it from its environment before starting the agent.
+enum envRealtimeStyle = "AGENT_REALTIME_STYLE";
+enum envRealtimeIdleMs = "AGENT_REALTIME_IDLE_MS";
+enum envRealtimeToken = "AGENT_REALTIME_TOKEN";
+enum envRealtimePrompt = "AGENT_REALTIME_PROMPT";
+enum envRealtimeNextArgv = "AGENT_REALTIME_NEXT_ARGV";
+enum envRealtimePort = "AGENT_REALTIME_PORT";
+enum defaultRealtimePort = 8090;
+// Below Linux's 128 KiB limit on one argv element, which a per-turn prompt becomes.
+enum maxRealtimePromptBytes = 100 * 1024;
+enum maxQueuedTurns = 16;
+
 // Identity the controller stamps onto the run so every emitted event can be
 // traced back to its agent + pod in a workflow. `POD_*` come from the downward
 // API; the rest from the resolved Station / AgentDefinition / Agent.

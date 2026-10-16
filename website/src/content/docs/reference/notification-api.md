@@ -70,7 +70,7 @@ Typed notifications raised by both the init container and the supervisor. Tagged
 | `tool` | string | Optional. The tool or package-manager involved (e.g. `apt`). |
 | `version` | string | Optional, on `installed`. The agent CLI's version, as its own `--version` reports it. Absent when the CLI could not say. |
 | `origin` | string | Optional, on `installed`. Where the CLI came from: `baked` (copied from the agent image, no network), `downloaded` (the vendor's installer), or `present` (already on `PATH`, nothing installed). |
-| `reason` | string | Optional. A short failure slug — e.g. `not-found` (agent binary missing), `spawn` (process failed to start). |
+| `reason` | string | Optional. A short slug — e.g. `not-found` (agent binary missing), `spawn` (process failed to start), `token` or `listen` (a realtime session could not start its prompt server), or, on an `agent`/`running` event, `no-continuity` (a realtime session whose vendor keeps no conversation state, so every turn starts fresh). |
 | `exitCode` | int | Optional. The agent process exit code. `0` is present and meaningful; it is not treated as empty. |
 
 Empty optional fields are omitted. Examples:
@@ -99,6 +99,17 @@ it right before the final `agent` lifecycle event:
 The id comes from Claude's `system`/`init` `session_id`, Codex's `thread.started` `thread_id`, or
 Gemini's `init` `session_id`. opencode and `exec` runs announce none. The controller records the last
 one as the Agent's `status.sessionId`.
+
+## Turn events
+
+A [realtime session](./crd-agentdefinition.md#specrealtime) raises a turn event when each prompt starts and when it ends:
+
+```json
+{ "kind": "turn", "turn": 1, "status": "started" }
+{ "kind": "turn", "turn": 1, "status": "completed", "ok": true }
+```
+
+`turn` counts the session's prompts from 1, in the order they were accepted, which is the `turn` the prompt API returned. `ok` is the turn's own verdict; a failed turn does not end the session.
 
 ## File events
 
@@ -256,6 +267,9 @@ A codex stream starts with `thread.started` and ends with `turn.completed` when 
 | lifecycle | `tool`, `reason` | string | no |
 | lifecycle | `exitCode` | number | no |
 | session | `kind`, `id` | string | yes |
+| turn | `kind`, `status` | string | yes |
+| turn | `turn` | number | yes |
+| turn | `ok` | bool | on `completed` |
 
 `apiKeySource` is `"none"` when the CLI ran on a subscription and anything else, such as `"ANTHROPIC_API_KEY"`, when it ran on an API key; a Claude batch run always reports `"ANTHROPIC_API_KEY"`. Nothing in Claude `assistant` events is part of the contract. A run ends, for a consumer, on a lifecycle event with `status: "failed"` in any phase, or with `phase: "agent"` and `status: "succeeded"`. Of the envelope, only the presence of `source` and `event` is part of the contract.
 
