@@ -1,0 +1,10 @@
+{
+  "custom_id": "agent-7c1e",
+  "method": "POST",
+  "url": "/v1/responses",
+  "body": {
+    "model": "gpt-5-mini",
+    "input": "Say hello",
+    "max_output_tokens": 1024
+  }
+}

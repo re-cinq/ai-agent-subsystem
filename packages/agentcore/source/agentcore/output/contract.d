@@ -1,6 +1,6 @@
 module agentcore.output.contract;
 
-import std.algorithm : any, countUntil, filter, map, sort;
+import std.algorithm : any, canFind, countUntil, filter, find, map, sort;
 import std.exception : enforce;
 import std.array : array, join, split;
 import std.format : format;
@@ -13,20 +13,53 @@ version (unittest) import fluent.asserts;
 /// Enforce that `lines` form the complete event sequence `provider`'s CLI emits.
 void enforceEventContract(string provider, const string[] lines)
 {
-	enforce(provider == "claude" || provider == "gemini", "no event contract for provider " ~ provider);
+	const found = streamRules.find!(rule => rule.provider == provider);
+	enforce(found.length > 0, "no event contract for provider " ~ provider);
+	const rule = found[0];
 	const events = lines.map!parseJsonString.array;
-	const claude = provider == "claude";
-	enforce(events.length > 0 && (claude ? isSystemInit(events[0]) : typeOf(events[0]) == "init"),
-		provider ~ " stream must start with " ~ (claude ? "system/init" : "init"));
-	const resultIndex = events.countUntil!(event => typeOf(event) == "result");
-	enforce(resultIndex >= 0, provider ~ " stream is missing its result line");
-	enforce(resultIndex == events.length - 1, provider ~ " stream must end with its result line");
+	enforce(events.length > 0 && consumedEvent(events[0]) == rule.first,
+		provider ~ " stream must start with " ~ rule.first);
+	const terminalName = rule.terminals.join(" or ");
+	const terminalIndex = events.countUntil!(event => rule.terminals.canFind(consumedEvent(event)));
+	enforce(terminalIndex >= 0, provider ~ " stream is missing its " ~ terminalName ~ " line");
+	enforce(terminalIndex == events.length - 1, provider ~ " stream must end with its " ~ terminalName ~ " line");
 	const terminal = terminalFor(provider, lines[$ - 1]);
-	if (claude)
+	switch (provider)
+	{
+	case "claude":
 		return enforceClaudeResult(events, terminal);
-	const status = events[$ - 1]["status"].opt!string;
-	enforce((status == "success" || status == "error") && terminal == Terminal(true, status == "success"),
-		provider ~ " result line terminal ok does not match status");
+	case "codex":
+		return enforceCodexTurn(events, terminal);
+	default:
+		const status = events[$ - 1]["status"].opt!string;
+		enforce((status == "success" || status == "error") && terminal == Terminal(true, status == "success"),
+			provider ~ " result line terminal ok does not match status");
+	}
+}
+
+/// How a provider's CLI stream opens and which event types end it.
+private struct StreamRule
+{
+	string provider;
+	string first;
+	string[] terminals;
+}
+
+private immutable StreamRule[] streamRules = [
+	StreamRule("claude", "system/init", ["result"]),
+	StreamRule("gemini", "init", ["result"]),
+	StreamRule("codex", "thread.started", ["turn.completed", "turn.failed"]),
+];
+
+/// Enforce what a codex stream's last line adds to the shared sequence rules: a completed
+/// turn follows an `agent_message` item, and its terminal signal agrees with its type.
+private void enforceCodexTurn(const Json[] events, Terminal terminal)
+{
+	const completed = typeOf(events[$ - 1]) == "turn.completed";
+	enforce(!completed || events[0 .. $ - 1].any!(event => typeOf(event) == "item.completed"
+			&& event["item"]["type"].opt!string == "agent_message"),
+		"codex stream needs an agent_message item before turn.completed");
+	enforce(terminal == Terminal(true, completed), "codex turn line terminal ok does not match its type");
 }
 
 /// Enforce what a claude stream's result line adds to the shared sequence rules: an assistant
@@ -46,7 +79,7 @@ private void enforceClaudeResult(const Json[] events, Terminal terminal)
 /// with the JSON types it expects.
 void enforceConsumerContract(string provider, const string[] lines)
 {
-	enforce(provider == "claude" || provider == "gemini", "no consumer contract for provider " ~ provider);
+	enforce(["claude", "codex", "gemini"].canFind(provider), "no consumer contract for provider " ~ provider);
 	foreach (event; lines.map!parseJsonString)
 		foreach (field; consumerFields.filter!(field => (field.provider == provider || field.provider == anyProvider)
 				&& field.event == consumedEvent(event)))
@@ -79,6 +112,9 @@ enum anyProvider = "*";
 
 /// The fields the downstream consumer (Floor) reads from a run's lines, CLI or batch.
 /// A field of the wrong type makes the consumer drop the whole line, so types are part of it.
+/// Floor parses no codex line yet, so a codex run's final text and usage don't reach it (CLI
+/// or batch); the codex rows pin the minimum a parser would need: the turn's token usage and
+/// the agent_message text.
 immutable ConsumerField[] consumerFields = [
 	ConsumerField("claude", "result", "type", FieldKind.string_),
 	ConsumerField("claude", "result", "result", FieldKind.string_),
@@ -119,6 +155,12 @@ immutable ConsumerField[] consumerFields = [
 	ConsumerField("gemini", "message/assistant", "type", FieldKind.string_),
 	ConsumerField("gemini", "message/assistant", "role", FieldKind.string_),
 	ConsumerField("gemini", "message/assistant", "content", FieldKind.string_),
+	ConsumerField("codex", "turn.completed", "type", FieldKind.string_),
+	ConsumerField("codex", "turn.completed", "usage", FieldKind.object),
+	ConsumerField("codex", "turn.completed", "usage.input_tokens", FieldKind.number),
+	ConsumerField("codex", "turn.completed", "usage.cached_input_tokens", FieldKind.number),
+	ConsumerField("codex", "turn.completed", "usage.output_tokens", FieldKind.number),
+	ConsumerField("codex", "item.completed/agent_message", "item.text", FieldKind.string_),
 	ConsumerField(anyProvider, "lifecycle", "kind", FieldKind.string_),
 	ConsumerField(anyProvider, "lifecycle", "phase", FieldKind.string_),
 	ConsumerField(anyProvider, "lifecycle", "status", FieldKind.string_),
@@ -144,7 +186,7 @@ private void enforceField(string provider, const Json event, const ConsumerField
 }
 
 /// Which `consumerFields` event `event` is: `lifecycle`, `system/<subtype>`, `message/<role>`,
-/// or its `type`.
+/// `item.completed/<item type>`, or its `type`.
 private string consumedEvent(const Json event)
 {
 	if (event["kind"].opt!string == "lifecycle")
@@ -152,6 +194,8 @@ private string consumedEvent(const Json event)
 	const type = event["type"].opt!string;
 	if (type == "system")
 		return "system/" ~ event["subtype"].opt!string;
+	if (type == "item.completed")
+		return "item.completed/" ~ event["item"]["type"].opt!string;
 	return type == "message" ? "message/" ~ event["role"].opt!string : type;
 }
 
@@ -202,8 +246,6 @@ EventShape[] eventShape(const string[] lines)
 /// carries: what a translated stream adds over a recorded one, values ignored.
 string[][] keysAbsentFrom(const string[] recorded, const string[] lines)
 {
-	import std.algorithm : canFind;
-
 	const known = eventShape(recorded);
 	return eventShape(lines).map!(shape => shape.keys
 			.filter!(key => !known.any!(cli => cli.type == shape.type && cli.keys.canFind(key)))
@@ -218,10 +260,6 @@ private string typeOf(const Json event)
 	return event["type"].get!string;
 }
 
-private bool isSystemInit(const Json event)
-{
-	return typeOf(event) == "system" && event["subtype"].opt!string == "init";
-}
 
 unittest // recorded claude cli stream passes the contract
 {
@@ -371,4 +409,60 @@ unittest // gemini stream starting with its user message is rejected
 	const lines = import("events/gemini-cli.jsonl").splitLines[1 .. $];
 	({ enforceEventContract("gemini", lines); }).should.throwException!Exception
 		.withMessage.equal("gemini stream must start with init");
+}
+
+unittest // recorded codex cli success and api error streams pass the event contract
+{
+	({
+		enforceEventContract("codex", import("events/codex-cli.jsonl").splitLines);
+		enforceEventContract("codex", import("events/codex-cli-error.jsonl").splitLines);
+	}).should.not.throwAnyException;
+}
+
+unittest // codex stream completing its turn without an agent_message item is rejected
+{
+	const recorded = import("events/codex-cli.jsonl").splitLines;
+	const lines = recorded[0 .. 2] ~ recorded[3];
+	({ enforceEventContract("codex", lines); }).should.throwException!Exception
+		.withMessage.equal("codex stream needs an agent_message item before turn.completed");
+}
+
+unittest // codex stream with an item after turn.completed is rejected
+{
+	const recorded = import("events/codex-cli.jsonl").splitLines;
+	({ enforceEventContract("codex", recorded ~ recorded[2]); }).should.throwException!Exception
+		.withMessage.equal("codex stream must end with its turn.completed or turn.failed line");
+}
+
+unittest // codex stream starting with turn.started is rejected
+{
+	({ enforceEventContract("codex", import("events/codex-cli.jsonl").splitLines[1 .. $]); })
+		.should.throwException!Exception.withMessage.equal("codex stream must start with thread.started");
+}
+
+unittest // recorded codex cli success and api error streams satisfy the consumer contract
+{
+	({
+		enforceConsumerContract("codex", import("events/codex-cli.jsonl").splitLines);
+		enforceConsumerContract("codex", import("events/codex-cli-error.jsonl").splitLines);
+	}).should.not.throwAnyException;
+}
+
+unittest // codex turn.completed with usage.output_tokens "5" as a string is rejected
+{
+	const recorded = import("events/codex-cli.jsonl").splitLines;
+	auto turn = parseJsonString(recorded[$ - 1]);
+	turn["usage"]["output_tokens"] = "5";
+	({ enforceConsumerContract("codex", recorded[0 .. $ - 1] ~ turn.toString); }).should.throwException!Exception
+		.withMessage.equal("codex turn.completed field usage.output_tokens must be a number");
+}
+
+unittest // codex agent_message item with text as an array of parts is rejected
+{
+	const recorded = import("events/codex-cli.jsonl").splitLines;
+	auto item = parseJsonString(recorded[2]);
+	item["item"]["text"] = parseJsonString(`[{"text":"ok"}]`);
+	({ enforceConsumerContract("codex", recorded[0 .. 2] ~ item.toString ~ recorded[3]); })
+		.should.throwException!Exception
+		.withMessage.equal("codex item.completed/agent_message field item.text must be a string");
 }

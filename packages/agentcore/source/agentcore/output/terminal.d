@@ -18,8 +18,8 @@ struct Terminal
 
 /// Detect the agent's terminal event in `payload`. Claude's `stream-json` ends with
 /// a single `{"type":"result","is_error":bool,...}`; Codex's `exec --json` ends its
-/// turn with `{"type":"turn.completed",...}` (it has no error field, so a completed
-/// turn is treated as success); Gemini's `stream-json` ends with
+/// turn with `{"type":"turn.completed",...}` on success or `{"type":"turn.failed",...}`
+/// on an error; Gemini's `stream-json` ends with
 /// `{"type":"result","status":"success"|"error",...}`. Anything else is not terminal. Never throws — it
 /// runs on the supervisor's nothrow output path, so a malformed line is just "not
 /// terminal".
@@ -60,9 +60,10 @@ private Terminal geminiTerminal(Json event)
 
 private Terminal codexTerminal(Json event)
 {
-	if (strAt(event, "type") != "turn.completed")
+	const type = strAt(event, "type");
+	if (type != "turn.completed" && type != "turn.failed")
 		return Terminal.init;
-	return Terminal(true, true);
+	return Terminal(true, type == "turn.completed");
 }
 
 private string strAt(Json object, string key)
@@ -134,4 +135,10 @@ unittest // gemini success result is terminal and ok while its init and message 
 		terminalFor("gemini", `{"type":"message","role":"assistant","content":"ok","delta":true}`),
 		terminalFor("gemini", `{"type":"result","status":"success","stats":{}}`)]
 		.should.equal([Terminal(false, false), Terminal(false, false), Terminal(true, true)]);
+}
+
+unittest // codex turn.failed is terminal and not ok
+{
+	terminalFor("codex", `{"type":"turn.failed","error":{"message":"unexpected status 401 Unauthorized"}}`)
+		.should.equal(Terminal(true, false));
 }

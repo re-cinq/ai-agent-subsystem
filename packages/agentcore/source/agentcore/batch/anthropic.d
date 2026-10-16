@@ -113,8 +113,14 @@ final class AnthropicBatchProvider : BatchProvider
 		send("POST", batchUrl(id) ~ "/cancel", "");
 	}
 
+	/// Delete the batch. Only an ended batch can be deleted, so one still `in_progress` or
+	/// `canceling` throws `BatchNotSettled` instead.
 	void cleanup(string id)
 	{
+		import agentcore.batch.provider : BatchNotSettled;
+
+		const status = call("GET", batchUrl(id), "")["processing_status"].get!string;
+		enforce(status == "ended", new BatchNotSettled("anthropic batch " ~ id ~ " is still " ~ status));
 		send("DELETE", batchUrl(id), "");
 	}
 
@@ -365,15 +371,32 @@ unittest // cancel POSTs to /v1/messages/batches/msgbatch_01/cancel
 		"https://api.anthropic.com/v1/messages/batches/msgbatch_01/cancel", anthropicHeaders, "")]);
 }
 
-unittest // cleanup DELETEs /v1/messages/batches/msgbatch_01
+unittest // cleanup of a canceling batch throws BatchNotSettled without DELETEing it
 {
-	auto transport = FakeTransport([HttpResponse(200, `{"id":"msgbatch_01","type":"message_batch_deleted"}`)]);
+	import agentcore.batch.provider : BatchNotSettled;
+
+	auto batch = parseJsonString(import("batch/anthropic-batch-in-progress.json"));
+	batch["processing_status"] = "canceling";
+	auto transport = FakeTransport([HttpResponse(200, batch.toString)]);
+	auto provider = new AnthropicBatchProvider("sk-ant-test", &transport.send);
+
+	provider.cleanup("msgbatch_01").should.throwException!BatchNotSettled;
+	transport.requests.should.equal([HttpRequest("GET",
+		"https://api.anthropic.com/v1/messages/batches/msgbatch_01", anthropicHeaders, "")]);
+}
+
+unittest // cleanup of an ended batch GETs then DELETEs /v1/messages/batches/msgbatch_01
+{
+	auto transport = FakeTransport([HttpResponse(200, import("batch/anthropic-batch-ended.json")),
+		HttpResponse(200, `{"id":"msgbatch_01","type":"message_batch_deleted"}`)]);
 	auto provider = new AnthropicBatchProvider("sk-ant-test", &transport.send);
 
 	provider.cleanup("msgbatch_01");
 
-	transport.requests.should.equal([HttpRequest("DELETE",
-		"https://api.anthropic.com/v1/messages/batches/msgbatch_01", anthropicHeaders, "")]);
+	transport.requests.should.equal([
+		HttpRequest("GET", "https://api.anthropic.com/v1/messages/batches/msgbatch_01", anthropicHeaders, ""),
+		HttpRequest("DELETE", "https://api.anthropic.com/v1/messages/batches/msgbatch_01", anthropicHeaders, ""),
+	]);
 }
 
 unittest // succeeded claude-opus-5-5 poll with 18 input and 4 output tokens reports total_cost_usd 0.000076
