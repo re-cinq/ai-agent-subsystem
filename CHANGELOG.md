@@ -19,7 +19,9 @@ the npm package versions.
   16 queued, and each raises `{"kind":"turn",…}` events. The session ends, saves its conversation
   under its session id and goes `Succeeded` when it is closed, receives no prompt for
   `realtime.idleTimeoutMinutes` (default 15), or is signalled; the Station's `deadlineMinutes` stays the
-  hard limit. `status.sessionId` is recorded as soon as a prompt reveals it, and an Agent with
+  hard limit. The save needs `resources.conversation.source` and a vendor that keeps state.
+  `status.sessionId` is recorded as soon as a prompt's reply reveals it (for a fresh Codex or Gemini
+  session, from the second prompt on, since the first turn announces it), and an Agent with
   `spec.resumeSession: <id>` restores that conversation from `resources.conversation.source` and waits
   for prompts without sending the definition's prompt. Realtime is opt-in through the
   `deploy/components/realtime` kustomize component, which also adds a NetworkPolicy letting only
@@ -69,7 +71,7 @@ the npm package versions.
   `status.output` and the sinks get the gemini CLI's `stream-json` lines for a single-turn run
   (`init`, an assistant `message`, and a `result` with `status` and `stats`), so a consumer reads it
   like a gemini CLI run; there is no cost field, as the CLI has none. An `output.schema` is sent as
-  `generationConfig.responseJsonSchema`. Codex and opencode models are still rejected. The
+  `generationConfig.responseJsonSchema`. Opencode models are still rejected. The
   controller needs HTTPS egress to `generativelanguage.googleapis.com` for Gemini batch runs.
   A batch poll that errors is logged and retried until the batch timeout, which still fails the
   Agent or falls back to a Job.
@@ -90,7 +92,7 @@ the npm package versions.
   `batch.onTimeout: fail` fails the Agent with `batch timed out`, `fallback` cancels the batch and
   runs the same definition as a normal Job at full price. A batch is one model call, so a batch
   definition that sets tools, `max_turns`, repos, MCP servers, skills, a conversation,
-  `output.watch` or the `exec` model, or an Agent that sets `spec.files`, fails the Agent with the
+  `output.watch`, the `exec` model or an opencode model, or an Agent that sets `spec.files`, fails the Agent with the
   field named. An `output.schema` is sent as structured output (`output_config.format` of type
   `json_schema`). `batch.maxTokens` (default 16000) sets the request's `max_tokens`, and a run with no
   model anywhere uses `claude-opus-5-5`. The `result` event's `total_cost_usd` is half the model's
@@ -98,8 +100,7 @@ the npm package versions.
   `0` for a model not in the table), `usage` passes through cache token counts when present, and
   `thinking` blocks are dropped so the events read like the CLI's. An Agent's `spec.model` overrides the definition's model for the
   request and the model check, as it does for a Job. Under `concurrencyPolicy: Replace` a new batch
-  Agent preempts the oldest run and submits its batch. OpenAI and Gemini models
-  are rejected for now; their batch support is coming. The controller delivers the run's events to the
+  Agent preempts the oldest run and submits its batch. The controller delivers the run's events to the
   definition's `output.sinks` in the usual envelope (no `pod` in `source`): `agent`/`started` on
   submit, the CLI lines through `output.select` and `agent`/`succeeded` or `agent`/`failed`
   (`reason: batch_failed`) when the batch ends, and a `batch_timeout` lifecycle event on a timeout
@@ -118,16 +119,19 @@ the npm package versions.
   package with a different checksum, or any other architecture, fails the init. The init now also
   needs `sha256sum`, and installs `coreutils` if the base image lacks it. The version is the
   `codexCliVersion` constant, raised on purpose.
-- **The Notification API documents a consumer contract for Claude runs.** The reference lists the
-  `result`, `system` init and lifecycle fields, with their JSON types, that both CLI and batch runs
-  always emit; the unit tests check it against a recorded CLI run and a recorded batch result.
+- **The Notification API documents a consumer contract for Claude, Gemini and Codex runs.** The
+  reference lists, per vendor, the fields with their JSON types that both CLI and batch runs emit
+  (Claude's `result` and `system` init, Gemini's `init`, `message` and `result`, Codex's turn and
+  `agent_message` lines) and the lifecycle fields every vendor emits; the unit tests check it against
+  recorded CLI runs and recorded batch results.
 - **Batch execution is opt-in through the `deploy/components/batch` kustomize component.** It adds
   a Role with `get` on the `agent-secrets` Secret (that Secret only) and sets `BATCH_ENABLED=true` on
   the controller, which then reads the provider API key itself. The default install, including the
   release `install.yaml`, keeps the controller without any Secret access, and a batch Agent there
   fails with `batch execution is disabled on this controller`. Enable it with
   `components: [<deploy>/components/batch]` in your kustomization. If your cluster restricts egress
-  from the controller, allow HTTPS to `api.anthropic.com` for batch runs. Disabling batch with
+  from the controller, allow HTTPS to `api.anthropic.com`, `generativelanguage.googleapis.com` and
+  `api.openai.com` for batch runs. Disabling batch with
   runs in flight fails those Agents with the same reason and an `agent`/`failed` sink event, and
   releases their `batch-cleanup` finalizer; their provider batches are left to finish and expire,
   and are still billed.

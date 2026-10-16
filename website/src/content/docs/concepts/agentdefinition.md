@@ -39,7 +39,10 @@ flowchart LR
   that can take up to 24 hours and only a single model call. `batch.timeoutMinutes` and
   `batch.onTimeout` (`fail` or `fallback` to a normal Job) bound the wait, and `batch.maxTokens`
   (default 16000) caps the answer. Batch is off unless the controller is installed with the
-  `components/batch` kustomize component. See [batch runs](../tasks/batch-runs.md).
+  `components/batch` kustomize component. See [batch runs](../tasks/batch-runs.md). `realtime` keeps
+  the agent CLI running in its Job pod and takes prompts over HTTP until the session is closed or has
+  been idle for `realtime.idleTimeoutMinutes` (default 15); it is off unless the controller is installed
+  with the `components/realtime` component. See [realtime sessions](../tasks/realtime-sessions.md).
 - **`tool_config`**: a raw passthrough object for tool-specific knobs; unknown fields are preserved.
 
 ## Why it is separate

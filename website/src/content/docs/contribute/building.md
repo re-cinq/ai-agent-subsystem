@@ -34,6 +34,8 @@ underneath, and why.
 - **dub**: the D package manager and build tool.
 - **A D compiler**: `dmd` works out of the box; **LDC** (`ldc2`) is used for optimized release
   builds and for fully-static (musl) builds.
+- **lld**: only for LDC release and static builds, which link with `--linker=lld`. The DMD dev
+  loop does not need it.
 - **Node**: only for `make contracts` and `make docs` (the npm package and this site).
 
 ## Build
@@ -92,16 +94,19 @@ requires) provides it. The default `dub` + LDC build links the D runtime (drunti
 `debian:bullseye`, glibc 2.31) with
 
 ```sh
-DFLAGS="-link-defaultlib-shared=false -L-lz" dub build :initializer --compiler=ldc2
+DFLAGS="-link-defaultlib-shared=false -L-lz --linker=lld" dub build :initializer --compiler=ldc2
 ```
 
 the binary runs unchanged on every glibc-based Kubernetes distro (Debian, Ubuntu, the RHEL family,
 Amazon Linux) because it only needs a baseline glibc (and `libz`/`libgcc_s`, present everywhere).
-Verify the D runtime is statically linked in:
+The link needs the `lld` package: ld.bfd older than binutils 2.36 (bullseye's and Rocky 9's 2.35)
+can split `.tbss` into two sections at the same address, so two thread-locals share storage. Verify
+the D runtime is statically linked in and the binary has a single `.tbss`:
 
 ```sh
 ldd packages/controller/ai-agent-controller
 # libm.so.6, libgcc_s.so.1, libc.so.6, ld-linux, and no libphobos / libdruntime
+scripts/check-tbss.sh packages/initializer/ai-agent-init
 ```
 
 **Alpine** is musl, not glibc, so a glibc binary can't run there; it is built natively on Alpine
@@ -146,6 +151,17 @@ detected package manager and clones for real:
 ```sh
 ./scripts/ctest-initializer.sh                                                  # Debian/apt (default)
 BUILDER_IMAGE=fedora:40 RUNTIME_IMAGE=fedora:40 ./scripts/ctest-initializer.sh  # dnf
+```
+
+Two opt-in checks install a real agent CLI and need network:
+
+| Setting | Script | What it adds |
+| --- | --- | --- |
+| `CTEST_CLAUDE=1` | `scripts/ctest-initializer.sh` | Runs the real Claude installer and checks `claude` lands in `~/.local/bin`; skipped when `downloads.claude.ai` is unreachable. |
+| `CTEST_CODEX=1` | `scripts/ctest-init-portable.sh` | Installs the pinned Codex CLI (`codexCliVersion`) on each target and checks `codex --version` reports `codex-cli <codexCliVersion>`. |
+
+```sh
+CTEST_CODEX=1 TARGETS="ubuntu:24.04" ./scripts/ctest-init-portable.sh
 ```
 
 CI runs this in the **Init container** workflow (`.github/workflows/init-container.yml`) across the

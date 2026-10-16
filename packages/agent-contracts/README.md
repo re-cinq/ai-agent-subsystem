@@ -1,6 +1,6 @@
 # @re-cinq/agent-contracts
 
-TypeScript types and a thin, typed client for the [ai-agent-subsystem](https://github.com/re-cinq/ai-agent-subsystem) Custom Resources: **Agent**, **Station**, and **AgentDefinition** (API group `agents.re-cinq.com/v1alpha1`).
+TypeScript types and a thin, typed client for the [ai-agent-subsystem](https://github.com/re-cinq/ai-agent-subsystem) Custom Resources: **Agent**, **Station**, **AgentDefinition** and **ModelCatalog** (API group `agents.re-cinq.com/v1alpha1`).
 
 The types are generated directly from the D source structs that define the CRDs, so they cannot drift from the controller. A CI drift check fails the build if the committed output stops matching the model.
 
@@ -12,9 +12,9 @@ npm install @re-cinq/agent-contracts
 
 ## What you get
 
-- **Types** for every resource and nested field: `Agent`, `Station`, `AgentDefinition`, their `*Spec`/`*Status` shapes, and the string-literal unions (`Phase`, `ConcurrencyPolicy`, `PermissionMode`, ...).
+- **Types** for every resource and nested field: `Agent`, `Station`, `AgentDefinition`, their `*Spec`/`*Status` shapes, the `ModelCatalog`, `ModelCatalogStatus`, `VendorModels` and `ModelInfo` types, and the string-literal unions (`Phase`, `ConcurrencyPolicy`, `PermissionMode`, ...).
 - **Constants**: `GROUP`, `VERSION`, `DEFAULT_NAMESPACE`.
-- **`AgentContractsClient`** — create/read/list Agents and server-side-apply Stations and AgentDefinitions.
+- **`AgentContractsClient`** — create/read/list Agents, server-side-apply Stations and AgentDefinitions, and read the ModelCatalog.
 - **Helpers**: `isTerminal(agent)` and `waitForAgent(client, name, options?)`.
 
 The client takes a `KubeTransport` you supply, so its logic stays decoupled from any particular HTTP stack and is deterministically testable with an in-memory fake — no cluster, no mocks.
@@ -90,6 +90,7 @@ console.log(finished.status?.phase, finished.status?.prUrl);
 | `createAgent(agent)` | Create one Agent run. |
 | `getAgent(name)` | Read one Agent by name. |
 | `findAgents(labelSelector)` | List Agents matching a Kubernetes label selector. |
+| `getModelCatalog()` | Read the `default` ModelCatalog in the client's namespace: the models the subsystem can run. Throws on a 404 when the controller runs without the model-catalog component. |
 | `applyStation(station)` | Server-side apply a Station. |
 | `applyAgentDefinition(def)` | Server-side apply an AgentDefinition. |
 | `isTerminal(agent)` | `true` once `status.phase` is `Succeeded` or `Failed`. |

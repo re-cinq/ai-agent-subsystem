@@ -24,8 +24,10 @@ own token, an HMAC-SHA256 of the Agent's uid under the Secret's `signing-key`.
 - `turn` is the prompt's turn number, counted from 1 across the session, and matches the `turn` of
   its [turn events](./notification-api.md#turn-events).
 - `queued` is how many prompts are waiting, this one included.
-- `sessionId` is the agent's session id once known, else `""`. When it differs from the Agent's
-  `status.sessionId`, the controller records it there.
+- `sessionId` is the agent's session id once the supervisor knows it, else `""`. A resumed session and
+  a fresh Claude session know it from the start. A fresh Codex or Gemini session learns it from its
+  first turn, so the first prompt's reply carries `""` and a later prompt's reply carries the id. When
+  it differs from the Agent's `status.sessionId`, the controller records it there.
 
 A close stops new prompts. The queued turns still run, then the session ends and the Agent goes
 `Succeeded`.
@@ -37,12 +39,12 @@ A close stops new prompts. The queued turns still run, then the session ends and
 | 202 | Accepted: the prompt is queued, or the session will close. |
 | 400 | The body is not JSON with a non-empty `prompt` string. |
 | 401 | The bearer token is missing or wrong. |
-| 404 | The namespace is not the controller's, the Agent does not exist, or the path is not one of the two endpoints. |
-| 409 | The Agent is not a running session (`Agent <name> is Pending, not a running session`), is not a realtime run, or the session is closing. |
-| 413 | The prompt is larger than 100 KiB. |
-| 429 | 16 prompts are already queued. |
+| 404 | The namespace is not the controller's (`this controller serves namespace <ns>`), the Agent does not exist (`Agent <name> not found`), or the method or path is not one of the two endpoints (`not found`). |
+| 409 | The Agent is not `Running` or has no Job yet (`Agent <name> is <phase>, not a running session`), is not a realtime run (`Agent <name> is not a realtime run`), or the session is closing, which also refuses a second close (`the session is ending`). |
+| 413 | The request body is over 200 KiB (`request body too large`, from the controller), or the decoded prompt is over 100 KiB, 102400 bytes (`prompt exceeds 102400 bytes`, from the supervisor). |
+| 429 | 16 prompts are already waiting (`too many queued prompts`). The running turn does not count. |
 | 502 | The session's supervisor answered something unexpected. |
-| 503 | The run pod is not serving yet, or cannot be reached. Retry after the `Retry-After` seconds (2). |
+| 503 | The run pod is not serving (`the session is not serving yet`) or cannot be reached (`the session's pod cannot be reached`). Retry after the `Retry-After` seconds (2). This also covers the moment after a session ended and before the Agent turns terminal, so a caller that keeps getting 503 should check the Agent's phase. |
 
 Error bodies are `{"error": "<message>"}`.
 

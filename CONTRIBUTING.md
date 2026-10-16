@@ -12,6 +12,7 @@ there.
 | --- | --- | --- |
 | D compiler | DMD 2.111 (dev loop, CI) or LDC 1.40 (what ships; frontend 2.110) | everything under `packages/` |
 | dub | 1.40+ (bundled with the compiler) | builds and tests |
+| lld | any | LDC release and static builds only (`--linker=lld`); the DMD dev loop does not need it |
 | GNU make | any | the targets below |
 | Node.js | 22 (`.nvmrc` in `website/` and `packages/agent-contracts/`) | contracts package, docs site |
 | Docker + Buildx | recent | container tests, images |
@@ -22,7 +23,7 @@ there.
 debian:bullseye's LDC 1.24), so an unsupported compiler fails fast with a clear message instead of
 a page of template errors.
 
-LDC builds that ship (the image Dockerfiles, the portable `ai-agent-init` build) link with lld
+LDC builds that ship (the image Dockerfiles, the portable glibc `ai-agent-init` build) link with lld
 (`--linker=lld`, so the builder needs the `lld` package). ld.bfd older than binutils 2.36, such as
 Rocky 9's and debian:bullseye's 2.35, can split `.tbss` so that two thread-locals share storage;
 `scripts/check-tbss.sh <binary>...` fails the build when that happens.
@@ -86,8 +87,8 @@ CLI run of the same vendor:
   `scripts/record-batch-response.sh "" gemini`). Both need `GEMINI_API_KEY`.
   `testdata/events/gemini-cli-error.jsonl` is a real gemini-cli 0.62.0 run with an invalid key.
 - Codex/OpenAI: `testdata/events/codex-cli.jsonl` (from `scripts/record-cli-events.sh "" codex`,
-  which installs the codex CLI with the same unpinned installer `vendors/codex/setup.d` runs, or
-  uses `CODEX_CLI`, with the run pod's flags) and `testdata/batch/openai-batch-completed.json` plus
+  which runs the codex CLI version pinned as `codexCliVersion` in `vendors/codex/setup.d`, the
+  checksum-verified GitHub release package, or `CODEX_CLI`, with the run pod's flags) and `testdata/batch/openai-batch-completed.json` plus
   `openai-output-succeeded.json` (from `scripts/record-batch-response.sh "" openai`). Both need
   `OPENAI_API_KEY`; the CLI recorder hands it to codex as `CODEX_API_KEY`, the variable
   `codex exec` reads. `testdata/events/codex-cli-error.jsonl` is a real codex-cli 0.142.5 run with

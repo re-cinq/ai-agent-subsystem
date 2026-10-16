@@ -54,7 +54,9 @@ A stdio server with `env` is started through `sh`, which exports each value unde
 server expects before it `exec`s the command.
 
 `headers_secret: <key>` is the older, deprecated form of a single `Authorization` header; it still
-works, but cannot be combined with an `Authorization` entry in `headers`.
+works, but cannot be combined with an `Authorization` entry in `headers`. It keeps its old env var
+name rather than `MCP_<SERVER>_<NAME>`: the key upper-cased, with every non-alphanumeric character
+folded to `_` (`tools-mcp-auth` becomes `TOOLS_MCP_AUTH`).
 
 ## Which agent CLIs support it
 
@@ -65,6 +67,10 @@ works, but cannot be combined with an `Authorization` entry in `headers`.
 | Codex | yes | no | yes | `-c mcp_servers.<name>.…` overrides on the command line |
 | OpenCode | yes | yes | yes | `mcp` in `/agent/.config/opencode/opencode.json`, written by the init container |
 | `exec` | no | no | no | not an LLM CLI |
+
+For gemini-cli and OpenCode the init container replaces the whole key on every run, and writes it
+empty when the definition declares no servers, so a server from an earlier run never outlives its
+secret.
 
 A definition the CLI cannot honour fails the Agent before a Job is created, with the reason in
 `status.failureReason`. That covers `mcp_servers` on `exec`, `sse` on Codex, a duplicate or invalid

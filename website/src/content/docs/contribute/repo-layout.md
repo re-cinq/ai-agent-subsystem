@@ -20,10 +20,12 @@ ai-agent-subsystem/
 │   │       ├── vendors/           #   agent adapters + installers (claude/codex/gemini/opencode/exec)
 │   │       ├── tools/             #   init-container tools (supervisor/git/agent/skills/conversation)
 │   │       ├── pkgmanager/        #   apt/dnf/apk detection + bootstrap
-│   │       ├── batch/             #   batch providers (Anthropic), result -> CLI event translation
+│   │       ├── batch/             #   batch providers (anthropic, gemini, openai), result -> CLI event translation
+│   │       ├── models/            #   ModelCatalog refresh: vendor list-models calls (listing.d), status build (catalog.d)
 │   │       ├── output/            #   event wrapping, sinks, lifecycle, output.select, file events, event contract
 │   │       └── core/              #   types, env names, exec, prompt, log, vendor routing (vendor.d)
-│   ├── controller/                # binary: the operator (batchhttp.d: HTTPS transport for batch APIs)
+│   ├── controller/                # binary: the operator (batchhttp.d: HTTPS transport for the vendor APIs;
+│   │                              #   catalogloop.d: leader-only ModelCatalog refresh)
 │   ├── initializer/               # binary: the in-pod init container (ai-agent-init)
 │   ├── supervisor/                # binary: the in-pod supervisor
 │   ├── crdgen/                    # dev/CI tool: generates deploy/crds from the structs

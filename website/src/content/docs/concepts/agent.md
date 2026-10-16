@@ -27,6 +27,9 @@ flowchart LR
   container downloads each into the workspace before the agent starts, so a run can be handed a
   document without its contents ever sitting in the CR. The recipe says what the agent does; `files`
   and `parameters` are what *this* run does it to.
+- **`resumeSession`**: optional `status.sessionId` of an earlier
+  [realtime session](../tasks/realtime-sessions.md) to continue. The run restores that conversation and
+  waits for prompts instead of sending the recipe's prompt.
 
 Agents are usually created with `generateName` (for example `bug-fixer-run-`) so Kubernetes assigns
 a unique name per run.
@@ -42,6 +45,8 @@ The controller owns `status`:
 - **`output`**: captured summary output (the truncated tail of the pod logs).
 - **`failureReason`**: a human-readable reason when the run fails.
 - **`prUrl`**: a pull-request URL when applicable.
+- **`sessionId`**: the agent CLI's session id, from the run's session events; pass it as another
+  Agent's `resumeSession` to continue a realtime session.
 - **`batchId`** / **`batchProvider`** / **`batchFallback`** / **`batchCleanupAttempts`**: set only
   for [batch runs](../tasks/batch-runs.md). A batch Agent goes through the same phases, but `Running`
   means its provider batch is in flight rather than a Job, and `jobName` stays empty unless it fell

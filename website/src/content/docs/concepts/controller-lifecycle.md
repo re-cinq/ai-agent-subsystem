@@ -72,14 +72,14 @@ fails the Agent with the reason if not. Station concurrency applies as for Jobs;
 full Station's oldest `Running` run is deleted and the new Agent submits its batch. It then reads the API
 key from `agent-secrets`, submits the rendered prompt with the run's model (the Agent's `spec.model`
 when set, else the definition's, else `claude-opus-5-5`), `batch.maxTokens` and any `output.schema`
-to the Anthropic Message Batches API, patches
+to the batch API of the model's vendor (Anthropic, Gemini or OpenAI), patches
 `phase = Running`, `batchId`, `batchProvider` and `startedAt`, and adds the
 `agents.re-cinq.com/batch-cleanup` finalizer.
 
 **Running (poll).** While the batch is in flight, the controller polls it at most once every
 `BATCH_POLL_SECONDS` (default 60) rather than on every watch event. A pending batch leaves the Agent
-`Running`. A finished batch moves it to `Succeeded` or `Failed` with `output` set to the Claude CLI
-event lines built from the response; an errored request's message becomes `failureReason`.
+`Running`. A finished batch moves it to `Succeeded` or `Failed` with `output` set to the vendor CLI's
+event lines built from the response; a failed request's message becomes `failureReason`.
 
 **Timeout.** Once `batch.timeoutMinutes` have passed since `startedAt`, the controller cancels the
 batch. With `onTimeout: fail` the Agent becomes `Failed` with `batch timed out`. With
@@ -106,7 +106,11 @@ behind; each failed attempt also increments `controller_batch_cleanup_failures_t
 
 An Agent whose AgentDefinition sets `execution: realtime` goes through the same phases and gets a Job
 like an interactive run. The controller fails it at Pending with
-`realtime execution is disabled on this controller` unless it runs with the realtime component. The
+`realtime execution is disabled on this controller` unless it runs with the realtime component, and
+with the matching [validation](../reference/crd-agentdefinition.md#specrealtime) reason when the
+definition sets `resources.conversation.id` or `pin`, or when a `resumeSession` cannot be honoured
+(`resumeSession requires realtime execution`, `resumeSession needs resources.conversation.source`,
+`<vendor> cannot resume a session`). The
 Job's supervisor serves prompts on port 8090 and accepts only the run's own token, which the
 controller derives from the Agent's uid. The pod carries the `agents.re-cinq.com/execution: realtime`
 label. With `spec.resumeSession` set, the Job restores that conversation and sends no initial prompt.

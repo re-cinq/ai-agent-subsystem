@@ -40,8 +40,18 @@ kubectl delete -k deploy
   out of band. Namespace termination drains the contained objects, so this can take a moment.
 - **The four CRDs** (`agents`, `stations`, `agentdefinitions`, `modelcatalogs` under `agents.re-cinq.com`) and, with
   them, all custom resources of those kinds across every namespace. Agents own their Jobs through
-  owner references, so deleting an Agent garbage-collects its Job and pod; there are no finalizers to
-  unstick.
+  owner references, so deleting an Agent garbage-collects its Job and pod.
+
+A [batch](../tasks/batch-runs.md) Agent carries the finalizer `agents.re-cinq.com/batch-cleanup`
+from submit until the controller has cancelled and deleted its provider-side batch, and only the
+controller removes it. Delete batch Agents, or let them finish, before removing the
+controller. If one is stuck `Terminating` once the controller is gone, remove the finalizer by hand:
+
+```sh
+kubectl -n ai-agents patch agent <name> --type=json -p '[{"op":"remove","path":"/metadata/finalizers"}]'
+```
+
+The provider-side batch is then left behind and still billed.
 
 Credentials you created out of band are namespaced, so they go with the namespace. Nothing on the
 node is touched — the subsystem mounts nothing from the host (see
