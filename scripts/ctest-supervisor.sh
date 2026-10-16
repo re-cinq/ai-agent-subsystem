@@ -44,10 +44,7 @@ if [ "${SKIP_BUILD:-0}" != 1 ]; then
     for pkg in supervisor mockagent itest; do DFLAGS="-g -d-debug --linker=lld" dub build :$pkg --compiler=ldc2; done
     cp packages/supervisor/ai-agent-supervisor packages/mockagent/ai-agent-mock packages/itest/ai-agent-itest /out/
     cp /usr/lib64/libphobos2-ldc-shared.so.* /usr/lib64/libdruntime-ldc-shared.so.* /out/
-    for bin in /out/ai-agent-*; do
-      [ "$(readelf -SW "$bin" | grep -c " \.tbss ")" -le 1 ] \
-        || { echo "$bin: split .tbss, so thread-locals alias each other" >&2; exit 1; }
-    done
+    scripts/check-tbss.sh /out/ai-agent-*
   '
 fi
 chmod +x "$stage"/ai-agent-* 2>/dev/null || true

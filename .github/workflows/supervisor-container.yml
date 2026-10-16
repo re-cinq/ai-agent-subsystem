@@ -19,6 +19,7 @@ on:
       - 'dub.json'
       - 'scripts/container/run-itest.sh'
       - 'scripts/ctest-supervisor.sh'
+      - 'scripts/check-tbss.sh'
       - '.github/workflows/supervisor-container.yml'
   pull_request:
     paths:
@@ -26,6 +27,7 @@ on:
       - 'dub.json'
       - 'scripts/container/run-itest.sh'
       - 'scripts/ctest-supervisor.sh'
+      - 'scripts/check-tbss.sh'
       - '.github/workflows/supervisor-container.yml'
   workflow_dispatch:
 

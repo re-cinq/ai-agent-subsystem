@@ -56,6 +56,8 @@ if [ -n "$glibc_targets" ] || [ "${BUILD_ONLY:-0}" = 1 ]; then
 		# that carries it, falling back to the snapshot when the archive 404s.
 		# All indexes are past Valid-Until, so that check is off; signatures are still
 		# verified. Plain http: the image has no CA certificates.
+		# Linked with lld: bullseye's ld.bfd is binutils 2.35, which splits a retained
+		# .tbss so thread-locals alias (see scripts/check-tbss.sh).
 		"$engine" run --rm -v "$PWD:/src" -w /src -e DEBIAN_SNAPSHOT="${DEBIAN_SNAPSHOT:-20260830T000000Z}" "$builder" sh -euc '
 			export DEBIAN_FRONTEND=noninteractive
 			snap="http://snapshot.debian.org/archive"
@@ -66,8 +68,9 @@ if [ -n "$glibc_targets" ] || [ "${BUILD_ONLY:-0}" = 1 ]; then
 				>/etc/apt/sources.list
 			rm -f /etc/apt/sources.list.d/*.list
 			apt-get -o Acquire::Check-Valid-Until=false -o Acquire::Retries=10 update >/dev/null
-			apt-get -o Acquire::Retries=10 install -y --no-install-recommends ldc dub gcc libc6-dev zlib1g-dev >/dev/null
-			DFLAGS="-link-defaultlib-shared=false -L-lz" dub build :initializer --compiler=ldc2
+			apt-get -o Acquire::Retries=10 install -y --no-install-recommends ldc dub gcc lld libc6-dev zlib1g-dev >/dev/null
+			DFLAGS="-link-defaultlib-shared=false -L-lz --linker=lld" dub build :initializer --compiler=ldc2
+			scripts/check-tbss.sh packages/initializer/ai-agent-init
 		'
 		cp packages/initializer/ai-agent-init "$stage/ai-agent-init"
 	fi
@@ -108,6 +111,7 @@ for img in $musl_targets; do
 	"$engine" run --rm "${codex_env[@]}" -v "$PWD:/src" -w /src "$img" sh -euc '
 		apk add --no-cache ldc dub gcc musl-dev zlib-dev git >/dev/null
 		DFLAGS="-link-defaultlib-shared=false -L-lz" dub build :initializer --compiler=ldc2
+		scripts/check-tbss.sh packages/initializer/ai-agent-init
 		install -m755 packages/initializer/ai-agent-init /usr/local/bin/ai-agent-init
 		git config --global user.email ctest@example.com
 		git config --global user.name ctest
