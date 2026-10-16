@@ -76,3 +76,14 @@ interface AgentSecretAliases
 	/// Alias env var name to the run env var name whose entry it copies.
 	string[string] secretAliases() const @safe;
 }
+
+/// An `Agent` whose CLI holds one process for a whole realtime session, reading each user
+/// turn as a line on stdin. Optional: a vendor without it runs one process per turn.
+interface StdinSession
+{
+	/// Argv for the long-lived session: the CLI's usual flags, with no prompt.
+	string[] sessionCommand(in AgentDefinitionSpec recipe, in ConversationArgs conv) const @safe;
+
+	/// The stdin line, without its newline, that delivers `prompt` as a user turn.
+	string userTurn(string prompt) const @safe;
+}
