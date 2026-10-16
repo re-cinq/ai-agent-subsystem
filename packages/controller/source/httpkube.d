@@ -20,7 +20,8 @@ import agentcore.crds.agent : Agent;
 import agentcore.crds.agent_definition : AgentDefinition;
 import agentcore.crds.station : Station;
 import agentcore.kube.jobspec : agentContainerName;
-import agentcore.kube.jsonbody : AgentListPage, parseAgentDefinition, parseAgentListPage, parseJobOutcome, parseStation;
+import agentcore.kube.jsonbody : AgentListPage, parseAgent, parseAgentDefinition, parseAgentListPage, parseJobOutcome,
+	parseStation;
 import agentcore.kube.kubeclient : KubeClient, NotFound, PodResult;
 import agentcore.kube.outputcap : capOutput;
 import agentcore.models.catalog : ModelCatalogClient, modelCatalogName;
@@ -239,6 +240,19 @@ final class HttpKubeClient : KubeClient, LeaseClient, AgentInformerClient, Model
 				if (items.type == Json.Type.array && items.get!(Json[]).length)
 					return items.get!(Json[])[0]["metadata"]["name"].get!string;
 		return "";
+	}
+
+	/// The Agent `name`; throws `NotFound` when it does not exist. Controller-only: the
+	/// prompt API reads it fresh to route a prompt to the run's pod.
+	Agent getAgent(string ns, string name)
+	{
+		return parseAgent(getJson(crUrl(ns, "agents", name), "Agent " ~ name));
+	}
+
+	/// The pods of the Job `jobName`, as the API's list document.
+	Json podsForJob(string ns, string jobName)
+	{
+		return getJson(podsUrl(ns) ~ "?labelSelector=job-name=" ~ jobName, "pods for " ~ jobName);
 	}
 
 	override PodResult podResult(string ns, string podName)

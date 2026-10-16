@@ -14,14 +14,16 @@ import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 import agentcore.crds.output_selector : OutputSelector;
 import agentcore.crds.output_watch : OutputWatch;
 import agentcore.crds.output_sink : OutputSink;
-import agentcore.crds.enums : SinkType;
+import agentcore.crds.conversation_ref : ConversationRef;
+import agentcore.crds.enums : Execution, SinkType;
 import agentcore.crds.repo_ref : RepoRef;
 import agentcore.crds.input_file : InputFile;
 import agentcore.crds.mcp_server : credentials;
 import agentcore.crds.station : Station;
 import agentcore.crds.serialization : toJson;
 import agentcore.vendors.select : agentForModel, agentSetupForModel;
-import agentcore.vendors.base.agent : AgentEnv, AgentSecretAliases, ConversationArgs;
+import agentcore.vendors.base.agent : Agent_ = Agent, AgentEnv, AgentSecretAliases, ConversationArgs;
+import agentcore.vendors.realtime : RealtimeArgv, realtimeArgv;
 import agentcore.kube.bundle : bundleRoot, supervisorPath;
 import agentcore.core.env;
 import agentcore.kube.jobs : jobNameFor, safeName;
@@ -44,6 +46,9 @@ enum labelComponent = "agents.re-cinq.com/component";
 enum labelAgent = "agents.re-cinq.com/agent";
 enum labelStation = "agents.re-cinq.com/station";
 enum componentJob = "job";
+/// Set to `realtime` on a realtime run's pod: the controller proxies prompts only to
+/// such pods, and the realtime NetworkPolicy admits the controller only to them.
+enum labelExecution = "agents.re-cinq.com/execution";
 
 /// Tells the cluster autoscaler not to evict a run pod when consolidating nodes.
 /// Runs are one-shot Jobs (`backoffLimit` 0): a scale-down eviction mid-run fails
@@ -89,24 +94,42 @@ AgentDefinitionSpec runRecipe(const Agent agent, AgentDefinitionSpec recipe) @sa
  * no I/O. It starts from the Station's `PodTemplateSpec`, overrides the container
  * named `agent` to run the supervisor + the adapter's argv, injects the run env,
  * and adds the init container, the bundle volume, and the security contexts.
+ *
+ * A realtime recipe runs the supervisor in realtime mode instead: `realtimeToken` is the
+ * bearer the controller will present, the pod serves prompts on `defaultRealtimePort`,
+ * and the conversation is resumed from the Agent's `resumeSession`.
  */
-Json buildJob(Agent agent, Station station, AgentDefinition definition, string agentImage)
+Json buildJob(Agent agent, Station station, AgentDefinition definition, string agentImage,
+	string realtimeToken = "")
 {
 	auto recipe = runRecipe(agent, definition.spec);
 	const prompt = renderPrompt(recipe.prompt, agent.spec.parameters);
 	// The conversation to continue rides into the argv: the adapter decides whether it
 	// is a flag or a subcommand, and adds a pin when its CLI supports one.
 	auto vendor = agentForModel(recipe.model);
+	const realtime = recipe.execution == Execution.realtime;
+	if (realtime)
+		recipe.resources.conversation = realtimeConversation(recipe.resources.conversation,
+			agent.spec.resumeSession, agent.metadata.uid, vendor);
+	const conversation = recipe.resources.conversation;
 	// Continue `id` but SAVE AS `pin`: a fork leaves the original intact and
 	// independently resumable, which is what makes rewinding to an earlier run possible.
-	auto argv = vendor.command(recipe, prompt,
-		ConversationArgs(recipe.resources.conversation.id, recipe.resources.conversation.pin));
+	// A realtime resume saves back under the id it continues, so it is no fork.
+	const conv = ConversationArgs(conversation.id,
+		realtime && conversation.id.length ? "" : conversation.pin);
+	const session = realtime ? realtimeArgv(vendor, recipe, conv) : RealtimeArgv.init;
+	auto argv = realtime ? session.first.dup : vendor.command(recipe, prompt, conv);
 	auto env = runEnv(agent, station, recipe, vendorEnv(cast(Object) vendor),
 		vendorSecretAliases(cast(Object) vendor));
+	if (realtime)
+		env = withRealtimeEnv(env, session, recipe.realtime.idleTimeoutMinutes, realtimeToken,
+			conversation.id.length ? "" : prompt);
 
 	auto template_ = wirePodTemplate(deepCopy(station.spec.template_), commandFor(argv), env,
 		initEnv(env, agent.spec.files), agentImage);
 	template_ = withRunMetadata(template_, agent, station);
+	if (realtime)
+		template_ = servingPrompts(template_);
 
 	const deadlineMinutes = effectiveDeadlineMinutes(station.spec.deadlineMinutes);
 
@@ -122,6 +145,67 @@ Json buildJob(Agent agent, Station station, AgentDefinition definition, string a
 	job["metadata"] = jobMeta(agent);
 	job["spec"] = Json(spec);
 	return Json(job);
+}
+
+/// A realtime run's conversation: it continues `resumeSession` and saves back under it,
+/// or, starting fresh, saves under the Agent's uid when the CLI accepts a pinned id
+/// (otherwise under the id the CLI announces, which only the supervisor learns).
+ConversationRef realtimeConversation(ConversationRef conversation, string resumeSession, string agentUid,
+	const Agent_ vendor) @safe
+{
+	const canPin = vendor.pinConversationArgs(agentUid).length > 0;
+	conversation.id = resumeSession;
+	conversation.pin = resumeSession.length ? resumeSession : canPin ? agentUid : "";
+	return conversation;
+}
+
+/// `env` plus the supervisor's realtime settings: how it drives the CLI, when it idles
+/// out, the bearer it accepts, the first prompt, and the argv of later turns.
+private Json withRealtimeEnv(Json env, const RealtimeArgv session, int idleTimeoutMinutes, string token,
+	string firstPrompt)
+{
+	enforce(token.length, "a realtime run needs a prompt token");
+	auto vars = env.get!(Json[]).dup;
+	vars ~= literalEnv(envRealtimeStyle, session.stdin ? "stdin" : "turn");
+	vars ~= literalEnv(envRealtimeIdleMs, (long(idleTimeoutMinutes) * 60_000).to!string);
+	vars ~= literalEnv(envRealtimeToken, token);
+	vars ~= literalEnv(envRealtimePrompt, firstPrompt);
+	if (session.next.length)
+		vars ~= literalEnv(envRealtimeNextArgv, serializeToJsonString(session.next));
+	return Json(vars);
+}
+
+/// `template_` with its pod labelled realtime and its agent container exposing the
+/// supervisor's prompt port.
+private Json servingPrompts(Json template_)
+{
+	auto pod = template_;
+	pod["metadata"]["labels"][labelExecution] = "realtime";
+	Json[] containers;
+	foreach (container; pod["spec"]["containers"].get!(Json[]))
+	{
+		if (isAgentContainer(container))
+			container["ports"] = withPromptPort(container);
+		containers ~= container;
+	}
+	pod["spec"]["containers"] = Json(containers);
+	return pod;
+}
+
+private Json withPromptPort(Json container)
+{
+	Json[] ports = ("ports" in container && container["ports"].type == Json.Type.array)
+		? container["ports"].get!(Json[]).dup : null;
+	foreach (port; ports)
+		enforce(("containerPort" !in port) || port["containerPort"].to!long != defaultRealtimePort,
+			"Station template's agent container already uses port " ~ defaultRealtimePort.to!string
+			~ ", which a realtime run serves prompts on");
+	Json[string] prompt;
+	prompt["name"] = Json("realtime");
+	prompt["containerPort"] = Json(defaultRealtimePort);
+	prompt["protocol"] = Json("TCP");
+	ports ~= Json(prompt);
+	return Json(ports);
 }
 
 /// A deadlineMinutes of 0 (explicitly set, or slipped past the schema-only @Minimum)
@@ -705,6 +789,7 @@ bool isReservedEnvName(string name) @safe pure nothrow
 		envSelect, envWatch, envFiles, envMcpServers, envWorkspace, envParameters, envGitCredential, envGitCredentialUrl, envTargetRepo,
 		envBranch, envModel, envAgentName, envStationName, envTaskId, envPodName,
 		envPodNamespace, envDeadlineMs, homeEnv, pathEnv,
+		envRealtimeStyle, envRealtimeIdleMs, envRealtimeToken, envRealtimePrompt, envRealtimeNextArgv, envRealtimePort,
 	];
 	foreach (owned; reserved)
 		if (name == owned)
@@ -1863,4 +1948,120 @@ unittest // a claude-sonnet-4-6 run with env OPENAI_API_KEY=literal-key gets no 
 
 	envValues(agentContainer(buildJob(agent, station, definition, "img")), "CODEX_API_KEY")
 		.should.equal([]);
+}
+
+version (unittest)
+{
+	/// The fixtures' run as a realtime claude session over `https://conv.example`.
+	private void realtimeFixtures(out Agent agent, out Station station, out AgentDefinition definition)
+	{
+		fixtures(agent, station, definition);
+		definition.spec.execution = Execution.realtime;
+		definition.spec.realtime.idleTimeoutMinutes = 5;
+		definition.spec.resources.conversation.source = "https://conv.example";
+	}
+
+	private string[] commandOf(Json container)
+	{
+		return container["command"].deserializeJson!(string[]);
+	}
+}
+
+unittest // a fresh realtime claude run serves prompts on 8090, pins its uid and sends the prompt as the first turn
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	realtimeFixtures(agent, station, definition);
+	agent.spec.parameters["ticket"] = "E-1";
+
+	auto job = buildJob(agent, station, definition, "img", "tok-1");
+	auto container = agentContainer(job);
+	const command = commandOf(container);
+
+	job["spec"]["template"]["metadata"]["labels"][labelExecution].get!string.should.equal("realtime");
+	container["ports"].should.equal(parseJsonString(`[{"name":"realtime","containerPort":8090,"protocol":"TCP"}]`));
+	command[$ - 4 .. $].should.equal(["--session-id", "uid-123", "--input-format", "stream-json"]);
+	[envValue(container, "AGENT_REALTIME_STYLE"), envValue(container, "AGENT_REALTIME_IDLE_MS"),
+		envValue(container, "AGENT_REALTIME_TOKEN"), envValue(container, "AGENT_REALTIME_PROMPT"),
+		envValue(container, "AGENT_CONVERSATION_ID"), envValue(container, "AGENT_CONVERSATION_PIN")]
+		.should.equal(["stdin", "300000", "tok-1", "Fix E-1", "", "uid-123"]);
+}
+
+unittest // a realtime claude run resuming a session restores and saves under it, without a fork or a prompt
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	realtimeFixtures(agent, station, definition);
+	agent.spec.resumeSession = "sess-9";
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img", "tok-1"));
+	const command = commandOf(container);
+
+	command[$ - 4 .. $].should.equal(["--resume", "sess-9", "--input-format", "stream-json"]);
+	command.should.not.contain("--fork-session");
+	[envValue(container, "AGENT_CONVERSATION_ID"), envValue(container, "AGENT_CONVERSATION_PIN"),
+		envValue(container, "AGENT_REALTIME_PROMPT")].should.equal(["sess-9", "sess-9", ""]);
+}
+
+unittest // a fresh realtime codex run runs per turn, its later turns resuming the announced session
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	realtimeFixtures(agent, station, definition);
+	definition.spec.model = "gpt-5-codex";
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img", "tok-1"));
+
+	[envValue(container, "AGENT_REALTIME_STYLE"), envValue(container, "AGENT_CONVERSATION_PIN")]
+		.should.equal(["turn", ""]);
+	commandOf(container)[$ - 2 .. $].should.equal(["--", "@@AGENT_PROMPT@@"]);
+	parseJsonString(envValue(container, "AGENT_REALTIME_NEXT_ARGV")).deserializeJson!(string[])[0 .. 4]
+		.should.equal(["codex", "exec", "resume", "@@AGENT_SESSION@@"]);
+}
+
+unittest // an interactive run carries no realtime label, port or env
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+
+	auto job = buildJob(agent, station, definition, "img");
+	auto container = agentContainer(job);
+
+	[(labelExecution in job["spec"]["template"]["metadata"]["labels"]) is null, ("ports" in container) is null,
+		envValue(container, "AGENT_REALTIME_STYLE") == ""].should.equal([true, true, true]);
+}
+
+unittest // a realtime run refuses a missing token and a Station port clashing with 8090
+{
+	import std.exception : collectExceptionMsg;
+
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	realtimeFixtures(agent, station, definition);
+	const noToken = collectExceptionMsg(buildJob(agent, station, definition, "img"));
+	station.spec.template_ = parseJsonString(`{"spec":{"containers":[{"name":"agent","ports":[{"containerPort":8090}]}]}}`);
+	const clash = collectExceptionMsg(buildJob(agent, station, definition, "img", "tok-1"));
+
+	[noToken, clash].should.equal(["a realtime run needs a prompt token",
+		"Station template's agent container already uses port 8090, which a realtime run serves prompts on"]);
+}
+
+unittest // a recipe env var named like a realtime setting is dropped
+{
+	import agentcore.crds.env_var : EnvVar;
+
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	realtimeFixtures(agent, station, definition);
+	definition.spec.resources.env ~= EnvVar("AGENT_REALTIME_TOKEN", "stolen");
+
+	envValues(agentContainer(buildJob(agent, station, definition, "img", "tok-1")), "AGENT_REALTIME_TOKEN")
+		.should.equal(["tok-1"]);
 }

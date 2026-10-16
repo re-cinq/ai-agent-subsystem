@@ -7,6 +7,24 @@ the npm package versions.
 ## Unreleased
 
 ### Added
+- **Realtime sessions: an agent CLI that stays up and takes prompts over HTTP.** An AgentDefinition
+  with `execution: realtime` starts its run as usual, with the rendered prompt as the first turn, then
+  keeps the session open. Callers send more prompts with
+  `POST /v1/namespaces/<ns>/agents/<name>/prompt` (`{"prompt":"…"}`, answered 202 with the turn
+  number and session id) and end it with `POST …/close`, through the controller's new prompt API
+  (port 8082, Service `agent-controller-api`, bearer token from the `agent-realtime` Secret). The
+  controller forwards each request to the run pod's supervisor on port 8090. Claude runs one process
+  fed turns on stdin; Codex and Gemini run one process per turn, resuming the session; opencode and
+  `exec` start every turn fresh and raise a `no-continuity` warning. Turns run one at a time, at most
+  16 queued, and each raises `{"kind":"turn",…}` events. The session ends, saves its conversation
+  under its session id and goes `Succeeded` when it is closed, receives no prompt for
+  `realtime.idleTimeoutMinutes` (default 15), or is signalled; the Station's `deadlineMinutes` stays the
+  hard limit. `status.sessionId` is recorded as soon as a prompt reveals it, and an Agent with
+  `spec.resumeSession: <id>` restores that conversation from `resources.conversation.source` and waits
+  for prompts without sending the definition's prompt. Realtime is opt-in through the
+  `deploy/components/realtime` kustomize component, which also adds a NetworkPolicy letting only
+  controller pods reach port 8090 of realtime run pods.
+
 - **Runs report their agent session id.** The supervisor raises a `{"kind":"session","id":…}` event
   when the agent's stream announces its session (Claude `system`/`init`, Codex `thread.started`,
   Gemini `init`), and again right before the final `agent` lifecycle event. The controller records

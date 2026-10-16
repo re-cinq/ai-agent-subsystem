@@ -13,6 +13,7 @@ import agentcore.batch.provider : batchCleanupFinalizer, batchSettleMinutes, max
 import agentcore.batch.translate : batchCliEvents;
 import agentcore.core.env : defaultMaxOutputBytes;
 import agentcore.core.log : logError;
+import agentcore.core.token : runToken;
 import agentcore.kube.outputcap : capOutput;
 import agentcore.output.session : lastSessionId;
 import std.array : join;
@@ -81,7 +82,7 @@ ReconcileEffect reconcileAgent(KubeClient client, string ns, Agent agent, string
 {
 	const phase = agent.status.phase;
 	auto run = AgentReconcile(client, ns, agent, Station.init, AgentDefinition.init, agentImage, now,
-		cached, batchConfig, agent.status.jobName);
+		cached, batchConfig, agent.status.jobName, realtimeConfig);
 	if (batchCleanupDue(agent))
 	{
 		resolveRefs(client, ns, agent, run.station, run.definition);
@@ -159,6 +160,7 @@ private struct AgentReconcile
 	const(Agent)[] cached;
 	BatchConfig batchConfig;
 	string jobName;
+	RealtimeConfig realtimeConfig;
 	BatchProvider batchProvider;
 	/// The finished batch's result as the vendor CLI's event lines, uncapped, for the sinks.
 	string[] batchLines;
@@ -216,7 +218,9 @@ private struct AgentReconcile
 	/// Station; a batch Agent falling back to a Job already counts as Running.
 	private ReconcileEffect startJob(Decision decision, string preempted)
 	{
-		client.createJob(ns, buildJob(agent, station, definition, agentImage));
+		const token = definition.spec.execution == Execution.realtime
+			? runToken(realtimeConfig.signingKey, agent.metadata.uid) : "";
+		client.createJob(ns, buildJob(agent, station, definition, agentImage, token));
 		patch(statusPatch(decision, jobNameFor(agent.metadata.name), now, agent.metadata.resourceVersion));
 		return ReconcileEffect(agent.status.phase == Phase.pending, preempted, decision);
 	}
@@ -2103,4 +2107,21 @@ unittest // pending realtime claude agent resuming a session on an enabled contr
 {
 	realtimeOutcome((ref s) { realtimeFrom(s); }, "sess-1", RealtimeConfig("key"))["phase"].get!string
 		.should.equal("Running");
+}
+
+unittest // a realtime run's Job carries the token derived from the Agent's uid under the signing key
+{
+	auto client = new FakeKubeClient;
+	client.station.metadata.name = "stn";
+	client.station.spec.agentDefRef = "def";
+	client.station.spec.template_ = parseJsonString(`{"spec":{"containers":[{"name":"agent"}]}}`);
+	realtimeFrom(client.definition.spec);
+	Agent agent = pendingAgent("run-rt", "stn");
+	agent.metadata.uid = "uid-rt";
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null, BatchConfig.init,
+		RealtimeConfig("key"));
+
+	client.createdJobs.should.equal([buildJob(agent, client.station, client.definition, "img",
+		runToken("key", "uid-rt"))]);
 }

@@ -8,6 +8,9 @@
 #   B) credential path: an `agent-secrets` Secret -> ANTHROPIC_API_KEY env var (via
 #      secretKeyRef) reaches the agent child (kubelet -> pod -> supervisor -> child),
 #      proven with a fake key the mock asserts before it Succeeds.
+#   D) realtime: with the realtime component applied, a realtime Agent takes prompts
+#      through the controller's prompt API, records its session id, ends on close as
+#      Succeeded, and refuses a finished run (409) or a caller without the token (401).
 #   C) scale (opt-in, LOAD=<N>): drive N Agents through one Station and assert they all
 #      reach Succeeded while the controller stays Ready — exercises the informer-cache
 #      reconcile loop at hundreds of Agents. Off unless LOAD is set; needs pod capacity.
@@ -243,6 +246,89 @@ job="$(k -n ai-agents get agent "$agent" -o jsonpath='{.status.jobName}')"
 owner="$(k -n ai-agents get job "$job" -o jsonpath='{.metadata.ownerReferences[0].controller}')"
 [ "$owner" = "true" ] || fail "job ownerReference controller=$owner"
 echo "  PASS  agent-secrets -> ANTHROPIC_API_KEY reached the agent child; run Succeeded"
+
+echo "== Scenario D: realtime session through the controller's prompt API =="
+agent=rt-run
+api_token="itest-api-token"
+k -n ai-agents create secret generic agent-realtime \
+	--from-literal=api-token="$api_token" --from-literal=signing-key="itest-signing-key"
+k apply -f deploy/components/realtime/service.yaml -f deploy/components/realtime/networkpolicy.yaml
+k -n ai-agents patch deploy/agent-controller --type=strategic \
+	--patch-file deploy/components/realtime/realtime-enabled-patch.yaml
+k -n ai-agents rollout status deploy/agent-controller --timeout=90s
+
+k apply -f - <<'YAML'
+apiVersion: agents.re-cinq.com/v1alpha1
+kind: AgentDefinition
+metadata: { name: rt-writer, namespace: ai-agents }
+spec:
+  model: gpt-mock          # the baked mock `codex`: one process per turn
+  prompt: "first"
+  execution: realtime
+  realtime: { idleTimeoutMinutes: 5 }
+---
+apiVersion: agents.re-cinq.com/v1alpha1
+kind: Station
+metadata: { name: rt-station, namespace: ai-agents }
+spec:
+  agentDefRef: rt-writer
+  deadlineMinutes: 10
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: agent
+          image: ai-agent:itest
+          imagePullPolicy: IfNotPresent
+---
+apiVersion: agents.re-cinq.com/v1alpha1
+kind: Agent
+metadata: { name: rt-run, namespace: ai-agents }
+spec: { stationRef: rt-station }
+YAML
+
+k -n ai-agents port-forward svc/agent-controller-api 18082:8082 >/dev/null 2>&1 &
+forward_pid=$!
+trap 'kill "$forward_pid" 2>/dev/null; cleanup' EXIT
+
+# post <action> [token] [body] -> HTTP status of POST /v1/namespaces/ai-agents/agents/<agent>/<action>
+post() {
+	curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer ${2-$api_token}" \
+		-H 'Content-Type: application/json' -d "${3-}" \
+		"http://127.0.0.1:18082/v1/namespaces/ai-agents/agents/${agent}/$1"
+}
+
+echo "== wait for the session to serve prompts (<=3m) =="
+start=$SECONDS
+until [ "$(post prompt "$api_token" '{"prompt":"second"}')" = "202" ]; do
+	[ $((SECONDS - start)) -ge 180 ] && fail "the session never accepted a prompt"
+	sleep 3
+done
+echo "  PASS  prompt accepted through the controller (202)"
+
+pod="$(k -n ai-agents get pods -l job-name=agent-job-rt-run -o jsonpath='{.items[0].metadata.name}')"
+start=$SECONDS
+until k -n ai-agents logs "$pod" -c agent 2>/dev/null | grep -q 'echo:second'; do
+	[ $((SECONDS - start)) -ge 60 ] && fail "the posted prompt never reached the agent"
+	sleep 2
+done
+k -n ai-agents logs "$pod" -c agent | grep -q 'echo:first' || fail "the definition's prompt was not the first turn"
+k -n ai-agents logs "$pod" -c agent | grep -q '"kind":"turn","turn":2,"status":"completed","ok":true' \
+	|| fail "turn 2 did not complete ok"
+echo "  PASS  first and posted turns ran in the pod"
+
+session="$(k -n ai-agents get agent "$agent" -o jsonpath='{.status.sessionId}')"
+[ "$session" = "mock-thread" ] || fail "live status.sessionId '$session', expected mock-thread"
+[ "$(post prompt wrong '{"prompt":"x"}')" = "401" ] || fail "a caller without the API token was not refused"
+echo "  PASS  status.sessionId recorded live; wrong token refused (401)"
+
+[ "$(post close)" = "202" ] || fail "close was not accepted"
+phase="$(wait_terminal "$agent")"
+[ "$phase" = "Succeeded" ] || fail "closed session is '$phase', expected Succeeded"
+session="$(k -n ai-agents get agent "$agent" -o jsonpath='{.status.sessionId}')"
+[ "$session" = "mock-thread" ] || fail "final status.sessionId '$session', expected mock-thread"
+[ "$(post prompt "$api_token" '{"prompt":"late"}')" = "409" ] || fail "a finished session was not refused (409)"
+echo "  PASS  close ends the session Succeeded with its sessionId; a finished session is refused (409)"
 
 # Scenario C: scale. Opt-in (LOAD=<N>), not run in CI — it needs a cluster with the
 # pod capacity to drain N run pods. Proves the watch + cache reconcile loop drives

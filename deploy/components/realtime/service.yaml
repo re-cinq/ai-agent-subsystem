@@ -1,0 +1,15 @@
+# The prompt API. Every controller replica serves it, leader or not.
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-controller-api
+  namespace: ai-agents
+  labels:
+    agents.re-cinq.com/component: controller
+spec:
+  selector:
+    agents.re-cinq.com/component: controller
+  ports:
+    - name: realtime-api
+      port: 8082
+      targetPort: realtime-api

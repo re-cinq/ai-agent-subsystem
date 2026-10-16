@@ -14,6 +14,11 @@ if [ -n "${AGENT_EXPECT_API_KEY:-}" ]; then
 		exit 7
 	}
 fi
+# Codex announces its thread first; a realtime session resumes it on later turns. The
+# prompt is the last argument, echoed so a scenario can see each turn arrive.
+printf '%s\n' '{"type":"thread.started","thread_id":"mock-thread"}'
+for prompt; do :; done
+printf '{"type":"item.completed","text":"echo:%s"}\n' "$prompt"
 printf '%s\n' '{"type":"item.started"}'
 printf '%s\n' '{"type":"item.completed","text":"hello from the mock agent"}'
 printf '%s\n' '{"type":"result","text":"done","is_error":false}'
