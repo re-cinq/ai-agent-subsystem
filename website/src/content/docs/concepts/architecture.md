@@ -21,7 +21,10 @@ flowchart TB
     end
 
     CTRL <-->|watch / create / patch| K8S[("Kubernetes API")]
-    CTRL <-->|"batch: submit / poll / cancel / delete"| BATCH[("Anthropic Message Batches API")]
+    CTRL <-->|"batch: submit / poll / cancel / delete"| VENDOR[("Vendor APIs<br/>Anthropic, Gemini, OpenAI")]
+    CTRL -->|"model catalog: list models"| VENDOR
+    CALLER(["caller"]) -->|"realtime prompts: HTTP :8082"| CTRL
+    CTRL -->|"forwards to the supervisor: :8090"| POD
     INIT -->|init container, prepares| POD["Agent Pod"]
     SUP -->|runs as PID 1 inside| POD
     STATIC["statically linked with LDC, no runtime deps"] -.-> CTRL
@@ -35,14 +38,20 @@ flowchart TB
 
 The pure core, with no process of its own:
 
-- CRD type definitions (`AgentDefinition`, `Station`, `Agent`).
+- CRD type definitions (`AgentDefinition`, `Station`, `Agent`, `ModelCatalog`).
 - A Kubernetes REST + watch client.
 - The pure reconcile state machine (I/O injected, so it is unit-testable).
 - Prompt templating.
 - The Job builder.
-- Batch providers (`agentcore/batch`): the Anthropic Message Batches adapter and the translation of
-  a batch result into Claude CLI event lines, with HTTP injected so tests run on fixtures.
+- Batch providers (`agentcore/batch`): the Anthropic, Gemini and OpenAI batch adapters and the
+  translation of a batch result into the event lines of the vendor's CLI, with HTTP injected so tests
+  run on fixtures.
+- The model catalog refresh (`agentcore/models`): the vendors' list-models calls and the build of the
+  `ModelCatalog` status from them.
 - The shared vendor routing (`core/vendor.d`) that both CLI selection and batch selection use.
+- Realtime session support: the per-vendor session argv (`vendors/realtime.d`, with Claude's stdin
+  session in `vendors/claude/agent.d`), the session-id parsing (`output/session.d`) and the per-run
+  prompt token (`core/token.d`).
 
 ### `controller`: binary 1
 
@@ -53,12 +62,22 @@ prunes old runs beyond the Station's history limits, and exposes `/healthz` (liv
 watch reconnects, Kubernetes API latency, and leader status).
 
 For an AgentDefinition with `execution: batch` (opt-in, enabled by the `components/batch` kustomize
-component) it creates no Job. It submits the prompt to the
-Anthropic Message Batches API itself, polls the batch at most every `BATCH_POLL_SECONDS` (default 60),
+component) it creates no Job. It submits the prompt itself to the batch API of the model's vendor
+(Anthropic, Gemini or OpenAI), polls the batch at most every `BATCH_POLL_SECONDS` (default 60),
 records the result in `status.output`, and on `batch.timeoutMinutes` either fails the Agent or falls
 back to an ordinary Job. An `agents.re-cinq.com/batch-cleanup` finalizer makes sure a deleted Agent's
 batch is cancelled and deleted at the provider. See [batch runs](../tasks/batch-runs.md) and the
 [controller lifecycle](./controller-lifecycle.md#batch-runs).
+
+With the opt-in `components/model-catalog` component the leader replica also keeps the `default`
+[ModelCatalog](../reference/crd-modelcatalog.md) current (`catalogloop.d`): right after it wins the
+Lease, then every `MODEL_CATALOG_REFRESH_SECONDS` (default 3600), it lists the models each vendor's
+API reports for the keys the AgentDefinitions map and writes them to the catalog's `status`.
+
+With the opt-in `components/realtime` component every replica, leader or not, also serves the
+[prompt API](../reference/prompt-api.md) on port 8082 (`promptapi.d`). It forwards each prompt or close
+for a running [realtime session](../tasks/realtime-sessions.md) to the run pod's supervisor on port
+8090, signed with that run's own token, and records a newly revealed `status.sessionId`.
 
 It combines a low-latency **watch** with a ~15s **poll** over one shared in-memory cache, so
 reconcile work is O(changed) and a dropped watch event is still caught by the next poll. Two replicas
@@ -79,7 +98,10 @@ same output sinks as the agent. New provisioning tools and distros are added beh
 
 Runs inside the Job Pod as the entrypoint. It launches the agent process, streams its `stream-json`
 output line by line to the configured sinks, forwards termination signals for graceful shutdown,
-and exits with the agent's exit code.
+and exits with the agent's exit code. For a realtime session it instead serves prompts on port 8090,
+runs them one turn at a time (on one Claude process's stdin, or one process per turn for the other
+vendors) and ends the session when it is closed, idles out or is signalled. See
+[Agent runtime](./agent-runtime.md#realtime-mode).
 
 ## Static linking
 

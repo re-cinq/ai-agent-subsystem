@@ -82,12 +82,12 @@ Agent fails with `batch execution needs a resources.secrets entry named <name>`,
 
 | Field | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `idleTimeoutMinutes` | int (min 1) | `15` | Minutes without a prompt or a running turn after which the session ends, its conversation is saved and the Agent goes `Succeeded`. The Station's `deadlineMinutes` stays the hard limit. |
+| `idleTimeoutMinutes` | int (min 1) | `15` | Minutes without a prompt or a running turn after which the session ends and the Agent goes `Succeeded`. The conversation is saved when `resources.conversation.source` is set and the vendor keeps state. The Station's `deadlineMinutes` stays the hard limit. |
 
 A realtime run saves its conversation under its own session id and resumes the one its Agent names in
 `spec.resumeSession`, so a definition with `execution: realtime` must leave `resources.conversation.id`
 and `resources.conversation.pin` empty; set only `source` (and `headers_secret`). A controller without
-a realtime signing key fails every realtime Agent with `realtime execution is disabled on this controller`.
+both `REALTIME_API_TOKEN` and `REALTIME_SIGNING_KEY` (the `deploy/components/realtime` component) fails every realtime Agent with `realtime execution is disabled on this controller`.
 
 ### `spec.output`
 

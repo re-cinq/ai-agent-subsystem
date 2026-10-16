@@ -70,7 +70,7 @@ Typed notifications raised by both the init container and the supervisor. Tagged
 | `tool` | string | Optional. The tool or package-manager involved (e.g. `apt`). |
 | `version` | string | Optional, on `installed`. The agent CLI's version, as its own `--version` reports it. Absent when the CLI could not say. |
 | `origin` | string | Optional, on `installed`. Where the CLI came from: `baked` (copied from the agent image, no network), `downloaded` (the vendor's installer), or `present` (already on `PATH`, nothing installed). |
-| `reason` | string | Optional. A short slug — e.g. `not-found` (agent binary missing), `spawn` (process failed to start), `token` or `listen` (a realtime session could not start its prompt server), or, on an `agent`/`running` event, `no-continuity` (a realtime session whose vendor keeps no conversation state, so every turn starts fresh). |
+| `reason` | string | Optional. A short slug — e.g. `not-found` (agent binary missing), `spawn` (process failed to start), `token` or `listen` (a realtime session could not start its prompt server), or, on an `agent`/`running` event, `no-continuity` (a realtime session whose vendor keeps no conversation state, so every turn starts fresh). For a batch run the controller sends `batch_failed` on the `agent`/`failed` event of a batch that finished without a result, and `batch_timeout` when the batch timed out: on `agent`/`failed` with `onTimeout: fail`, on `agent`/`running` with `onTimeout: fallback` (the fallback Job then reports how the run ends). |
 | `exitCode` | int | Optional. The agent process exit code. `0` is present and meaningful; it is not treated as empty. |
 
 Empty optional fields are omitted. Examples:
@@ -90,7 +90,9 @@ A run that reaches the agent phase emits, at minimum, an `agent`/`started` at la
 ## Session events
 
 The supervisor raises a session event when the agent's stream announces its session id, and repeats
-it right before the final `agent` lifecycle event:
+it right before the final `agent` lifecycle event. A [realtime session](../tasks/realtime-sessions.md)
+that knows its id before the first turn also raises one when it starts: a resumed session (its
+`resumeSession`) and a fresh Claude session (the Agent's `metadata.uid`, which it pins as the session id).
 
 ```json
 { "kind": "session", "id": "0f8c2a4e-5b7d-4c1e-9a3f-2d6b8e1c7a90" }

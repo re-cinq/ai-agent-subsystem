@@ -80,7 +80,8 @@ kubectl apply -k deploy
 ```
 
 The controller runs least-privilege: it can watch and patch Agents, read Stations and
-AgentDefinitions, manage Jobs, and read pod logs. See [RBAC & network](../reference/rbac-and-network.md).
+AgentDefinitions, manage Jobs, read pod logs, and write the
+[ModelCatalog](../reference/crd-modelcatalog.md). See [RBAC & network](../reference/rbac-and-network.md).
 
 ## Enable batch runs (optional)
 

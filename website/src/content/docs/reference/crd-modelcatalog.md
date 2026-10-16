@@ -70,6 +70,11 @@ in [Install](../setup/install.md#enable-the-model-catalog-optional); it can be c
 batch component. See [RBAC & network](./rbac-and-network.md#model-catalog-component-opt-in) for the
 grant and the egress the controller then needs.
 
+`MODEL_CATALOG_ENABLED` accepts only `true` or `false`, and `MODEL_CATALOG_REFRESH_SECONDS` only a
+non-negative integer. Any other value stops the controller at startup with
+`MODEL_CATALOG_ENABLED must be "true" or "false", got: "<value>"` or
+`MODEL_CATALOG_REFRESH_SECONDS must be a non-negative integer, got: "<value>"`.
+
 ## Reading it from TypeScript
 
 `@re-cinq/agent-contracts` exports the `ModelCatalog`, `ModelCatalogStatus`, `VendorModels` and

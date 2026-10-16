@@ -37,6 +37,12 @@ From a checkout, use the local paths instead (`resources: [deploy]`, `components
 [deploy/components/batch]`). Apply it with `kubectl apply -k .`. The release `install.yaml` does
 not include the component.
 
+The controller parses its batch settings strictly. `BATCH_ENABLED` accepts only `true` or `false`,
+and `BATCH_POLL_SECONDS` (see [Concurrency and polling](#concurrency-and-polling)) only a
+non-negative integer. Any other value stops the controller at startup with
+`BATCH_ENABLED must be "true" or "false", got: "<value>"` or
+`BATCH_POLL_SECONDS must be a non-negative integer, got: "<value>"`.
+
 ## When to use it
 
 Use batch for work that fits in one prompt and one answer and can wait: classifying or summarising
@@ -155,7 +161,9 @@ the durations are `0`. `usage` is the provider's token counts, including
 `total_cost_usd` is computed by the controller: half the standard per-token price of the model
 (the batch discount) for the input and output tokens. Cache tokens are not priced. The price table
 is fixed in the controller (Anthropic list prices as of 2026-10) and matches model ids exactly; a
-model that is not in it, such as a dated snapshot id, reports `0`.
+model that is not in it, such as a dated snapshot id, reports `0`. `claude-haiku-5-5` has a
+long-prompt tier: a request with more than 100,000 input tokens is billed at that tier's higher
+rate for all of its input and output tokens.
 
 If the response has `thinking` blocks before the answer, as it always does for models that always
 think, they are dropped: the `assistant` event carries only the `text` blocks, as the CLI prints
@@ -170,7 +178,7 @@ The controller delivers a batch run's events to the definition's `output.sinks` 
 `station`, `task` and `namespace`; `pod` is absent, since there is no pod. A listener sees:
 
 1. `{"kind":"lifecycle","phase":"agent","status":"started"}` once the batch is submitted.
-2. When the batch ends, each CLI line from `status.output` that passes `output.select`, then
+2. When the batch ends, each CLI line that passes `output.select`, then
    `agent`/`succeeded` with `exitCode: 0`, or `agent`/`failed` with `exitCode: 1` and
    `reason: "batch_failed"`.
 3. On a timeout with `onTimeout: fail`, `agent`/`failed` with `exitCode: 1` and
@@ -183,11 +191,14 @@ batch runs need the `components/batch` Secret grant they already use for the API
 sent after the status patch it reports has succeeded. Delivery is at most once: a failed POST is
 retried with the sink backoff and then dropped, and a controller crash between the patch and the
 POST loses that event rather than repeating it. `status.output` stays the record of the result.
+The sinks get every CLI line of the result, while `status.output` is capped at `MAX_OUTPUT_BYTES`,
+so for a long answer a sink sees lines that `status.output` no longer holds.
 There are no init-phase events, since no init container runs.
 
 
-An errored, expired or cancelled batch request moves the Agent to `Failed`, with the provider's
-message in `status.failureReason`.
+An errored, expired or canceled batch request moves the Agent to `Failed`. For an errored request
+`status.failureReason` is the provider's error as `<type>: <message>`; an expired or canceled one
+gives `batch request expired` or `batch request canceled`.
 
 ## Gemini
 
@@ -255,7 +266,8 @@ no `timestamp` on the lines and no `message` echoing the user prompt; neither is
 [consumer contract](../reference/notification-api.md#consumer-contract).
 
 A failed request, a response with no candidates (a blocked prompt fails with
-`response blocked: <blockReason>`), or a batch that ends `FAILED`, `CANCELLED` or `EXPIRED`, gives
+`response blocked: <blockReason>`), or a batch that ends `FAILED`, `CANCELLED` or `EXPIRED` (`batch failed`, `batch cancelled` or
+`batch expired`, followed by `: <message>` when the batch carries an error), gives
 the `init` line and
 a `result` with `status: "error"` and `error: {type: "BatchError", message}`, as the CLI reports an
 API error, and the Agent goes `Failed` with that message as `status.failureReason`. The controller
@@ -332,7 +344,8 @@ batch run.
 A failed request, a response cut off as `incomplete` (`Incomplete response returned, reason:
 max_output_tokens`, as the CLI words it), a response whose message holds only a `refusal` (the
 refusal text is the error), a completed batch whose output and error files hold no line (`batch
-completed without a result`), or a batch that ends `failed`, `expired` or `cancelled` gives `thread.started`, `turn.started`, an `error` line and a `turn.failed` with `error.message`, as the
+completed without a result`), or a batch that ends `failed`, `expired` or `cancelled` (`batch failed`, `batch expired` or
+`batch cancelled`, followed by `: <message>` with the batch's first error when it has one) gives `thread.started`, `turn.started`, an `error` line and a `turn.failed` with `error.message`, as the
 CLI reports an API error, and the Agent goes `Failed` with that message as `status.failureReason`.
 
 OpenAI batch objects cannot be deleted, so cleanup deletes the batch's input file and its output and
@@ -396,7 +409,8 @@ A cancel does not end a batch at once: Anthropic keeps it `canceling` and only a
 deleted, and OpenAI keeps it `cancelling` until it writes its result files. While the batch has not
 settled, the controller keeps the finalizer and tries the cleanup again on later reconciles (the
 safety-net poll runs every ~15 seconds), without counting those tries as failures. A delete of a
-batch Agent can therefore take a few minutes. A batch still unsettled 48 hours after the Agent's
+batch Agent can therefore take a few minutes. Gemini's cleanup sends the `DELETE` right after the
+cancel, without waiting for the batch to settle. A batch still unsettled 48 hours after the Agent's
 `startedAt` is treated as stuck, and its cleanups count as failures from then on.
 
 If the provider cleanup keeps failing, the controller retries and counts the failures in

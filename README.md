@@ -91,10 +91,18 @@ flowchart LR
 The controller watches Agents, builds a Job per run, supervises it, patches the Agent's status, and
 prunes old runs. The agent toolchain is *injected* into the run Pod, so Stations only need a
 glibc-based base image. A recipe with `execution: batch` skips the Pod: the controller sends the
-prompt to the Anthropic Message Batches API itself, at about half the price, and records the result
+prompt to the batch API of the model's vendor (Anthropic, Gemini or OpenAI) itself, at about half
+the price, and records the result
 in the Agent's status ([batch runs](https://re-cinq.github.io/ai-agent-subsystem/tasks/batch-runs/)).
 Batch is opt-in: install with the `deploy/components/batch` kustomize component, which also grants
 the controller read access to the `agent-secrets` Secret.
+
+A recipe with `execution: realtime` keeps the agent CLI running in its Pod and takes further prompts
+over HTTP through the controller, one turn at a time, until the session is closed or idles out. It
+saves the conversation under its session id (`status.sessionId`), and a later Agent with
+`spec.resumeSession` continues it
+([realtime sessions](https://re-cinq.github.io/ai-agent-subsystem/tasks/realtime-sessions/)). Realtime
+is opt-in through the `deploy/components/realtime` kustomize component.
 
 A fourth, controller-owned resource, **ModelCatalog** (`kubectl get mc default -n ai-agents`), lists
 the models the subsystem can run with the API keys AgentDefinitions map from `agent-secrets`, so an
@@ -118,15 +126,19 @@ flowchart TB
     CORE --> SUP
     CTRL <-->|watch / create / patch| K8S[("Kubernetes API")]
     CTRL <-->|batch: submit / poll| BATCH[("Provider batch API")]
+    CALLER(["caller"]) -->|realtime prompts| CTRL
+    CTRL -->|forwards prompts| POD
     INIT -->|provisions| POD["Agent Pod"]
     SUP -->|runs inside| POD
 ```
 
 - **`agentcore`** — CRD types, Kubernetes client, the pure reconcile state machine, prompt
   templating, and the Job builder.
-- **`controller`** — the operator: reconciles Agents into Jobs and back.
+- **`controller`** — the operator: reconciles Agents into Jobs and back, and serves the prompt API
+  for realtime sessions.
 - **`initializer`** — the init container: clones repos and installs the agent CLI before the run.
-- **`supervisor`** — runs inside the Job Pod, supervises the agent process, and streams its output.
+- **`supervisor`** — runs inside the Job Pod, supervises the agent process, and streams its output;
+  in a realtime session it also takes prompts and runs them turn by turn.
 - **`crdgen`** / **`tsgen`** — dev/CI tools that generate `deploy/crds` and the `@re-cinq/agent-contracts`
   TypeScript types from the annotated `agentcore` structs.
 

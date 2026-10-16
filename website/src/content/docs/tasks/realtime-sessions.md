@@ -39,9 +39,10 @@ Realtime is off by default, and a realtime Agent then fails with
      - deploy/components/realtime
    ```
 
-   From a release, use the release URLs instead, for example
-   `https://github.com/re-cinq/ai-agent-subsystem//deploy/components/realtime?ref=<release tag>`. The
-   release `install.yaml` does not include the component.
+   From a release, use the release URLs instead
+   (`https://github.com/re-cinq/ai-agent-subsystem//deploy?ref=v0.12.0` and
+   `https://github.com/re-cinq/ai-agent-subsystem//deploy/components/realtime?ref=v0.12.0`, with the
+   release you install). The release `install.yaml` does not include the component.
 
 The component makes these changes:
 
@@ -107,14 +108,17 @@ A session ends in one of these ways:
 
 | Trigger | Result |
 | --- | --- |
-| `POST …/close` | No new prompts are accepted (409). The queued turns run, then the session ends. Agent `Succeeded`. |
+| `POST …/close` | New prompts, and a second close, are refused with 409. The queued turns run, then the session ends. Agent `Succeeded`. |
 | No prompt and no running turn for `realtime.idleTimeoutMinutes` (default 15) | Agent `Succeeded`. |
-| The pod is sent SIGTERM (for example, a node drain) | The supervisor ends the session as for a close, without waiting for queued turns, and exits 0. |
+| The pod is sent SIGTERM (for example, a node drain) | The session ends at once: queued turns are dropped, a running turn gets the exit grace period and is then stopped, and the supervisor exits 0. |
 | The Station's `deadlineMinutes` passes | Agent `Failed`, exit code 124. |
 | The Claude CLI exits by itself | The Agent takes the CLI's exit code. |
 
-In every case the supervisor saves the conversation to `<source>/<session id>` before the pod exits,
-and the Agent records `status.sessionId`.
+Before the pod exits, the supervisor saves the conversation to `<source>/<session id>` when three
+things hold: the definition sets `resources.conversation.source`, the session id is known, and the
+vendor keeps conversation state. opencode and `exec` never save. A Codex or Gemini session learns its id
+from its first turn, so one closed before any turn ran saves nothing and records no `status.sessionId`.
+A fresh Claude session's id is the Agent's `metadata.uid`, known from the start.
 
 ```sh
 curl -X POST -H "Authorization: Bearer $TOKEN" \
@@ -123,7 +127,8 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 
 ## Resume a session
 
-Pass the earlier run's `status.sessionId` as `spec.resumeSession` on a new Agent:
+Pass the earlier run's `status.sessionId` as `spec.resumeSession` on a new Agent, on a Station (here
+`pair-reviewer`) whose definition is the realtime recipe:
 
 ```yaml
 apiVersion: agents.re-cinq.com/v1alpha1
@@ -134,7 +139,9 @@ spec:
   resumeSession: 0f8c2a4e-5b7d-4c1e-9a3f-2d6b8e1c7a90
 ```
 
-The init container restores `<source>/<id>` before the agent starts. The definition's prompt is **not**
+The controller fails the Agent before it starts with `resumeSession requires realtime execution`,
+`resumeSession needs resources.conversation.source` or `<vendor> cannot resume a session` when the
+recipe cannot resume. Otherwise the init container restores `<source>/<id>` before the agent starts. The definition's prompt is **not**
 sent: the session waits for your first HTTP prompt. When it ends, it saves back under the same id, so
 the next resume continues from there.
 

@@ -21,6 +21,8 @@ The project is a D monorepo. To build the binaries yourself you need:
 
 - **LDC** (the LLVM-based D compiler): used for static linking.
 - **dub**: the D package manager and build tool.
+- **lld**: the linker LDC release and static builds use (`--linker=lld`). A DMD dev build does
+  not need it.
 
 See [Building](../contribute/building.md).
 
