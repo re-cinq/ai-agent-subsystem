@@ -19,7 +19,7 @@ The recipe. It has a `spec` and no `status`.
 | `disallowed_tools` | []string |  | Scoped denials, e.g. `Bash(rm *)`. |
 | `permission_mode` | enum | `auto` | `auto` enforces allow/deny lists; `bypass` grants all. |
 | `max_turns` | int |  | Agentic turn cap; omit for uncapped. |
-| `execution` | enum | `interactive` | `interactive` runs the CLI in a Job pod. `batch` sends the prompt to the vendor's batch API from the controller; see [batch runs](../tasks/batch-runs.md). `realtime` keeps the CLI running in its Job pod and feeds it prompts over HTTP until it idles out or is closed; see below. |
+| `execution` | enum | `interactive` | `interactive` runs the CLI in a Job pod. `batch` sends the prompt to the vendor's batch API from the controller; see [batch runs](../tasks/batch-runs.md). `realtime` keeps the CLI running in its Job pod and feeds it prompts over HTTP until it idles out or is closed; see [realtime sessions](../tasks/realtime-sessions.md). |
 | `batch` | object |  | Batch settings, read only when `execution: batch`; see below. |
 | `realtime` | object |  | Realtime settings, read only when `execution: realtime`; see below. |
 | `resources` | object |  | Run inputs; see below. |
