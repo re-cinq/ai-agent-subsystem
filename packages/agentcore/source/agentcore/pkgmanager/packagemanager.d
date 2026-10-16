@@ -14,24 +14,33 @@ interface PackageManager
 	string[][] installSteps(const string[] packages) const @safe;
 }
 
-/// Map an executable name to the OS package that provides it. Most tools are
-/// named after their package; `sha256sum` and `base64` ship in `coreutils`.
-string packageFor(string exe) @safe pure
+/// Map an executable name to the OS packages that provide it. Most tools are
+/// named after their package; `sha256sum` and `base64` ship in `coreutils`. `curl`
+/// brings `ca-certificates` along: apt installs without recommends, and dnf and apk
+/// minimal images may lack the bundle too, and without it curl cannot verify any
+/// https server — every download the init makes would fail.
+string[] packagesFor(string exe) @safe pure
 {
 	switch (exe)
 	{
 	case "sha256sum":
 	case "base64":
-		return "coreutils";
+		return ["coreutils"];
+	case "curl":
+		return ["curl", "ca-certificates"];
 	default:
-		return exe;
+		return [exe];
 	}
 }
 
-unittest
+unittest // curl installs with the ca-certificates bundle it needs for https
 {
-	packageFor("git").should.equal("git");
-	packageFor("curl").should.equal("curl");
-	packageFor("sha256sum").should.equal("coreutils");
-	packageFor("base64").should.equal("coreutils");
+	packagesFor("curl").should.equal(["curl", "ca-certificates"]);
+}
+
+unittest // sha256sum and base64 install coreutils, git installs git
+{
+	packagesFor("git").should.equal(["git"]);
+	packagesFor("sha256sum").should.equal(["coreutils"]);
+	packagesFor("base64").should.equal(["coreutils"]);
 }

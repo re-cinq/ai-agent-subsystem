@@ -86,6 +86,14 @@ the npm package versions.
   `controller_batch_cleanup_failures_total` on `/metrics` counts failed provider cleanups.
 
 ### Changed
+- **Codex CLI pinned to 0.142.5.** A Codex run used to install whatever `chatgpt.com/codex/install.sh`
+  called latest, so a CLI change such as 0.142 no longer reading `OPENAI_API_KEY` reached run pods
+  without notice. The init now downloads the 0.142.5 `codex-package-<arch>-unknown-linux-musl.tar.gz`
+  from the openai/codex GitHub release for `x86_64` or `aarch64`, checks its SHA-256 against the
+  pinned value before unpacking, and links `codex` into `$HOME/.local/bin` as the installer did. A
+  package with a different checksum, or any other architecture, fails the init. The init now also
+  needs `sha256sum`, and installs `coreutils` if the base image lacks it. The version is the
+  `codexCliVersion` constant, raised on purpose.
 - **The Notification API documents a consumer contract for Claude runs.** The reference lists the
   `result`, `system` init and lifecycle fields, with their JSON types, that both CLI and batch runs
   always emit; the unit tests check it against a recorded CLI run and a recorded batch result.
@@ -105,6 +113,16 @@ the npm package versions.
   working unchanged.
 
 ### Fixed
+- **The init can download over https on a bare Debian or Ubuntu image.** When curl was
+  missing, the init installed it with `apt-get install --no-install-recommends`, which skips
+  `ca-certificates`. Every https download after that, from agent CLI installs to skills and input
+  files, then failed with `curl: (77) error setting certificate file`. The init now installs
+  `ca-certificates` with curl through apt, dnf and apk.
+- **A failed gemini-cli download fails the init.** The Gemini install step ran its commands
+  inside `command -v gemini || { … }`, where bash ignores `set -e`, so only the final `chmod`
+  decided its exit status: a download or extract error still reported success and left a
+  `gemini` wrapper pointing at a missing bundle, and the run failed later with a less clear
+  error. The step now stops at the first failing command.
 - **Codex runs now authenticate with an `OPENAI_API_KEY` key.** Current `codex exec` reads
   its key only from `CODEX_API_KEY` and sends no bearer at all (`401 Missing bearer`) when a
   definition mapped the key as `OPENAI_API_KEY`. A Codex run with an `OPENAI_API_KEY` entry in

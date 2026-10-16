@@ -15,9 +15,9 @@
 # gemini-3.1-flash-lite call. Set GEMINI_CLI to an installed binary (e.g. /usr/local/bin/gemini)
 # to skip the download.
 #
-# codex: installs the codex CLI with the installer vendors/codex/setup.d runs, which is not
-# pinned, so it records the latest release (set CODEX_RELEASE to pick one) with the flags
-# vendors/codex/agent.d passes. Needs OPENAI_API_KEY, handed to the CLI as CODEX_API_KEY
+# codex: uses the Codex CLI version pinned in vendors/codex/setup.d (codexCliVersion, the
+# GitHub release package checksum-verified against codexPackages, as the init container does)
+# with the flags vendors/codex/agent.d passes. Needs OPENAI_API_KEY, handed to the CLI as CODEX_API_KEY
 # (`codex exec` does not read OPENAI_API_KEY); the run costs one gpt-5-mini call. Set
 # CODEX_CLI to an installed binary to skip the install.
 #
@@ -65,10 +65,24 @@ download_pinned_gemini() {
 	echo "$scratch/gemini"
 }
 
-install_codex() {
-	curl -fsSL https://chatgpt.com/codex/install.sh |
-		CODEX_INSTALL_DIR="$scratch/bin" CODEX_HOME="$scratch/codex-install" CODEX_NON_INTERACTIVE=1 sh >&2
-	echo "$scratch/bin/codex"
+download_pinned_codex() {
+	local setup="$repo/packages/agentcore/source/agentcore/vendors/codex/setup.d" target sha version
+	case "$(uname -m)" in
+	x86_64) target=x86_64-unknown-linux-musl ;;
+	aarch64 | arm64) target=aarch64-unknown-linux-musl ;;
+	*)
+		echo "unsupported machine: $(uname -m)" >&2
+		exit 1
+		;;
+	esac
+	version="$(sed -n 's/^enum codexCliVersion = "\(.*\)";/\1/p' "$setup")"
+	sha="$(sed -n "/\"$target\"/{n;s/.*\"\([0-9a-f]\{64\}\)\".*/\1/p;}" "$setup")"
+	curl -fsSL -o "$scratch/codex.tar.gz" \
+		"https://github.com/openai/codex/releases/download/rust-v$version/codex-package-$target.tar.gz"
+	echo "$sha  $scratch/codex.tar.gz" | sha256sum -c - >/dev/null
+	mkdir -p "$scratch/codex-package"
+	tar -xzf "$scratch/codex.tar.gz" -C "$scratch/codex-package"
+	echo "$scratch/codex-package/bin/codex"
 }
 
 case "$vendor" in
@@ -88,7 +102,7 @@ gemini)
 	;;
 codex)
 	: "${OPENAI_API_KEY:?OPENAI_API_KEY must be set}"
-	cli="${CODEX_CLI:-$(install_codex)}"
+	cli="${CODEX_CLI:-$(download_pinned_codex)}"
 	run() {
 		mkdir -p "$scratch/codex-home"
 		CODEX_HOME="$scratch/codex-home" CODEX_API_KEY="$OPENAI_API_KEY" \
