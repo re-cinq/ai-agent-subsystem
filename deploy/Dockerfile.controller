@@ -27,7 +27,7 @@ ARG LDC_SHA256_AMD64
 ARG LDC_SHA256_ARM64
 RUN set -eu; \
 	dnf install -y --setopt=install_weak_deps=False \
-		curl-minimal xz tar gzip gcc glibc-devel zlib-devel openssl-devel libxml2 git ca-certificates; \
+		curl-minimal xz tar gzip gcc lld glibc-devel zlib-devel openssl-devel libxml2 git ca-certificates; \
 	dnf clean all
 # Pinned, checksum-verified official LDC release tarball — no curl|bash of an
 # unverified installer. The version and the per-arch hashes move together.
@@ -48,7 +48,11 @@ RUN set -eu; \
 ENV PATH="/opt/dlang/ldc2/bin:${PATH}"
 WORKDIR /src
 COPY . .
-RUN DFLAGS="-link-defaultlib-shared=false -L-lz" dub build :controller --compiler=ldc2
+# Linked with lld, not Rocky 9's ld.bfd: binutils 2.35 predates SHF_GNU_RETAIN and
+# splits .tbss, so thread-locals alias (see scripts/check-tbss.sh). DFLAGS replaces
+# dub's build-type flags, so these are the complete compiler flags.
+RUN DFLAGS="-link-defaultlib-shared=false -L-lz --linker=lld" dub build :controller --compiler=ldc2
+RUN scripts/check-tbss.sh packages/controller/ai-agent-controller
 
 FROM ${RUNTIME_IMAGE} AS runtime
 RUN set -eu; \

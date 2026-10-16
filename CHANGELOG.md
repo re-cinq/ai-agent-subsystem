@@ -123,6 +123,14 @@ the npm package versions.
   decided its exit status: a download or extract error still reported success and left a
   `gemini` wrapper pointing at a missing bundle, and the run failed later with a less clear
   error. The step now stops at the first failing command.
+- **Release binaries are linked with lld, so their thread-locals can no longer alias.** The
+  controller, `ai-agent-init` and `ai-agent-supervisor` in the published images were linked by
+  the Rocky 9 builder's ld.bfd (binutils 2.35), which predates `SHF_GNU_RETAIN`: whenever LDC marks
+  a `.tbss` section retained, it emits a second `.tbss` at the same address and two thread-local
+  variables share storage, corrupting state in ways that depend on the build (a CI build of the
+  supervisor lost all agent output this way). The images and the portable `ai-agent-init` build
+  now link with lld, and the build fails if a binary has more than one `.tbss`
+  (`scripts/check-tbss.sh`).
 - **Codex runs now authenticate with an `OPENAI_API_KEY` key.** Current `codex exec` reads
   its key only from `CODEX_API_KEY` and sends no bearer at all (`401 Missing bearer`) when a
   definition mapped the key as `OPENAI_API_KEY`. A Codex run with an `OPENAI_API_KEY` entry in

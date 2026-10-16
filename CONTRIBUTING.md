@@ -22,6 +22,11 @@ there.
 debian:bullseye's LDC 1.24), so an unsupported compiler fails fast with a clear message instead of
 a page of template errors.
 
+LDC builds that ship (the image Dockerfiles, the portable `ai-agent-init` build) link with lld
+(`--linker=lld`, so the builder needs the `lld` package). ld.bfd older than binutils 2.36, such as
+Rocky 9's and debian:bullseye's 2.35, can split `.tbss` so that two thread-locals share storage;
+`scripts/check-tbss.sh <binary>...` fails the build when that happens.
+
 ## Everyday commands
 
 `make` (or `make help`) lists every target. The ones you will actually use:

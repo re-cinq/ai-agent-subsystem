@@ -18,6 +18,7 @@ on:
       - 'dub.json'
       - 'scripts/container/**'
       - 'scripts/ctest-init-portable.sh'
+      - 'scripts/check-tbss.sh'
       - '.github/workflows/init-container.yml'
   pull_request:
     paths:
@@ -25,6 +26,7 @@ on:
       - 'dub.json'
       - 'scripts/container/**'
       - 'scripts/ctest-init-portable.sh'
+      - 'scripts/check-tbss.sh'
       - '.github/workflows/init-container.yml'
   workflow_dispatch:
 
