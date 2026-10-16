@@ -8,7 +8,7 @@ export type SelectEvent = "tool_call" | "message" | "tool_result" | "result" | "
 export type SelectRole = "assistant" | "user";
 export type SinkType = "stdout" | "http" | "file";
 export type ConcurrencyPolicy = "Allow" | "Forbid" | "Replace";
-export type Execution = "interactive" | "batch";
+export type Execution = "interactive" | "batch" | "realtime";
 export type BatchTimeoutAction = "fail" | "fallback";
 export type Phase = "Pending" | "Running" | "Succeeded" | "Failed";
 
@@ -135,6 +135,11 @@ export interface BatchSpec {
   maxTokens?: number;
 }
 
+export interface RealtimeSpec {
+  /** Minutes without a prompt or a running turn after which the session ends and its conversation is saved. */
+  idleTimeoutMinutes?: number;
+}
+
 /** The reusable recipe for a coding agent task. */
 export interface AgentDefinitionSpec {
   /** Human summary for operators. */
@@ -149,6 +154,7 @@ export interface AgentDefinitionSpec {
   max_turns?: number;
   execution?: Execution;
   batch?: BatchSpec;
+  realtime?: RealtimeSpec;
   resources?: AgentResources;
   output?: OutputSpec;
   /** Raw passthrough for tool-specific knobs. */
@@ -209,6 +215,8 @@ export interface AgentSpec {
   parameters?: Record<string, string>;
   /** Files downloaded into the workspace before the agent starts; only references travel. */
   files?: InputFile[];
+  /** Session id of an earlier realtime run to continue: its saved conversation is restored and the definition's prompt is not sent. */
+  resumeSession?: string;
 }
 
 export interface AgentStatus {

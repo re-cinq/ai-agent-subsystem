@@ -27,4 +27,8 @@ struct AgentSpec
 	@optional @Description(
 		"Files downloaded into the workspace before the agent starts; only references travel.")
 	InputFile[] files;
+
+	@optional @Description(
+		"Session id of an earlier realtime run to continue: its saved conversation is restored and the definition's prompt is not sent.")
+	string resumeSession;
 }

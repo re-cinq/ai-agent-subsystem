@@ -19,8 +19,9 @@ The recipe. It has a `spec` and no `status`.
 | `disallowed_tools` | []string |  | Scoped denials, e.g. `Bash(rm *)`. |
 | `permission_mode` | enum | `auto` | `auto` enforces allow/deny lists; `bypass` grants all. |
 | `max_turns` | int |  | Agentic turn cap; omit for uncapped. |
-| `execution` | enum | `interactive` | `interactive` runs the CLI in a Job pod. `batch` sends the prompt to the vendor's batch API from the controller; see [batch runs](../tasks/batch-runs.md). |
+| `execution` | enum | `interactive` | `interactive` runs the CLI in a Job pod. `batch` sends the prompt to the vendor's batch API from the controller; see [batch runs](../tasks/batch-runs.md). `realtime` keeps the CLI running in its Job pod and feeds it prompts over HTTP until it idles out or is closed; see below. |
 | `batch` | object |  | Batch settings, read only when `execution: batch`; see below. |
+| `realtime` | object |  | Realtime settings, read only when `execution: realtime`; see below. |
 | `resources` | object |  | Run inputs; see below. |
 | `output` | object |  | Result contract; see below. |
 | `tool_config` | object |  | Raw passthrough for tool-specific knobs; unknown fields preserved. |
@@ -76,6 +77,17 @@ The definition must also map the vendor's API key: a `resources.secrets` entry n
 for a Codex-routed model. Without it the
 Agent fails with `batch execution needs a resources.secrets entry named <name>`, for example
 `batch execution needs a resources.secrets entry named GEMINI_API_KEY`.
+
+### `spec.realtime`
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `idleTimeoutMinutes` | int (min 1) | `15` | Minutes without a prompt or a running turn after which the session ends, its conversation is saved and the Agent goes `Succeeded`. The Station's `deadlineMinutes` stays the hard limit. |
+
+A realtime run saves its conversation under its own session id and resumes the one its Agent names in
+`spec.resumeSession`, so a definition with `execution: realtime` must leave `resources.conversation.id`
+and `resources.conversation.pin` empty; set only `source` (and `headers_secret`). A controller without
+a realtime signing key fails every realtime Agent with `realtime execution is disabled on this controller`.
 
 ### `spec.output`
 

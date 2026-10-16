@@ -20,6 +20,12 @@ struct BatchSpec
 	long maxTokens = 16_000;
 }
 
+struct RealtimeSpec
+{
+	@optional @Minimum(1) @Description("Minutes without a prompt or a running turn after which the session ends and its conversation is saved.")
+	int idleTimeoutMinutes = 15;
+}
+
 @Description("The reusable recipe for a coding agent task.")
 struct AgentDefinitionSpec
 {
@@ -39,6 +45,7 @@ struct AgentDefinitionSpec
 
 	@optional Execution execution = Execution.interactive;
 	@optional BatchSpec batch;
+	@optional RealtimeSpec realtime;
 
 	@optional AgentResources resources;
 	@optional OutputSpec output;
@@ -73,6 +80,20 @@ string batchViolation(const AgentDefinitionSpec spec) @safe
 	].find!(rule => rule[1]);
 	if (unsupported.length > 0)
 		return "batch execution does not support " ~ unsupported[0][0];
+	return "";
+}
+
+/// Why `spec` cannot run as a realtime session, or "" when it can (or is not realtime).
+/// A realtime run resumes the session its Agent names in `resumeSession` and saves under
+/// its own id, so a fixed `resources.conversation.id` or `pin` would fight both.
+string realtimeViolation(const AgentDefinitionSpec spec) @safe
+{
+	if (spec.execution != Execution.realtime)
+		return "";
+	if (spec.resources.conversation.id.length)
+		return "realtime execution takes the conversation from the Agent's resumeSession, not resources.conversation.id";
+	if (spec.resources.conversation.pin.length)
+		return "realtime execution saves the conversation under its session id, not resources.conversation.pin";
 	return "";
 }
 
@@ -166,4 +187,39 @@ unittest // batch definition with an output.schema has no violation
 	spec.execution = Execution.batch;
 	spec.output.schema = parseJsonString(`{"type":"object"}`);
 	batchViolation(spec).should.equal("");
+}
+
+unittest // realtime definitions with a conversation id or pin return that field's reason
+{
+	import agentcore.crds.conversation_ref : ConversationRef;
+
+	AgentDefinitionSpec withId;
+	withId.execution = Execution.realtime;
+	withId.resources.conversation = ConversationRef("https://conv.example", "c1");
+	AgentDefinitionSpec withPin;
+	withPin.execution = Execution.realtime;
+	withPin.resources.conversation = ConversationRef("https://conv.example", "", "p1");
+
+	[realtimeViolation(withId), realtimeViolation(withPin)].should.equal([
+		"realtime execution takes the conversation from the Agent's resumeSession, not resources.conversation.id",
+		"realtime execution saves the conversation under its session id, not resources.conversation.pin",
+	]);
+}
+
+unittest // a realtime definition with only a conversation source and an interactive one with an id have no violation
+{
+	import agentcore.crds.conversation_ref : ConversationRef;
+
+	AgentDefinitionSpec realtime;
+	realtime.execution = Execution.realtime;
+	realtime.resources.conversation = ConversationRef("https://conv.example");
+	AgentDefinitionSpec interactive;
+	interactive.resources.conversation = ConversationRef("https://conv.example", "c1");
+
+	[realtimeViolation(realtime), realtimeViolation(interactive)].should.equal(["", ""]);
+}
+
+@safe unittest // realtime idles out after 15 minutes by default
+{
+	AgentDefinitionSpec.init.realtime.idleTimeoutMinutes.should.equal(15);
 }

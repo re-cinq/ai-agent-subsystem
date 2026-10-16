@@ -19,6 +19,7 @@ One run. It has a `spec` (your desired run) and a `status` (owned by the control
 | `targetRepo` | string | Optional repo in `owner/name` form. |
 | `branch` | string | Optional git branch. |
 | `files` | [] object | `{path, url, headers_secret?}` — files the init downloads into the workspace before the agent starts. Only the references travel; see [below](#specfiles). |
+| `resumeSession` | string | Optional. The `status.sessionId` of an earlier run to continue. Needs a definition with `execution: realtime` and a `resources.conversation.source`, and a vendor that keeps conversation state (not opencode or `exec`). The saved conversation is restored and the definition's prompt is not sent. |
 
 ### `spec.files`
 
