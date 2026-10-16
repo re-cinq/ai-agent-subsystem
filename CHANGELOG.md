@@ -75,6 +75,12 @@ the npm package versions.
   working unchanged.
 
 ### Fixed
+- **Codex runs now authenticate with an `OPENAI_API_KEY` key.** Current `codex exec` reads
+  its key only from `CODEX_API_KEY` and sends no bearer at all (`401 Missing bearer`) when a
+  definition mapped the key as `OPENAI_API_KEY`. A Codex run with an `OPENAI_API_KEY` entry in
+  `resources.secrets` or `resources.env` and no `CODEX_API_KEY` of its own now also gets
+  `CODEX_API_KEY` with the same value: a second `secretKeyRef` to the same `agent-secrets` key for
+  a secret, the same literal for an env entry. Either name works; other vendors are unchanged.
 - **Invalid `resources.mcp_servers` now fail the Agent instead of being silently dropped.** An
   `exec` definition with MCP servers, a duplicate or empty server name, an `http`/`sse` server
   without `url`, a `stdio` server without `command`, a name other than letters, digits, `_`

@@ -1,6 +1,6 @@
 module agentcore.vendors.codex.agent;
 
-import agentcore.vendors.base.agent : Agent, ConversationArgs;
+import agentcore.vendors.base.agent : Agent, AgentSecretAliases, ConversationArgs;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 import agentcore.crds.enums : McpTransport, PermissionMode;
 import agentcore.crds.mcp_server : McpServer, envCredentials, headerCredentials, stdioLaunch;
@@ -8,7 +8,7 @@ import agentcore.crds.mcp_server : McpServer, envCredentials, headerCredentials,
 /// OpenAI Codex CLI adapter: `codex exec --json …`. Codex governs tool access
 /// through its sandbox/approval model rather than per-tool flags, so the recipe's
 /// allow/deny lists do not map to arguments here.
-final class CodexAgent : Agent
+final class CodexAgent : Agent, AgentSecretAliases
 {
 	/// Un-hide the interface's no-conversation convenience overload, which this
 	/// class's own `command` would otherwise shadow.
@@ -17,6 +17,13 @@ final class CodexAgent : Agent
 	override string name() const @safe
 	{
 		return "codex";
+	}
+
+	/// `codex exec` authenticates with CODEX_API_KEY only; it ignores OPENAI_API_KEY,
+	/// the name OpenAI keys conventionally carry, and sends no bearer at all.
+	override string[string] secretAliases() const @safe
+	{
+		return ["CODEX_API_KEY": "OPENAI_API_KEY"];
 	}
 
 	/// Codex assigns its own session id — `codex exec` has no pin flag, only the

@@ -67,3 +67,12 @@ interface AgentEnv
 	/// Variable name to value, added to the agent container's env.
 	string[string] env() const @safe;
 }
+
+/// An `Agent` whose CLI reads a credential under another name than the one definitions
+/// conventionally give it. Optional. Each alias gets the same env entry (agent-secrets
+/// key or literal) as the run's variable it names, unless the run already sets the alias.
+interface AgentSecretAliases
+{
+	/// Alias env var name to the run env var name whose entry it copies.
+	string[string] secretAliases() const @safe;
+}

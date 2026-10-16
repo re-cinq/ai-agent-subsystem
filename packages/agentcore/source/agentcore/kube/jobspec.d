@@ -1,9 +1,11 @@
 module agentcore.kube.jobspec;
 
-import std.algorithm.searching : canFind;
+import std.algorithm.iteration : filter;
+import std.algorithm.searching : canFind, find;
 import std.algorithm.sorting : sort;
 import std.conv : to;
 import std.exception : enforce;
+import std.range : retro;
 import vibe.data.json;
 
 import agentcore.crds.agent : Agent;
@@ -19,7 +21,7 @@ import agentcore.crds.mcp_server : credentials;
 import agentcore.crds.station : Station;
 import agentcore.crds.serialization : toJson;
 import agentcore.vendors.select : agentForModel, agentSetupForModel;
-import agentcore.vendors.base.agent : AgentEnv, ConversationArgs;
+import agentcore.vendors.base.agent : AgentEnv, AgentSecretAliases, ConversationArgs;
 import agentcore.kube.bundle : bundleRoot, supervisorPath;
 import agentcore.core.env;
 import agentcore.kube.jobs : jobNameFor, safeName;
@@ -99,7 +101,8 @@ Json buildJob(Agent agent, Station station, AgentDefinition definition, string a
 	// independently resumable, which is what makes rewinding to an earlier run possible.
 	auto argv = vendor.command(recipe, prompt,
 		ConversationArgs(recipe.resources.conversation.id, recipe.resources.conversation.pin));
-	auto env = runEnv(agent, station, recipe, vendorEnv(cast(Object) vendor));
+	auto env = runEnv(agent, station, recipe, vendorEnv(cast(Object) vendor),
+		vendorSecretAliases(cast(Object) vendor));
 
 	auto template_ = wirePodTemplate(deepCopy(station.spec.template_), commandFor(argv), env,
 		initEnv(env, agent.spec.files), agentImage);
@@ -491,8 +494,15 @@ private string[string] vendorEnv(const Object vendor) @safe
 	return withEnv is null ? null : withEnv.env;
 }
 
+/// The secret aliases the vendor's CLI needs; empty for a vendor that adds none.
+private string[string] vendorSecretAliases(const Object vendor) @safe
+{
+	auto withAliases = cast(const AgentSecretAliases) vendor;
+	return withAliases is null ? null : withAliases.secretAliases;
+}
+
 private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe,
-	const string[string] vendorDefaults)
+	const string[string] vendorDefaults, const string[string] secretAliases)
 {
 	Json[] env;
 
@@ -661,6 +671,22 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe,
 			secretVar(secret.name, secret.ref_);
 			secretsInjected[secret.name] = true;
 		}
+	// An alias copies the entry its source name resolves to in the pod — the last one,
+	// as the kubelet is last-wins — so a secret stays a secretKeyRef, never in argv or on disk.
+	bool named(Json entry, string name)
+	{
+		return entry["name"].get!string == name;
+	}
+
+	foreach (aliasName; secretAliases.keys.sort)
+	{
+		auto source = env.retro.find!(entry => named(entry, secretAliases[aliasName]));
+		if (source.empty || env.canFind!(entry => named(entry, aliasName)))
+			continue;
+		auto aliasEntry = source.front.clone;
+		aliasEntry["name"] = aliasName;
+		env ~= aliasEntry;
+	}
 	strVar(homeEnv, bundleRoot);
 	strVar(pathEnv, "/agent/.local/bin:/usr/local/bin:/usr/bin:/bin");
 	return Json(env);
@@ -1674,4 +1700,167 @@ unittest
 	isReservedEnvName("PATH").should.equal(true);
 	isReservedEnvName("LOG_LEVEL").should.equal(false);
 	isReservedEnvName("ANTHROPIC_API_KEY").should.equal(false);
+}
+
+unittest // a gpt-5-codex run with secret OPENAI_API_KEY=openai-key also gets CODEX_API_KEY from key openai-key
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.model = "gpt-5-codex";
+	definition.spec.resources.secrets = [SecretRef("OPENAI_API_KEY", "openai-key")];
+
+	envSecretKey(agentContainer(buildJob(agent, station, definition, "img")), "CODEX_API_KEY")
+		.should.equal("openai-key");
+}
+
+unittest // a gpt-5-codex run with its own CODEX_API_KEY=codex-key secret keeps one CODEX_API_KEY entry from codex-key
+{
+	import std.algorithm : count;
+
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.model = "gpt-5-codex";
+	definition.spec.resources.secrets = [
+		SecretRef("OPENAI_API_KEY", "openai-key"), SecretRef("CODEX_API_KEY", "codex-key"),
+	];
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img"));
+	container["env"].get!(Json[]).count!(entry => entry["name"].get!string == "CODEX_API_KEY")
+		.should.equal(1);
+	envSecretKey(container, "CODEX_API_KEY").should.equal("codex-key");
+}
+
+unittest // a gpt-5-codex run with env CODEX_API_KEY=literal-key gets no CODEX_API_KEY secretKeyRef
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.model = "gpt-5-codex";
+	definition.spec.resources.env = [EnvVar("CODEX_API_KEY", "literal-key")];
+	definition.spec.resources.secrets = [SecretRef("OPENAI_API_KEY", "openai-key")];
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img"));
+	envSecretKey(container, "CODEX_API_KEY").should.equal("");
+	envValues(container, "CODEX_API_KEY").should.equal(["literal-key"]);
+}
+
+unittest // a claude-sonnet-4-6 run with secret OPENAI_API_KEY gets no CODEX_API_KEY
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.resources.secrets = [SecretRef("OPENAI_API_KEY", "openai-key")];
+
+	envSecretKey(agentContainer(buildJob(agent, station, definition, "img")), "CODEX_API_KEY")
+		.should.equal("");
+}
+
+unittest // a gpt-5-codex run with secrets OPENAI_API_KEY=key-a then OPENAI_API_KEY=key-b gets one CODEX_API_KEY from key-a
+{
+	import std.algorithm : count;
+
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.model = "gpt-5-codex";
+	definition.spec.resources.secrets = [
+		SecretRef("OPENAI_API_KEY", "key-a"), SecretRef("OPENAI_API_KEY", "key-b"),
+	];
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img"));
+	container["env"].get!(Json[]).count!(entry => entry["name"].get!string == "CODEX_API_KEY")
+		.should.equal(1);
+	envSecretKey(container, "CODEX_API_KEY").should.equal("key-a");
+}
+
+unittest // a gpt-5-codex run with env OPENAI_API_KEY=literal-key also gets CODEX_API_KEY=literal-key
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.model = "gpt-5-codex";
+	definition.spec.resources.env = [EnvVar("OPENAI_API_KEY", "literal-key")];
+
+	envValues(agentContainer(buildJob(agent, station, definition, "img")), "CODEX_API_KEY")
+		.should.equal(["literal-key"]);
+}
+
+unittest // a gpt-5-codex run with env OPENAI_API_KEY=first-key then OPENAI_API_KEY=last-key gets CODEX_API_KEY=last-key
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.model = "gpt-5-codex";
+	definition.spec.resources.env = [
+		EnvVar("OPENAI_API_KEY", "first-key"), EnvVar("OPENAI_API_KEY", "last-key"),
+	];
+
+	envValues(agentContainer(buildJob(agent, station, definition, "img")), "CODEX_API_KEY")
+		.should.equal(["last-key"]);
+}
+
+unittest // a gpt-5-codex run with env OPENAI_API_KEY=literal-key and secret OPENAI_API_KEY=openai-key gets CODEX_API_KEY from key openai-key
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.model = "gpt-5-codex";
+	definition.spec.resources.env = [EnvVar("OPENAI_API_KEY", "literal-key")];
+	definition.spec.resources.secrets = [SecretRef("OPENAI_API_KEY", "openai-key")];
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img"));
+	envValues(container, "CODEX_API_KEY").should.equal([]);
+	envSecretKey(container, "CODEX_API_KEY").should.equal("openai-key");
+}
+
+unittest // a gpt-5-codex run with env OPENAI_API_KEY=literal-key and env CODEX_API_KEY=codex-literal keeps CODEX_API_KEY=codex-literal
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.model = "gpt-5-codex";
+	definition.spec.resources.env = [
+		EnvVar("OPENAI_API_KEY", "literal-key"), EnvVar("CODEX_API_KEY", "codex-literal"),
+	];
+
+	envValues(agentContainer(buildJob(agent, station, definition, "img")), "CODEX_API_KEY")
+		.should.equal(["codex-literal"]);
+}
+
+unittest // a gpt-5-codex run with env OPENAI_API_KEY=literal-key and secret CODEX_API_KEY=codex-key gets only CODEX_API_KEY from key codex-key
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.model = "gpt-5-codex";
+	definition.spec.resources.env = [EnvVar("OPENAI_API_KEY", "literal-key")];
+	definition.spec.resources.secrets = [SecretRef("CODEX_API_KEY", "codex-key")];
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img"));
+	envValues(container, "CODEX_API_KEY").should.equal([]);
+	envSecretKey(container, "CODEX_API_KEY").should.equal("codex-key");
+}
+
+unittest // a claude-sonnet-4-6 run with env OPENAI_API_KEY=literal-key gets no CODEX_API_KEY
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.resources.env = [EnvVar("OPENAI_API_KEY", "literal-key")];
+
+	envValues(agentContainer(buildJob(agent, station, definition, "img")), "CODEX_API_KEY")
+		.should.equal([]);
 }

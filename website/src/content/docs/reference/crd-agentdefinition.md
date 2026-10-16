@@ -30,7 +30,7 @@ The recipe. It has a `spec` and no `status`.
 | Field | Type | Notes |
 | --- | --- | --- |
 | `env` | [] `{name, value}` | Plain environment variables. |
-| `secrets` | [] `{name, ref}` | `name` is the env var; `ref` is an allowlisted secret-store key. |
+| `secrets` | [] `{name, ref}` | `name` is the env var; `ref` is an allowlisted secret-store key. A Codex run accepts its key as `OPENAI_API_KEY` or `CODEX_API_KEY`, here or in `env`; see [Credentials](../concepts/agent-runtime.md). |
 | `mcp_servers` | [] object | `{name, transport(stdio\|http\|sse), command?, args?, url?, headers?: [{name, ref}], env?: [{name, ref}], headers_secret?}`. `headers` (http/sse) and `env` (stdio) take their values from `agent-secrets` keys; `headers_secret` is the deprecated single-`Authorization` form. See [Connect MCP servers](../tasks/connect-mcp-servers.md). Names must be unique; `http`/`sse` need `url`, `stdio` needs `command`; header and env names must be valid and unique. Not supported by the `exec` model; Codex does not support `sse`. A violation fails the Agent with the reason instead of starting a Job. |
 | `repos` | [] object | `{name, url, ref?, path?, token_secret?}`. |
 | `skills` | []string | Skill names staged into the run's `$HOME/.claude/skills`, fetched from `skills_source` as `<source>/<name>.tar.gz`. The recipe declares intent; each adapter realizes it. |
