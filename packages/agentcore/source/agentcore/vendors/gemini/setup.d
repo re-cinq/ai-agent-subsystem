@@ -26,7 +26,8 @@ enum geminiCliVersion = "0.62.0";
 /// wrapper resolves $HOME at run time, in the main container, which is also
 /// the container that actually has node — gemini-cli needs node >= 20 there
 /// regardless of how it is installed. Guarded by `command -v` so a pre-baked
-/// CLI or an init-container retry is a no-op.
+/// CLI or an init-container retry is a no-op; any later command that fails fails
+/// the step (`-e`, outside an `||` list, which would switch it off).
 final class GeminiSetup : AgentSetup, McpSettings
 {
 	/// gemini-cli has no flag for MCP servers; it reads them from `mcpServers` in its
@@ -71,13 +72,12 @@ final class GeminiSetup : AgentSetup, McpSettings
 	override string[][] installSteps() const @safe
 	{
 		return [[
-			"bash", "-o", "pipefail", "-c",
-			`command -v gemini >/dev/null 2>&1 || {
-  mkdir -p "$HOME/.local/share/gemini-cli" "$HOME/.local/bin"
-  curl -fsSL "https://registry.npmjs.org/@google/gemini-cli/-/gemini-cli-` ~ geminiCliVersion ~ `.tgz" | tar -xz -C "$HOME/.local/share/gemini-cli"
-  printf '#!/usr/bin/env bash\nexec node "$HOME/.local/share/gemini-cli/package/bundle/gemini.js" "$@"\n' > "$HOME/.local/bin/gemini"
-  chmod +x "$HOME/.local/bin/gemini"
-}`,
+			"bash", "-euo", "pipefail", "-c",
+			`command -v gemini >/dev/null 2>&1 && exit 0
+mkdir -p "$HOME/.local/share/gemini-cli" "$HOME/.local/bin"
+curl -fsSL "https://registry.npmjs.org/@google/gemini-cli/-/gemini-cli-` ~ geminiCliVersion ~ `.tgz" | tar -xz -C "$HOME/.local/share/gemini-cli"
+printf '#!/usr/bin/env bash\nexec node "$HOME/.local/share/gemini-cli/package/bundle/gemini.js" "$@"\n' > "$HOME/.local/bin/gemini"
+chmod +x "$HOME/.local/bin/gemini"`,
 		]];
 	}
 }
@@ -93,7 +93,7 @@ version (unittest) import std.algorithm.searching : canFind;
 
 	auto steps = gemini.installSteps;
 	steps.length.should.equal(1);
-	steps[0][0 .. 4].should.equal(["bash", "-o", "pipefail", "-c"]);
+	steps[0][0 .. 4].should.equal(["bash", "-euo", "pipefail", "-c"]);
 	// The npm registry tarball, not an installer script: no gemini curl
 	// installer exists (v0.10.8's URL 404ed every run), and the package is a
 	// dependency-free bundle, so the tarball IS the install.
@@ -110,6 +110,71 @@ version (unittest) import std.algorithm.searching : canFind;
 	const script = (new GeminiSetup).installSteps[0][4];
 	script.canFind("/latest").should.equal(false);
 	script.canFind("gemini-cli-0.62.0.tgz").should.equal(true);
+}
+
+version (unittest)
+{
+	import std.conv : octal;
+	import std.file : exists, mkdirRecurse, rmdirRecurse, setAttributes, symlink, tempDir, write;
+	import std.path : buildPath;
+	import std.process : Config, execute;
+
+	import agentcore.core.exec : findExecutable;
+
+	/// A throwaway pod in a temp dir: an empty HOME and a `bin` that is the whole PATH
+	/// (the tools the step may use, plus a stand-in `curl` running `curlScript`).
+	string geminiSandbox(string name, string curlScript)
+	{
+		const root = buildPath(tempDir, "agentcore-gemini-setup-" ~ name);
+		if (root.exists)
+			rmdirRecurse(root);
+		const bin = buildPath(root, "bin");
+		mkdirRecurse(buildPath(root, "home"));
+		mkdirRecurse(bin);
+		foreach (tool; ["bash", "mkdir", "tar", "gzip", "chmod", "cat"])
+			symlink(findExecutable(tool), buildPath(bin, tool));
+		write(buildPath(bin, "curl"), "#!/bin/sh\n" ~ curlScript);
+		setAttributes(buildPath(bin, "curl"), octal!755);
+		return root;
+	}
+
+	auto runInGeminiSandbox(string root, string[] step)
+	{
+		const home = buildPath(root, "home");
+		const path = buildPath(home, ".local", "bin") ~ ":" ~ buildPath(root, "bin");
+		return execute(step, ["HOME": home, "PATH": path], Config.newEnv);
+	}
+}
+
+unittest // npm tarball served by curl installs the gemini wrapper into ~/.local/bin
+{
+	const root = geminiSandbox("download", "");
+	scope (exit)
+		rmdirRecurse(root);
+	const tarball = buildPath(root, "gemini-cli.tgz");
+	mkdirRecurse(buildPath(root, "npm", "package", "bundle"));
+	write(buildPath(root, "npm", "package", "bundle", "gemini.js"), "");
+	execute(["tar", "-czf", tarball, "-C", buildPath(root, "npm"), "package"]).status.should.equal(0);
+	write(buildPath(root, "bin", "curl"), "#!/bin/sh\ncat '" ~ tarball ~ "'\n");
+
+	foreach (step; (new GeminiSetup).installSteps)
+		runInGeminiSandbox(root, step).status.should.equal(0);
+
+	buildPath(root, "home", ".local", "share", "gemini-cli", "package", "bundle", "gemini.js").exists
+		.should.equal(true);
+	buildPath(root, "home", ".local", "bin", "gemini").exists.should.equal(true);
+}
+
+unittest // failed npm download exits the step non-zero without writing the gemini wrapper
+{
+	const root = geminiSandbox("failed-download", "exit 22\n");
+	scope (exit)
+		rmdirRecurse(root);
+
+	foreach (step; (new GeminiSetup).installSteps)
+		runInGeminiSandbox(root, step).status.should.not.equal(0);
+
+	buildPath(root, "home", ".local", "bin", "gemini").exists.should.equal(false);
 }
 
 version (unittest)

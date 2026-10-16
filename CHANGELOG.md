@@ -113,6 +113,11 @@ the npm package versions.
   working unchanged.
 
 ### Fixed
+- **A failed gemini-cli download fails the init.** The Gemini install step ran its commands
+  inside `command -v gemini || { … }`, where bash ignores `set -e`, so only the final `chmod`
+  decided its exit status: a download or extract error still reported success and left a
+  `gemini` wrapper pointing at a missing bundle, and the run failed later with a less clear
+  error. The step now stops at the first failing command.
 - **Codex runs now authenticate with an `OPENAI_API_KEY` key.** Current `codex exec` reads
   its key only from `CODEX_API_KEY` and sends no bearer at all (`401 Missing bearer`) when a
   definition mapped the key as `OPENAI_API_KEY`. A Codex run with an `OPENAI_API_KEY` entry in
