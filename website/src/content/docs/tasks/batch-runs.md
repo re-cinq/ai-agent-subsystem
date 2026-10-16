@@ -8,7 +8,8 @@ and each request is one model call with no tool loop. An AgentDefinition with `e
 uses this path. No Job or pod is created: the controller submits the prompt, polls the batch from
 its reconcile loop, and records the result on the Agent.
 
-Batch runs support Anthropic (Claude models) today. OpenAI and Gemini batch support is coming.
+Batch runs support Anthropic (Claude models) and Gemini (Gemini models, see [Gemini](#gemini)).
+OpenAI batch support is coming.
 
 ## Enable batch on the controller
 
@@ -48,7 +49,7 @@ A batch definition may not set any field that needs the CLI harness. The Agent f
 - `allowed_tools`, `disallowed_tools` or `max_turns`
 - `resources.repos`, `resources.mcp_servers`, `resources.skills` or `resources.conversation`
 - `output.watch`
-- the `exec` model, or a model that does not route to Claude (Codex, Gemini or opencode models)
+- the `exec` model, or a Codex or opencode model
 
 The Agent itself may not set `spec.files` (`batch execution does not support files`). An Agent's
 `spec.model` overrides the definition's model as it does for a Job, and the override goes through the
@@ -130,7 +131,9 @@ set, then `Succeeded` or `Failed` once the batch ends.
 The controller sends one request per Agent. The prompt is the definition's `prompt` rendered with
 the Agent's `parameters`, the model is the Agent's `spec.model` when set and the definition's `model`
 otherwise, and the request's `custom_id` is the Agent's uid. When neither names a model, the request
-uses `claude-opus-5-5`: unlike the CLI, a batch request has no default model of its own.
+uses `claude-opus-5-5`: unlike the CLI, a batch request has no default model of its own. That
+default only covers an empty model, which routes to Claude; a Gemini definition always names its
+model.
 
 `batch.maxTokens` sets the request's `max_tokens` (default `16000`). Models that always think, such
 as `claude-opus-5-5`, spend part of it on thinking, so raise it for long answers.
@@ -186,6 +189,79 @@ There are no init-phase events, since no init container runs.
 An errored, expired or cancelled batch request moves the Agent to `Failed`, with the provider's
 message in `status.failureReason`.
 
+## Gemini
+
+A definition whose model routes to Gemini (any model id containing `gemini`, such as
+`gemini-3.1-flash-lite`) is submitted to the
+[Gemini Batch API](https://ai.google.dev/gemini-api/docs/batch-mode) instead, with
+`status.batchProvider: gemini`. Everything above about validation, timeouts, fallback, concurrency,
+sinks and cleanup applies unchanged. The key comes from the `resources.secrets` entry named
+`GEMINI_API_KEY`, the same entry a gemini CLI run uses:
+
+```sh
+kubectl -n ai-agents create secret generic agent-secrets \
+  --from-literal=gemini-key="$GEMINI_API_KEY"
+```
+
+```yaml
+apiVersion: agents.re-cinq.com/v1alpha1
+kind: AgentDefinition
+metadata:
+  name: ticket-triage
+  namespace: ai-agents
+spec:
+  description: Classify a support ticket.
+  model: gemini-3.1-flash-lite
+  execution: batch
+  prompt: |
+    Classify this support ticket by severity and component:
+    {ticket}
+  output:
+    schema:
+      type: object
+      properties:
+        severity: {type: string, enum: [low, medium, high]}
+        component: {type: string}
+      required: [severity, component]
+  resources:
+    secrets:
+      - name: GEMINI_API_KEY
+        ref: gemini-key
+```
+
+The controller sends one inline request through `models/<model>:batchGenerateContent`. The batch's
+`display_name` and the request's `metadata.key` are the Agent's uid, and `batch.maxTokens` sets
+`generationConfig.maxOutputTokens`. An `output.schema` becomes structured output:
+`generationConfig.responseMimeType: application/json` with the schema as
+`responseJsonSchema`, so the model's answer is JSON that matches it. `status.batchId` is the batch's
+id, the part of its `batches/<id>` name after the slash.
+
+When the batch ends, `status.output` and the sinks get the lines the gemini CLI prints with
+`--output-format stream-json` for a single-turn, no-tool run:
+
+```json
+{"type":"init","session_id":"<agent uid>","model":"gemini-3.1-flash-lite"}
+{"type":"message","role":"assistant","content":"{\"severity\":\"high\",\"component\":\"login\"}","delta":true}
+{"type":"result","status":"success","stats":{"total_tokens":61,"input_tokens":48,"output_tokens":13,"cached":0,"input":48,"duration_ms":0,"tool_calls":0,"models":{"gemini-3.1-flash-lite":{"total_tokens":61,"input_tokens":48,"output_tokens":13,"cached":0,"input":48}}}}
+```
+
+The assistant `message` carries the first candidate's text, with thought parts left out as the CLI
+leaves them out. `stats` comes from the response's `usageMetadata`: `input_tokens` is the prompt
+token count, `cached` the cached content tokens, `input` the prompt tokens that were not cached,
+`output_tokens` the candidate tokens, and `total_tokens` the total, which includes thinking tokens.
+`models` is keyed by the response's `modelVersion`. The batch reports no timing, so `duration_ms` is
+`0`. The gemini CLI reports no cost, so neither does a Gemini batch run. Unlike a CLI run, there is
+no `timestamp` on the lines and no `message` echoing the user prompt; neither is part of the
+[consumer contract](../reference/notification-api.md#consumer-contract).
+
+A failed request, a response with no candidates (a blocked prompt fails with
+`response blocked: <blockReason>`), or a batch that ends `FAILED`, `CANCELLED` or `EXPIRED`, gives
+the `init` line and
+a `result` with `status: "error"` and `error: {type: "BatchError", message}`, as the CLI reports an
+API error, and the Agent goes `Failed` with that message as `status.failureReason`. The controller
+deletes the batch once it is done, as for Anthropic (Google otherwise keeps batch results for
+6 weeks).
+
 ## Timeouts and fallback
 
 `batch.timeoutMinutes` (default `1440`, 24 hours) counts from the Agent's `startedAt`, the moment the
@@ -211,6 +287,9 @@ oldest `Running` run and submits its batch. See [Station](../reference/crd-stati
 
 The controller polls each in-flight batch at most once every `BATCH_POLL_SECONDS` seconds (default
 `60`), not on every watch event. Set it as an environment variable on the controller Deployment.
+A poll that errors (the provider is unreachable, answers an HTTP error, or returns a body the
+controller cannot read) is logged and retried on the next poll, so the Agent stays `Running` until
+the batch finishes or `batch.timeoutMinutes` applies `onTimeout`.
 
 ## Cancelling and cleanup
 
@@ -222,7 +301,7 @@ kubectl -n ai-agents delete agent ticket-summary-abc12
 
 On submit the controller adds the finalizer `agents.re-cinq.com/batch-cleanup` to the Agent. While it
 is present, a delete makes the controller cancel the batch if it is still running, delete the batch at
-the provider (Anthropic otherwise keeps results for 29 days), and then remove the finalizer so the
+the provider (Anthropic otherwise keeps results for 29 days, Gemini for 6 weeks), and then remove the finalizer so the
 Agent goes away. The same cleanup runs after every finished or timed-out batch, so history pruning
 removes finished batch Agents straight away.
 
@@ -235,6 +314,7 @@ provider object behind, so a delete is never stuck. A failed cleanup never chang
 
 Batch runs change who sees the provider key. With the `components/batch` component the controller
 gets `get` on the `agent-secrets` Secret, and the controller pod calls `https://api.anthropic.com`
-itself. The shipped NetworkPolicy
-selects run pods only, so the controller's egress is open unless your cluster restricts it; if it
-does, allow HTTPS to `api.anthropic.com`. See [RBAC & network](../reference/rbac-and-network.md).
+(Claude models) and `https://generativelanguage.googleapis.com` (Gemini models) itself. The shipped
+NetworkPolicy selects run pods only, so the controller's egress is open unless your cluster
+restricts it; if it does, allow HTTPS to `api.anthropic.com` and
+`generativelanguage.googleapis.com`. See [RBAC & network](../reference/rbac-and-network.md).

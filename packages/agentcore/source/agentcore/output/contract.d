@@ -13,30 +13,43 @@ version (unittest) import fluent.asserts;
 /// Enforce that `lines` form the complete event sequence `provider`'s CLI emits.
 void enforceEventContract(string provider, const string[] lines)
 {
-	enforce(provider == "claude", "no event contract for provider " ~ provider);
+	enforce(provider == "claude" || provider == "gemini", "no event contract for provider " ~ provider);
 	const events = lines.map!parseJsonString.array;
-	enforce(events.length > 0 && isSystemInit(events[0]),
-		provider ~ " stream must start with system/init");
+	const claude = provider == "claude";
+	enforce(events.length > 0 && (claude ? isSystemInit(events[0]) : typeOf(events[0]) == "init"),
+		provider ~ " stream must start with " ~ (claude ? "system/init" : "init"));
 	const resultIndex = events.countUntil!(event => typeOf(event) == "result");
 	enforce(resultIndex >= 0, provider ~ " stream is missing its result line");
-	enforce(events[0 .. resultIndex].any!(event => typeOf(event) == "assistant"),
-		provider ~ " stream needs an assistant line before result");
 	enforce(resultIndex == events.length - 1, provider ~ " stream must end with its result line");
+	const terminal = terminalFor(provider, lines[$ - 1]);
+	if (claude)
+		return enforceClaudeResult(events, terminal);
+	const status = events[$ - 1]["status"].opt!string;
+	enforce((status == "success" || status == "error") && terminal == Terminal(true, status == "success"),
+		provider ~ " result line terminal ok does not match status");
+}
+
+/// Enforce what a claude stream's result line adds to the shared sequence rules: an assistant
+/// line before it, its keys, and an `is_error` that agrees with its terminal signal.
+private void enforceClaudeResult(const Json[] events, Terminal terminal)
+{
+	enforce(events[0 .. $ - 1].any!(event => typeOf(event) == "assistant"),
+		"claude stream needs an assistant line before result");
 	foreach (key; claudeResultKeys)
-		enforce(key in events[resultIndex], provider ~ " result line is missing " ~ key);
-	const isError = events[resultIndex]["is_error"];
-	enforce(isError.type == Json.Type.bool_
-		&& terminalFor(provider, lines[$ - 1]) == Terminal(true, !isError.get!bool),
-		provider ~ " result line terminal ok does not match is_error");
+		enforce(key in events[$ - 1], "claude result line is missing " ~ key);
+	const isError = events[$ - 1]["is_error"];
+	enforce(isError.type == Json.Type.bool_ && terminal == Terminal(true, !isError.get!bool),
+		"claude result line terminal ok does not match is_error");
 }
 
 /// Enforce that every line of `lines` the downstream consumer reads carries the fields it reads,
 /// with the JSON types it expects.
 void enforceConsumerContract(string provider, const string[] lines)
 {
-	enforce(provider == "claude", "no consumer contract for provider " ~ provider);
+	enforce(provider == "claude" || provider == "gemini", "no consumer contract for provider " ~ provider);
 	foreach (event; lines.map!parseJsonString)
-		foreach (field; consumerFields.filter!(field => field.event == consumedEvent(event)))
+		foreach (field; consumerFields.filter!(field => (field.provider == provider || field.provider == anyProvider)
+				&& field.event == consumedEvent(event)))
 			enforceField(provider, event, field);
 }
 
@@ -49,46 +62,69 @@ enum FieldKind : string
 	object = "an object",
 }
 
-/// One field the downstream consumer reads: on which event, at which dotted path (`*` stands
-/// for every key of an object), with which JSON type, and whether it must be present.
+/// One field the downstream consumer reads: in which provider's stream (`anyProvider` for
+/// all), on which event, at which dotted path (`*` stands for every key of an object), with
+/// which JSON type, and whether it must be present.
 struct ConsumerField
 {
+	string provider;
 	string event;
 	string path;
 	FieldKind kind;
 	bool required = true;
 }
 
-/// The fields the downstream consumer (Floor) reads from a claude run's lines, CLI or batch.
+/// ditto
+enum anyProvider = "*";
+
+/// The fields the downstream consumer (Floor) reads from a run's lines, CLI or batch.
 /// A field of the wrong type makes the consumer drop the whole line, so types are part of it.
 immutable ConsumerField[] consumerFields = [
-	ConsumerField("result", "type", FieldKind.string_),
-	ConsumerField("result", "result", FieldKind.string_),
-	ConsumerField("result", "is_error", FieldKind.bool_),
-	ConsumerField("result", "total_cost_usd", FieldKind.number),
-	ConsumerField("result", "num_turns", FieldKind.number),
-	ConsumerField("result", "duration_ms", FieldKind.number),
-	ConsumerField("result", "usage", FieldKind.object),
-	ConsumerField("result", "usage.input_tokens", FieldKind.number),
-	ConsumerField("result", "usage.output_tokens", FieldKind.number),
-	ConsumerField("result", "usage.cache_read_input_tokens", FieldKind.number, false),
-	ConsumerField("result", "usage.cache_creation_input_tokens", FieldKind.number, false),
-	ConsumerField("result", "modelUsage", FieldKind.object),
-	ConsumerField("result", "modelUsage.*", FieldKind.object),
-	ConsumerField("result", "modelUsage.*.inputTokens", FieldKind.number),
-	ConsumerField("result", "modelUsage.*.outputTokens", FieldKind.number),
-	ConsumerField("result", "modelUsage.*.cacheReadInputTokens", FieldKind.number),
-	ConsumerField("result", "modelUsage.*.cacheCreationInputTokens", FieldKind.number),
-	ConsumerField("result", "modelUsage.*.costUSD", FieldKind.number),
-	ConsumerField("system/init", "type", FieldKind.string_),
-	ConsumerField("system/init", "subtype", FieldKind.string_),
-	ConsumerField("system/init", "apiKeySource", FieldKind.string_),
-	ConsumerField("lifecycle", "kind", FieldKind.string_),
-	ConsumerField("lifecycle", "phase", FieldKind.string_),
-	ConsumerField("lifecycle", "status", FieldKind.string_),
-	ConsumerField("lifecycle", "tool", FieldKind.string_, false),
-	ConsumerField("lifecycle", "reason", FieldKind.string_, false),
-	ConsumerField("lifecycle", "exitCode", FieldKind.number, false),
+	ConsumerField("claude", "result", "type", FieldKind.string_),
+	ConsumerField("claude", "result", "result", FieldKind.string_),
+	ConsumerField("claude", "result", "is_error", FieldKind.bool_),
+	ConsumerField("claude", "result", "total_cost_usd", FieldKind.number),
+	ConsumerField("claude", "result", "num_turns", FieldKind.number),
+	ConsumerField("claude", "result", "duration_ms", FieldKind.number),
+	ConsumerField("claude", "result", "usage", FieldKind.object),
+	ConsumerField("claude", "result", "usage.input_tokens", FieldKind.number),
+	ConsumerField("claude", "result", "usage.output_tokens", FieldKind.number),
+	ConsumerField("claude", "result", "usage.cache_read_input_tokens", FieldKind.number, false),
+	ConsumerField("claude", "result", "usage.cache_creation_input_tokens", FieldKind.number, false),
+	ConsumerField("claude", "result", "modelUsage", FieldKind.object),
+	ConsumerField("claude", "result", "modelUsage.*", FieldKind.object),
+	ConsumerField("claude", "result", "modelUsage.*.inputTokens", FieldKind.number),
+	ConsumerField("claude", "result", "modelUsage.*.outputTokens", FieldKind.number),
+	ConsumerField("claude", "result", "modelUsage.*.cacheReadInputTokens", FieldKind.number),
+	ConsumerField("claude", "result", "modelUsage.*.cacheCreationInputTokens", FieldKind.number),
+	ConsumerField("claude", "result", "modelUsage.*.costUSD", FieldKind.number),
+	ConsumerField("claude", "system/init", "type", FieldKind.string_),
+	ConsumerField("claude", "system/init", "subtype", FieldKind.string_),
+	ConsumerField("claude", "system/init", "apiKeySource", FieldKind.string_),
+	ConsumerField("gemini", "result", "type", FieldKind.string_),
+	ConsumerField("gemini", "result", "status", FieldKind.string_),
+	ConsumerField("gemini", "result", "error", FieldKind.object, false),
+	ConsumerField("gemini", "result", "error.message", FieldKind.string_, false),
+	ConsumerField("gemini", "result", "stats", FieldKind.object),
+	ConsumerField("gemini", "result", "stats.input", FieldKind.number),
+	ConsumerField("gemini", "result", "stats.cached", FieldKind.number),
+	ConsumerField("gemini", "result", "stats.output_tokens", FieldKind.number),
+	ConsumerField("gemini", "result", "stats.duration_ms", FieldKind.number),
+	ConsumerField("gemini", "result", "stats.models", FieldKind.object),
+	ConsumerField("gemini", "result", "stats.models.*", FieldKind.object),
+	ConsumerField("gemini", "result", "stats.models.*.input", FieldKind.number),
+	ConsumerField("gemini", "result", "stats.models.*.cached", FieldKind.number),
+	ConsumerField("gemini", "result", "stats.models.*.output_tokens", FieldKind.number),
+	ConsumerField("gemini", "init", "type", FieldKind.string_),
+	ConsumerField("gemini", "message/assistant", "type", FieldKind.string_),
+	ConsumerField("gemini", "message/assistant", "role", FieldKind.string_),
+	ConsumerField("gemini", "message/assistant", "content", FieldKind.string_),
+	ConsumerField(anyProvider, "lifecycle", "kind", FieldKind.string_),
+	ConsumerField(anyProvider, "lifecycle", "phase", FieldKind.string_),
+	ConsumerField(anyProvider, "lifecycle", "status", FieldKind.string_),
+	ConsumerField(anyProvider, "lifecycle", "tool", FieldKind.string_, false),
+	ConsumerField(anyProvider, "lifecycle", "reason", FieldKind.string_, false),
+	ConsumerField(anyProvider, "lifecycle", "exitCode", FieldKind.number, false),
 ];
 
 /// Enforce `field` on `event`: present wherever its parent object is when required, and of its
@@ -107,13 +143,16 @@ private void enforceField(string provider, const Json event, const ConsumerField
 	}
 }
 
-/// Which `consumerFields` event `event` is: `lifecycle`, `system/<subtype>`, or its `type`.
+/// Which `consumerFields` event `event` is: `lifecycle`, `system/<subtype>`, `message/<role>`,
+/// or its `type`.
 private string consumedEvent(const Json event)
 {
 	if (event["kind"].opt!string == "lifecycle")
 		return "lifecycle";
 	const type = event["type"].opt!string;
-	return type == "system" ? "system/" ~ event["subtype"].opt!string : type;
+	if (type == "system")
+		return "system/" ~ event["subtype"].opt!string;
+	return type == "message" ? "message/" ~ event["role"].opt!string : type;
 }
 
 /// The values at `path` under `node`, a `*` segment expanding to every value of an object.
@@ -156,6 +195,19 @@ EventShape[] eventShape(const string[] lines)
 {
 	return lines.map!parseJsonString
 		.map!(event => EventShape(typeOf(event), event.byKeyValue.map!(entry => entry.key).array.sort.release))
+		.array;
+}
+
+/// For each line of `lines`, the top-level keys that no line of `recorded` with the same `type`
+/// carries: what a translated stream adds over a recorded one, values ignored.
+string[][] keysAbsentFrom(const string[] recorded, const string[] lines)
+{
+	import std.algorithm : canFind;
+
+	const known = eventShape(recorded);
+	return eventShape(lines).map!(shape => shape.keys
+			.filter!(key => !known.any!(cli => cli.type == shape.type && cli.keys.canFind(key)))
+			.array)
 		.array;
 }
 
@@ -256,4 +308,67 @@ unittest // claude result line without duration_ms is rejected
 	result.remove("duration_ms");
 	({ enforceConsumerContract("claude", recorded[0 .. 2] ~ result.toString); }).should.throwException!Exception
 		.withMessage.equal("claude result field duration_ms is missing");
+}
+
+unittest // recorded gemini cli stream satisfies the consumer contract
+{
+	const lines = import("events/gemini-cli.jsonl").splitLines;
+	({ enforceConsumerContract("gemini", lines); }).should.not.throwAnyException;
+}
+
+unittest // gemini result line with stats.input "7849" as a string is rejected
+{
+	const recorded = import("events/gemini-cli.jsonl").splitLines;
+	auto result = parseJsonString(recorded[$ - 1]);
+	result["stats"]["input"] = "7849";
+	({ enforceConsumerContract("gemini", recorded[0 .. $ - 1] ~ result.toString); }).should.throwException!Exception
+		.withMessage.equal("gemini result field stats.input must be a number");
+}
+
+unittest // gemini assistant message with content as an array of parts is rejected
+{
+	const recorded = import("events/gemini-cli.jsonl").splitLines;
+	auto message = parseJsonString(recorded[2]);
+	message["content"] = parseJsonString(`[{"text":"ok"}]`);
+	({ enforceConsumerContract("gemini", recorded[0 .. 2] ~ message.toString ~ recorded[3]); })
+		.should.throwException!Exception.withMessage.equal("gemini message/assistant field content must be a string");
+}
+
+unittest // gemini result line without stats.duration_ms is rejected
+{
+	const recorded = import("events/gemini-cli.jsonl").splitLines;
+	auto result = parseJsonString(recorded[$ - 1]);
+	result["stats"].remove("duration_ms");
+	({ enforceConsumerContract("gemini", recorded[0 .. $ - 1] ~ result.toString); }).should.throwException!Exception
+		.withMessage.equal("gemini result field stats.duration_ms is missing");
+}
+
+unittest // recorded gemini cli api error stream satisfies the consumer contract
+{
+	const lines = import("events/gemini-cli-error.jsonl").splitLines;
+	({ enforceConsumerContract("gemini", lines); }).should.not.throwAnyException;
+}
+
+unittest // recorded gemini cli success and api error streams pass the event contract
+{
+	({
+		enforceEventContract("gemini", import("events/gemini-cli.jsonl").splitLines);
+		enforceEventContract("gemini", import("events/gemini-cli-error.jsonl").splitLines);
+	}).should.not.throwAnyException;
+}
+
+unittest // gemini result line with status "failed" is rejected as terminal ok mismatch
+{
+	const recorded = import("events/gemini-cli.jsonl").splitLines;
+	auto result = parseJsonString(recorded[$ - 1]);
+	result["status"] = "failed";
+	({ enforceEventContract("gemini", recorded[0 .. $ - 1] ~ result.toString); }).should.throwException!Exception
+		.withMessage.equal("gemini result line terminal ok does not match status");
+}
+
+unittest // gemini stream starting with its user message is rejected
+{
+	const lines = import("events/gemini-cli.jsonl").splitLines[1 .. $];
+	({ enforceEventContract("gemini", lines); }).should.throwException!Exception
+		.withMessage.equal("gemini stream must start with init");
 }

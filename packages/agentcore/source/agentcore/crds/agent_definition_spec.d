@@ -69,7 +69,7 @@ string batchViolation(const AgentDefinitionSpec spec) @safe
 		tuple("resources.skills", spec.resources.skills.length > 0),
 		tuple("resources.conversation", spec.resources.conversation.id.length > 0),
 		tuple("the exec model", vendor == Vendor.exec),
-		tuple(vendor.to!string ~ " models", vendor != Vendor.claude),
+		tuple(vendor.to!string ~ " models", vendor == Vendor.codex || vendor == Vendor.opencode),
 		tuple("output.watch", spec.output.watch.length > 0),
 	].find!(rule => rule[1]);
 	if (unsupported.length > 0)
@@ -137,7 +137,7 @@ unittest // batch definition with model EXEC returns the exec model reason
 	batchViolation(spec).should.equal("batch execution does not support the exec model");
 }
 
-unittest // batch definition with an opencode, codex or gemini model returns that vendor's models reason
+unittest // batch definition with an opencode or codex model returns that vendor's models reason
 {
 	AgentDefinitionSpec spec(string model)
 	{
@@ -147,11 +147,17 @@ unittest // batch definition with an opencode, codex or gemini model returns tha
 		return batch;
 	}
 
-	[batchViolation(spec("opencode/anthropic/claude-sonnet-4")), batchViolation(spec("gpt-5-codex")),
-		batchViolation(spec("gemini-2.5-pro"))].should.equal([
-		"batch execution does not support opencode models",
-		"batch execution does not support codex models", "batch execution does not support gemini models"
+	[batchViolation(spec("opencode/anthropic/claude-sonnet-4")), batchViolation(spec("gpt-5-codex"))].should.equal([
+		"batch execution does not support opencode models", "batch execution does not support codex models"
 	]);
+}
+
+unittest // batch definition with model gemini-3.1-flash-lite has no violation
+{
+	AgentDefinitionSpec spec;
+	spec.execution = Execution.batch;
+	spec.model = "gemini-3.1-flash-lite";
+	batchViolation(spec).should.equal("");
 }
 
 unittest // batch definition with an output.schema has no violation

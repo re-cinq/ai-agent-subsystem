@@ -1,6 +1,6 @@
 module agentcore.batch.anthropic;
 
-import agentcore.batch.provider : BatchPoll, BatchProvider, BatchRequest, BatchState, HttpRequest,
+import agentcore.batch.provider : BatchPoll, BatchProvider, BatchRequest, BatchState, hasSchema, HttpRequest,
 	HttpResponse, HttpTransport;
 import agentcore.batch.pricing : batchCostUsd;
 import std.exception : enforce;
@@ -11,10 +11,8 @@ import vibe.data.json : Json, parseJsonString;
 
 version (unittest)
 {
-	import agentcore.output.contract : enforceConsumerContract, enforceEventContract, eventShape;
+	import agentcore.output.contract : enforceConsumerContract, enforceEventContract, keysAbsentFrom;
 	import std.string : splitLines;
-	import std.algorithm : canFind;
-	import std.array : array;
 	import agentcore.output.terminal : Terminal, terminalFor;
 	import fluent.asserts;
 }
@@ -205,11 +203,6 @@ private Json modelUsage(const Json message)
 	])]);
 }
 
-private bool hasSchema(const Json schema)
-{
-	return schema.type != Json.Type.undefined && schema.type != Json.Type.null_;
-}
-
 private string failureMessage(const Json result)
 {
 	const outcome = result["type"].get!string;
@@ -302,31 +295,12 @@ unittest // succeeded batch translation emits no top-level key the recorded clau
 	const batch = parseJsonString(import("batch/anthropic-batch-ended.json"));
 	const lines = toCliEvents(parsePoll(batch, import("batch/anthropic-result-succeeded.json")),
 		"5f0c2d1e-8a47-4c3b-9e61-2b7d4a9c1f30");
-	const recorded = eventShape(import("events/claude-cli.jsonl").splitLines);
-	eventShape(lines).map!(shape => shape.keys.filter!(key => !recorded
-			.filter!(cli => cli.type == shape.type)
-			.front.keys.canFind(key)).array)
-		.array.should.equal([string[].init, string[].init, string[].init]);
+	keysAbsentFrom(import("events/claude-cli.jsonl").splitLines, lines).should.equal(new string[][3]);
 }
 
 version (unittest)
 {
-	import agentcore.batch.provider : HttpRequest, HttpResponse;
-
-	/// Records each request and answers with the next scripted response.
-	private struct FakeTransport
-	{
-		HttpResponse[] responses;
-		HttpRequest[] requests;
-
-		HttpResponse send(HttpRequest request)
-		{
-			requests ~= request;
-			const response = responses[0];
-			responses = responses[1 .. $];
-			return response;
-		}
-	}
+	import agentcore.batch.provider : FakeTransport, HttpRequest, HttpResponse;
 
 	private enum anthropicHeaders = [
 		"x-api-key": "sk-ant-test", "anthropic-version": "2023-06-01", "content-type": "application/json"

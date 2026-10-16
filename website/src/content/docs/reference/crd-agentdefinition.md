@@ -55,24 +55,26 @@ fails the Agent with `batch execution does not support <field>` when the definit
 - `resources.repos`, `resources.mcp_servers`, `resources.skills` or `resources.conversation`
 - `output.watch`
 - the `exec` model
-- a model that does not route to Claude. OpenAI (Codex), Gemini and opencode models are rejected
-  with `batch execution does not support codex models` (or `gemini`, `opencode`); support for
-  OpenAI and Gemini batch is coming.
+- a model that routes to neither Claude nor Gemini. OpenAI (Codex) and opencode models are rejected
+  with `batch execution does not support codex models` (or `opencode`); support for OpenAI batch is
+  coming.
 
 `output.schema` is allowed: it is sent as the request's structured-output format
-(`output_config.format` of type `json_schema`). An empty `model` (on the definition and the Agent)
-sends `claude-opus-5-5`. A controller without the batch component fails every batch Agent with
+(`output_config.format` of type `json_schema` for Claude, `generationConfig.responseJsonSchema` with
+`responseMimeType: application/json` for Gemini). An empty `model` (on the definition and the Agent)
+sends `claude-opus-5-5`; a Gemini model is always named, so it is sent as given. A controller without the batch component fails every batch Agent with
 `batch execution is disabled on this controller`; see
 [enabling batch](../tasks/batch-runs.md#enable-batch-on-the-controller).
 
 The model checked is the run's model: an Agent's `spec.model` overrides the definition's, as for a
-Job, so an Agent that overrides a batch recipe with a Gemini or Codex model fails with the same
+Job, so an Agent that overrides a batch recipe with a Codex or opencode model fails with the same
 reason. An Agent that sets `spec.files` on a batch recipe fails with
 `batch execution does not support files`, since there is no workspace to download them into.
 
 The definition must also map the vendor's API key: a `resources.secrets` entry named
-`ANTHROPIC_API_KEY`. Without it the Agent fails with
-`batch execution needs a resources.secrets entry named ANTHROPIC_API_KEY`.
+`ANTHROPIC_API_KEY` for a Claude model, or `GEMINI_API_KEY` for a Gemini model. Without it the
+Agent fails with `batch execution needs a resources.secrets entry named <name>`, for example
+`batch execution needs a resources.secrets entry named GEMINI_API_KEY`.
 
 ### `spec.output`
 

@@ -19,6 +19,18 @@ the npm package versions.
   `watch` `modelcatalogs`, and `@re-cinq/agent-contracts` adds `AgentContractsClient.getModelCatalog()` with the
   `ModelCatalog`, `ModelCatalogStatus`, `VendorModels` and `ModelInfo` types. AgentDefinition models
   are not checked against the catalog. New reference page: *ModelCatalog CRD*.
+
+- **`execution: batch` works for Gemini models through the Gemini Batch API.** A batch definition
+  whose model routes to Gemini (for example `gemini-3.1-flash-lite`) is submitted by the controller
+  to `models/<model>:batchGenerateContent` with the `GEMINI_API_KEY` entry of `resources.secrets`,
+  shows `status.batchProvider: gemini`, and is polled, cancelled and deleted like an Anthropic batch.
+  `status.output` and the sinks get the gemini CLI's `stream-json` lines for a single-turn run
+  (`init`, an assistant `message`, and a `result` with `status` and `stats`), so a consumer reads it
+  like a gemini CLI run; there is no cost field, as the CLI has none. An `output.schema` is sent as
+  `generationConfig.responseJsonSchema`. Codex and opencode models are still rejected. The
+  controller needs HTTPS egress to `generativelanguage.googleapis.com` for Gemini batch runs.
+  A batch poll that errors is logged and retried until the batch timeout, which still fails the
+  Agent or falls back to a Job.
 - **`mcp_servers` take any number of secret-backed `headers` (http/sse) and `env` vars (stdio).**
   Each is `{name, ref}` with `ref` an `agent-secrets` key, injected as `MCP_<SERVER>_<NAME>` and
   referenced by every CLI, so servers that want `X-API-Key`, several headers, or a token in a
@@ -81,6 +93,10 @@ the npm package versions.
   `resources.secrets` or `resources.env` and no `CODEX_API_KEY` of its own now also gets
   `CODEX_API_KEY` with the same value: a second `secretKeyRef` to the same `agent-secrets` key for
   a secret, the same literal for an env entry. Either name works; other vendors are unchanged.
+- **A gemini run whose `result` line says `"status":"error"` no longer reports success when the
+  CLI has to be stopped after it.** The supervisor read a gemini `result` like a Claude one and,
+  finding no `is_error`, took every gemini result as a success; when the CLI then lingered and was
+  signalled, the Agent was reported `Succeeded`. It now reads `status`.
 - **Invalid `resources.mcp_servers` now fail the Agent instead of being silently dropped.** An
   `exec` definition with MCP servers, a duplicate or empty server name, an `http`/`sse` server
   without `url`, a `stdio` server without `command`, a name other than letters, digits, `_`
