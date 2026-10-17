@@ -110,6 +110,25 @@ From a source checkout, list `deploy` and `deploy/components/batch` as local pat
 `agent-realtime` Secret and add the `components/realtime` component; the
 [guide](../tasks/realtime-sessions.md#enable-realtime-on-the-controller) has both steps.
 
+## Enable GitHub webhooks (optional)
+
+[GitHub webhooks](../tasks/trigger-from-github.md) are off by default. To enable them, add the
+`components/webhooks` component, which grants the controller `get` on the `agent-secrets` Secret,
+sets `WEBHOOKS_ENABLED=true` and adds the `agent-controller-webhooks` Service on port 8083:
+
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - https://github.com/re-cinq/ai-agent-subsystem//deploy?ref=v0.13.0
+components:
+  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/webhooks?ref=v0.13.0
+```
+
+Then store the webhook's HMAC key in `agent-secrets`, expose the Service to GitHub and add the
+webhook; the [guide](../tasks/trigger-from-github.md) has each step. From a source checkout, use
+`deploy/components/webhooks` as a local path.
+
 ## Enable the model catalog (optional)
 
 The [ModelCatalog](../reference/crd-modelcatalog.md) lists the models the subsystem can run with the

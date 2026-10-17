@@ -5,7 +5,8 @@ description: Start an Agent on a cron schedule with an AgentSpawner, with no ext
 
 An [AgentSpawner](../reference/crd-agentspawner.md) creates an Agent in a Station on a cron
 schedule. Use it for recurring work, such as triaging new issues every morning or refreshing
-dependencies once a week, without running a scheduler that holds credentials to create Agents.
+dependencies once a week, without running a scheduler that holds credentials to create Agents. To start runs from GitHub
+events instead, see [Trigger runs from GitHub](./trigger-from-github.md).
 
 ## Create a spawner
 

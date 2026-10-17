@@ -75,9 +75,10 @@ version (unittest)
 			return null;
 		}
 
-		void createAgent(string ns, Json agent)
+		bool createAgent(string ns, Json agent)
 		{
 			created ~= agent["metadata"]["name"].get!string;
+			return true;
 		}
 
 		void patchAgentSpawnerStatus(string ns, string name, Json statusPatch)

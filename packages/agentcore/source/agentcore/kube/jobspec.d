@@ -723,9 +723,9 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe,
 	strVar(envWorkspace, defaultWorkspace);
 	if (agent.spec.parameters.length)
 		strVar(envParameters, parametersJson(agent.spec.parameters));
-	if (auto credential = "git_credential" in agent.spec.parameters)
+	if (auto credential = paramGitCredential in agent.spec.parameters)
 		strVar(envGitCredential, *credential);
-	if (auto brokerUrl = "git_credential_url" in agent.spec.parameters)
+	if (auto brokerUrl = paramGitCredentialUrl in agent.spec.parameters)
 		strVar(envGitCredentialUrl, *brokerUrl);
 	if (agent.spec.targetRepo.length)
 		strVar(envTargetRepo, agent.spec.targetRepo);

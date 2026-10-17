@@ -36,7 +36,7 @@ spec:
       schema:
         openAPIV3Schema:
           type: object
-          description: "Creates an Agent in a Station on a cron schedule."
+          description: "Creates an Agent in a Station on a cron schedule, on GitHub webhook deliveries, or both."
           required:
             - spec
           properties:
@@ -44,7 +44,9 @@ spec:
               type: object
               required:
                 - stationRef
-                - schedule
+              x-kubernetes-validations:
+                - rule: "has(self.schedule) || has(self.github)"
+                  message: "set schedule, github, or both"
               properties:
                 stationRef:
                   type: string
@@ -55,6 +57,28 @@ spec:
                   type: string
                   pattern: "^\\s*\\S+(\\s+\\S+){4}\\s*$"
                   description: "Five-field cron expression (minute hour day-of-month month day-of-week), evaluated in UTC."
+                github:
+                  type: object
+                  description: "Starts a run for each matching GitHub webhook delivery."
+                  required:
+                    - secretRef
+                    - events
+                  properties:
+                    secretRef:
+                      type: string
+                      description: "Key in the agent-secrets Secret holding the webhook's HMAC secret."
+                    events:
+                      type: array
+                      description: "Deliveries that start a run, as <X-GitHub-Event>.<action> (issues.labeled); an event without an action by its name alone."
+                      items:
+                        type: string
+                    label:
+                      type: string
+                      description: "Only issues carrying this label start a run; for issues.labeled, only when it is the label just added."
+                    repository:
+                      type: string
+                      pattern: "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+                      description: "Only deliveries from this owner/name repository start a run."
                 parameters:
                   type: object
                   description: "Copied verbatim into every spawned Agent's spec.parameters."

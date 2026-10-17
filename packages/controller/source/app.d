@@ -14,6 +14,7 @@ import health : startHealthServer;
 import incluster : loadClusterConfig;
 import leaderelection : Leadership, runLeaderElection;
 import promptapi : KubePromptCluster, PromptApiConfig, startPromptApi;
+import webhook : startWebhookApi;
 import readiness : Readiness;
 import watchpoll : ControlSettings, runControlLoop;
 
@@ -57,6 +58,10 @@ else
 			startPromptApi(config.realtimeApiPort,
 				PromptApiConfig(config.namespace, config.realtimeApiToken, config.realtimeSigningKey),
 				new KubePromptCluster(client));
+		// Also on every replica: a delivery creates an Agent named after it, so two replicas
+		// answering redeliveries still start one run.
+		if (config.webhooksEnabled)
+			startWebhookApi(config.webhookPort, config.namespace, client);
 		runTask(() nothrow {
 			runLeaderElection(client, config.namespace, config.identity, leadership, readiness);
 		});

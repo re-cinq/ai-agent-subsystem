@@ -58,6 +58,7 @@ export default defineConfig({
 						{ label: 'Create a station', slug: 'tasks/create-a-station' },
 						{ label: 'Launch an agent', slug: 'tasks/launch-an-agent' },
 						{ label: 'Schedule runs', slug: 'tasks/schedule-runs' },
+						{ label: 'Trigger runs from GitHub', slug: 'tasks/trigger-from-github' },
 						{ label: 'Setting limits', slug: 'tasks/set-limits' },
 						{ label: 'Isolate runs', slug: 'tasks/isolate-runs' },
 						{ label: 'Batch runs', slug: 'tasks/batch-runs' },

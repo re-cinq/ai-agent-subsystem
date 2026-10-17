@@ -166,7 +166,8 @@ private string phaseName(Phase phase)
 	return phase.length ? cast(string) phase : cast(string) Phase.pending;
 }
 
-private Reply failure(int status, string message)
+/// A JSON `{"error": message}` reply with `status`.
+Reply failure(int status, string message)
 {
 	return Reply(status, Json(["error": Json(message)]).toString());
 }

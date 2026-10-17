@@ -14,6 +14,8 @@ enum envParameters = "AGENT_PARAMETERS";
 // credential helper reads two plain names instead of parsing AGENT_PARAMETERS.
 enum envGitCredential = "AGENT_GIT_CREDENTIAL";
 enum envGitCredentialUrl = "AGENT_GIT_CREDENTIAL_URL";
+enum paramGitCredential = "git_credential";
+enum paramGitCredentialUrl = "git_credential_url";
 
 // HTTP sink delivery retry: a transient POST failure is retried with capped
 // exponential backoff before the event is dropped (never fatal to the run).

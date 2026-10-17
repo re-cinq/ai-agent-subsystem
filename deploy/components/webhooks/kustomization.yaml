@@ -1,0 +1,22 @@
+# Opt-in GitHub webhooks (AgentSpawner `spec.github`). The controller serves
+# POST /v1/namespaces/<ns>/agentspawners/<name>/github on 8083 behind the
+# agent-controller-webhooks Service, verifies each delivery's X-Hub-Signature-256 against
+# the HMAC secret the spawner's `github.secretRef` names in agent-secrets, and starts a
+# run for a matching one. Adds the controller's read grant on that Secret and sets
+# WEBHOOKS_ENABLED=true. Create the HMAC key before pointing GitHub at the Service:
+#
+#   kubectl -n ai-agents patch secret agent-secrets --type=merge \
+#     -p "{\"stringData\":{\"github-webhook\":\"$(openssl rand -hex 32)\"}}"
+#
+# Expose the Service to GitHub yourself (an Ingress or a load balancer).
+#
+# Enable it from your own kustomization:
+#   resources: [<path or URL to deploy>]
+#   components: [<path or URL to deploy/components/webhooks>]
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - service.yaml
+  - secret-reader-rbac.yaml
+patches:
+  - path: webhooks-enabled-patch.yaml

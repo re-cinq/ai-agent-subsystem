@@ -224,6 +224,15 @@ private string emitType(FT)(size_t indent, Deco d)
 			static foreach (name; required)
 				s ~= pad ~ "  - " ~ name ~ "\n";
 		}
+		static if (hasUDA!(FT, Validation))
+		{
+			s ~= pad ~ "x-kubernetes-validations:\n";
+			static foreach (validation; getUDAs!(FT, Validation))
+			{
+				s ~= pad ~ "  - rule: " ~ yamlStr(validation.rule) ~ "\n";
+				s ~= pad ~ "    message: " ~ yamlStr(validation.message) ~ "\n";
+			}
+		}
 		s ~= pad ~ "properties:\n";
 		// describe-d gives the fields in declaration order.
 		enum aggregate = describe!FT;
@@ -432,6 +441,19 @@ unittest // ModelCatalog has no spec, so its schema neither requires nor declare
 	const yaml = crdYaml!ModelCatalog();
 	[yaml.canFind("- spec"), yaml.canFind("            spec:"), yaml.canFind("status: {}"),
 		yaml.canFind(`description: "The models the subsystem can run`)].should.equal([false, false, true, true]);
+}
+
+unittest // a struct's @Validation becomes an x-kubernetes-validations rule with its message
+{
+	@Validation("has(self.a) || has(self.b)", "set a or b")
+	struct Either
+	{
+		@optional string a;
+		@optional string b;
+	}
+
+	emitType!Either(0, Deco.init).canFind("x-kubernetes-validations:\n"
+		~ `  - rule: "has(self.a) || has(self.b)"` ~ "\n" ~ `    message: "set a or b"` ~ "\n").should.equal(true);
 }
 
 unittest // AgentSpawner, added at v1beta1, serves only v1beta1

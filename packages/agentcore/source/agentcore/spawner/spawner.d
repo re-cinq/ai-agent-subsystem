@@ -30,9 +30,9 @@ interface SpawnerClient
 	/// The Agents `spawner` created, found by their spawner label.
 	Agent[] listSpawnedAgents(string ns, const AgentSpawner spawner);
 
-	/// Create an Agent. One that already exists (HTTP 409) is not an error, so creating
-	/// the same schedule slot twice starts one run.
-	void createAgent(string ns, Json agent);
+	/// Create an Agent; true when created, false when it already existed (HTTP 409), so
+	/// creating the same schedule slot or webhook delivery twice starts one run.
+	bool createAgent(string ns, Json agent);
 
 	/// Merge-patch the AgentSpawner's `/status` subresource.
 	void patchAgentSpawnerStatus(string ns, string name, Json statusPatch);
@@ -49,10 +49,11 @@ enum SpawnOutcome
 /// The schedule slot to run now: the latest fire time at or before `now`, when it is after
 /// the last slot handled (or after the spawner was created, if none was). After an outage
 /// that missed several slots this is only the latest one, so the spawner fires once rather
-/// than replaying a backlog. Null when suspended or not due; throws on a bad schedule.
+/// than replaying a backlog. Null when suspended, without a schedule (a webhook-only
+/// spawner) or not due; throws on a bad schedule.
 Nullable!SysTime spawnDue(const AgentSpawner spawner, SysTime now)
 {
-	if (spawner.spec.suspend)
+	if (spawner.spec.suspend || spawner.spec.schedule.length == 0)
 		return typeof(return).init;
 	auto slot = cronPreviousFire(parseCron(spawner.spec.schedule), now);
 	const since = spawner.status.lastScheduleTime.length
@@ -68,8 +69,15 @@ bool anyUnfinished(Agent[] agents)
 
 /// The Agent `spawner` creates for `slot`. Its name is derived from the slot, so a second
 /// create for the same slot (a failover between the create and the status patch) 409s
-/// instead of starting a second run. The owner reference garbage-collects it with the spawner.
+/// instead of starting a second run.
 Json agentFromSpawner(const AgentSpawner spawner, SysTime slot)
+{
+	return spawnedAgent(spawner, spawnedAgentName(spawner, slot), spawner.spec.parameters);
+}
+
+/// An Agent named `name` in `spawner`'s Station with `parameters`, labelled with the spawner
+/// and owned by it, so it is garbage-collected with the spawner.
+Json spawnedAgent(const AgentSpawner spawner, string name, const string[string] parameters)
 {
 	Json owner = Json.emptyObject;
 	owner["apiVersion"] = crApiVersion;
@@ -83,18 +91,18 @@ Json agentFromSpawner(const AgentSpawner spawner, SysTime slot)
 	labels[spawnerLabel] = safeName(spawner.metadata.name);
 
 	Json metadata = Json.emptyObject;
-	metadata["name"] = spawnedAgentName(spawner, slot);
+	metadata["name"] = name;
 	metadata["namespace"] = spawner.metadata.namespace;
 	metadata["labels"] = labels;
 	metadata["ownerReferences"] = Json([owner]);
 
-	Json parameters = Json.emptyObject;
-	foreach (key, value; spawner.spec.parameters)
-		parameters[key] = value;
+	Json parameterValues = Json.emptyObject;
+	foreach (key, value; parameters)
+		parameterValues[key] = value;
 
 	Json spec = Json.emptyObject;
 	spec["stationRef"] = spawner.spec.stationRef;
-	spec["parameters"] = parameters;
+	spec["parameters"] = parameterValues;
 
 	Json agent = Json.emptyObject;
 	agent["apiVersion"] = crApiVersion;
@@ -191,9 +199,10 @@ version (unittest)
 			return spawned;
 		}
 
-		void createAgent(string ns, Json agent)
+		bool createAgent(string ns, Json agent)
 		{
 			calls ~= "create " ~ agent["metadata"]["name"].get!string;
+			return true;
 		}
 
 		void patchAgentSpawnerStatus(string ns, string name, Json statusPatch)
@@ -220,6 +229,11 @@ unittest // after a three-hour outage an hourly spawner fires once, for the late
 {
 	spawnDue(spawner("0 * * * *", "2026-10-17T10:00:00Z"), utc("2026-10-17T13:20:00Z")).get.toISOExtString
 		.should.equal("2026-10-17T13:00:00Z");
+}
+
+unittest // a webhook-only spawner, with no schedule, is never due
+{
+	spawnDue(spawner(""), utc("2026-10-17T12:00:00Z")).isNull.should.equal(true);
 }
 
 unittest // a suspended spawner is never due

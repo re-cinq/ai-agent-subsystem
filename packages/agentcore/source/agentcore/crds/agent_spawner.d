@@ -9,16 +9,42 @@ import agentcore.crds.schema;
 /// controller parses the values and reports a bad one in its log.
 enum cronShape = `^\s*\S+(\s+\S+){4}\s*$`;
 
-@Description("Creates an Agent in a Station on a cron schedule.")
+/// A repository in `owner/name` form.
+enum repositoryShape = `^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`;
+
+@Description("Starts a run for each signed GitHub webhook delivery that matches.")
+struct GitHubTrigger
+{
+	@optional @Required @Description("Key in the agent-secrets Secret holding the webhook's HMAC secret.")
+	string secretRef;
+
+	@optional @Required @Description(
+		"Deliveries that start a run, as <X-GitHub-Event>.<action> (issues.labeled); "
+		~ "an event without an action by its name alone.")
+	string[] events;
+
+	@optional @Description(
+		"Only issues carrying this label start a run; for issues.labeled, only when it is the label just added.")
+	string label;
+
+	@optional @Pattern(repositoryShape) @Description("Only deliveries from this owner/name repository start a run.")
+	string repository;
+}
+
+@Description("Creates an Agent in a Station on a cron schedule, on GitHub webhook deliveries, or both.")
+@Validation("has(self.schedule) || has(self.github)", "set schedule, github, or both")
 struct AgentSpawnerSpec
 {
 	@optional @Required @Pattern(dns1123Subdomain) @MaxLength(253)
 	@Description("The Station each spawned Agent runs in.")
 	string stationRef;
 
-	@optional @Required @Pattern(cronShape)
+	@optional @Pattern(cronShape)
 	@Description("Five-field cron expression (minute hour day-of-month month day-of-week), evaluated in UTC.")
 	string schedule;
+
+	@optional @Description("Starts a run for each matching GitHub webhook delivery.")
+	GitHubTrigger github;
 
 	@optional @Description("Copied verbatim into every spawned Agent's spec.parameters.")
 	string[string] parameters;
@@ -68,8 +94,20 @@ unittest // a spawner parsed from a manifest with an unknown concurrencyPolicy f
 		"spec":{"stationRef":"story-writer","schedule":"0 3 * * *","concurrencyPolicy":"Replace",
 		"parameters":{"title":"a"}},"status":{"lastScheduleTime":"2026-10-17T03:00:00Z"}}`));
 
-	spawner.spec.should.equal(AgentSpawnerSpec("story-writer", "0 3 * * *", ["title": "a"],
+	spawner.spec.should.equal(AgentSpawnerSpec("story-writer", "0 3 * * *", GitHubTrigger.init, ["title": "a"],
 		SpawnerConcurrencyPolicy.allow, false));
 	spawner.status.lastScheduleTime.should.equal("2026-10-17T03:00:00Z");
-	static assert(isRequired!(AgentSpawnerSpec.schedule));
+}
+
+unittest // a webhook-only spawner parses its github trigger and has no schedule
+{
+	import vibe.data.json : parseJsonString;
+	import agentcore.crds.serialization : fromJson;
+
+	auto spawner = fromJson!AgentSpawner(parseJsonString(`{"spec":{"stationRef":"fixer",
+		"github":{"secretRef":"github-webhook","events":["issues.labeled"],"label":"agent","repository":"octo/app"}}}`));
+
+	[spawner.spec.schedule, spawner.spec.github.secretRef, spawner.spec.github.label, spawner.spec.github.repository]
+		.should.equal(["", "github-webhook", "agent", "octo/app"]);
+	spawner.spec.github.events.should.equal(["issues.labeled"]);
 }

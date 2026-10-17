@@ -43,6 +43,14 @@ struct MaxLength
 /// admission instead of only failing later at reconcile. Paired with `@MaxLength(253)`.
 enum dns1123Subdomain = `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`;
 
+/// A CEL rule an object must satisfy (`x-kubernetes-validations`), with the message the
+/// API server rejects a violation with. Placed on a struct type.
+struct Validation
+{
+	string rule;
+	string message;
+}
+
 /// Marks a field as required in the CRD schema.
 enum Required;
 

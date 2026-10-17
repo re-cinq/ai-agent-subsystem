@@ -40,7 +40,8 @@ The pure core, with no process of its own:
 
 - CRD type definitions (`AgentDefinition`, `Station`, `Agent`, `ModelCatalog`, `AgentSpawner`).
 - AgentSpawner scheduling (`agentcore/spawner`): five-field cron parsing and next/previous fire
-  times, when a spawner is due, and the Agent it creates.
+  times, when a spawner is due, and the Agent it creates; for GitHub triggers, webhook signature
+  checks, event matching and the Agent a delivery creates.
 - A Kubernetes REST + watch client.
 - The pure reconcile state machine (I/O injected, so it is unit-testable).
 - Prompt templating.
@@ -84,6 +85,11 @@ With the opt-in `components/realtime` component every replica, leader or not, al
 [prompt API](../reference/prompt-api.md) on port 8082 (`promptapi.d`). It forwards each prompt or close
 for a running [realtime session](../tasks/realtime-sessions.md) to the run pod's supervisor on port
 8090, signed with that run's own token, and records a newly revealed `status.sessionId`.
+
+With the opt-in `components/webhooks` component every replica also serves the GitHub webhook
+receiver on port 8083 (`webhook.d`). It verifies each delivery against the HMAC key its AgentSpawner
+names and creates an Agent named after the delivery, so a redelivery, or the same delivery reaching
+two replicas, starts one run. See [Trigger runs from GitHub](../tasks/trigger-from-github.md).
 
 It combines a low-latency **watch** with a ~15s **poll** over one shared in-memory cache, so
 reconcile work is O(changed) and a dropped watch event is still caught by the next poll. Two replicas
