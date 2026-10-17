@@ -42,7 +42,8 @@ Realtime is off by default, and a realtime Agent then fails with
    From a release, use the release URLs instead
    (`https://github.com/re-cinq/ai-agent-subsystem//deploy?ref=v0.13.0` and
    `https://github.com/re-cinq/ai-agent-subsystem//deploy/components/realtime?ref=v0.13.0`, with the
-   release you install). The release `install.yaml` does not include the component.
+   release you install). The release `install.yaml` does not include the component. With the
+   [Helm chart](../setup/install.md#install-with-helm), set `realtime.enabled=true` instead.
 
 The component makes these changes:
 
@@ -55,7 +56,7 @@ The component makes these changes:
 ## Define a realtime recipe
 
 ```yaml
-apiVersion: agents.re-cinq.com/v1beta1
+apiVersion: agents.re-cinq.com/v1alpha1
 kind: AgentDefinition
 metadata: { name: pair-reviewer, namespace: ai-agents }
 spec:
@@ -131,7 +132,7 @@ Pass the earlier run's `status.sessionId` as `spec.resumeSession` on a new Agent
 `pair-reviewer`) whose definition is the realtime recipe:
 
 ```yaml
-apiVersion: agents.re-cinq.com/v1beta1
+apiVersion: agents.re-cinq.com/v1alpha1
 kind: Agent
 metadata: { name: review-42-day2, namespace: ai-agents }
 spec:

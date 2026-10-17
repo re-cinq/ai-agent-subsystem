@@ -9,9 +9,13 @@
 #   - deploy/kustomization.yaml                 images[ai-agent-controller]  newTag/digest -> digest
 #   - deploy/controller.yaml                    controller image             tag/@digest    -> @digest
 #   - deploy/controller.yaml                    env AGENT_IMAGE              tag/@digest    -> @digest
+#   - deploy/helm/.../values.yaml               controller.image.digest      digest         -> digest
+#   - deploy/helm/.../values.yaml               agentImage                   tag/@digest    -> @digest
+#   - deploy/helm/.../Chart.yaml                version, appVersion          version        -> REF sans v
 #   - website/.../setup/install.md              cosign verify <controller>@  @digest        -> @digest
 #   - website/.../setup/{install,uninstall}.md  releases/download/<tag>/     tag            -> REF
 #   - website/.../setup/install.md, README.md   TAG=<tag> build example      tag            -> REF
+#   - website/.../setup/install.md              helm --version, chart :<ver> version        -> REF sans v
 #   - website/.../{setup/install,tasks/batch-runs,tasks/realtime-sessions,reference/rbac-and-network}.md
 #                                               //deploy...?ref=<tag> URLs   tag            -> REF
 #
@@ -25,6 +29,7 @@ set -euo pipefail
 
 ref="${1:-latest}"
 repo="$(cd "$(dirname "$0")/.." && pwd)"
+chart="$repo/deploy/helm/ai-agent-subsystem"
 controller="ghcr.io/re-cinq/ai-agent-controller"
 agent="ghcr.io/re-cinq/ai-agent"
 
@@ -70,6 +75,22 @@ new, n = re.subn(re.escape(name) + r"(?:@sha256:[0-9a-f]+|:[^\s\"']+)", name + "
 if n < 1:
     sys.exit(f"AGENT_IMAGE reference {name} not found in {path}")
 open(path, "w").write(new)
+PY
+
+# Helm chart: deploy/helm packages deploy/ (ADR-004), so its values pin the same two
+# digests. The controller's repository and digest are separate keys there.
+python3 - "$chart/values.yaml" "$controller_digest" "$agent" "$agent_digest" <<'PY'
+import re, sys
+path, controller_digest, agent, agent_digest = sys.argv[1:5]
+text = open(path).read()
+text, n = re.subn(r"(?m)^(\s+digest: )sha256:[0-9a-f]+$", r"\g<1>" + controller_digest, text)
+if n != 1:
+    sys.exit(f"expected one controller.image.digest in {path}, patched {n}")
+text, n = re.subn(r"(?m)^(agentImage: )" + re.escape(agent) + r"(?:@sha256:[0-9a-f]+|:\S+)$",
+                  r"\g<1>" + agent + "@" + agent_digest, text)
+if n != 1:
+    sys.exit(f"expected one agentImage in {path}, patched {n}")
+open(path, "w").write(text)
 PY
 
 # Docs: the install page shows `cosign verify <controller>@sha256:...` so readers
@@ -126,6 +147,24 @@ PY
 	grep -q "/releases/download/${ref}/install.yaml" \
 		"$repo/website/src/content/docs/setup/uninstall.md" \
 		|| { echo "pin failed: ${ref} not written to setup/uninstall.md" >&2; exit 1; }
+
+	# The chart is versioned as the release, in the semver form Helm requires (no v).
+	python3 - "${ref#v}" "$chart/Chart.yaml" "$repo/website/src/content/docs/setup/install.md" <<'PY'
+import re, sys
+version, chart, docs = sys.argv[1:4]
+text = open(chart).read()
+text, n = re.subn(r"(?m)^version: .*$", "version: " + version, text)
+text, m = re.subn(r"(?m)^appVersion: .*$", f'appVersion: "{version}"', text)
+if n != 1 or m != 1:
+    sys.exit(f"expected one version and one appVersion in {chart}, patched {n} and {m}")
+open(chart, "w").write(text)
+text = open(docs).read()
+text, n = re.subn(r"(charts/ai-agent-subsystem --version )\S+", r"\g<1>" + version, text)
+text, m = re.subn(r"(charts/ai-agent-subsystem:)\d\S*", r"\g<1>" + version, text)
+if n < 1 or m < 1:
+    sys.exit(f"expected helm --version and chart cosign references in {docs}, found {n} and {m}")
+open(docs, "w").write(text)
+PY
 	;;
 esac
 
@@ -139,5 +178,9 @@ grep -q "@${agent_digest}" "$repo/deploy/controller.yaml" \
 	|| { echo "pin failed: agent digest not written to deploy/controller.yaml" >&2; exit 1; }
 grep -q "@${controller_digest}" "$repo/website/src/content/docs/setup/install.md" \
 	|| { echo "pin failed: controller digest not written to setup/install.md" >&2; exit 1; }
+grep -q "digest: ${controller_digest}" "$chart/values.yaml" \
+	|| { echo "pin failed: controller digest not written to the chart's values.yaml" >&2; exit 1; }
+grep -q "${agent}@${agent_digest}" "$chart/values.yaml" \
+	|| { echo "pin failed: agent digest not written to the chart's values.yaml" >&2; exit 1; }
 
 echo "pinned controller@${controller_digest}  agent@${agent_digest}  (ref=${ref})"

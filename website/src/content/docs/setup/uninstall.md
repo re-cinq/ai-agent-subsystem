@@ -33,6 +33,17 @@ If you installed with `kubectl apply -k deploy`, delete the same kustomization:
 kubectl delete -k deploy
 ```
 
+### With Helm
+
+`helm uninstall` removes the namespace and everything the chart created, but Helm never deletes
+CRDs. Delete them yourself afterwards:
+
+```sh
+helm uninstall ai-agent-subsystem --namespace default
+kubectl delete crd agents.agents.re-cinq.com stations.agents.re-cinq.com \
+  agentdefinitions.agents.re-cinq.com modelcatalogs.agents.re-cinq.com
+```
+
 ## What gets removed
 
 - **The namespace `ai-agents`** and everything in it: the `agent-controller` Deployment, the

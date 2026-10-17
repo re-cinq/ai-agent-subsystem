@@ -1,0 +1,11 @@
+apiVersion: v2
+name: ai-agent-subsystem
+description: Kubernetes operator that runs AI coding agents as Jobs, packaged from deploy/.
+type: application
+# Both set from the release tag by scripts/pin-image-digests.sh.
+version: 0.12.0
+appVersion: "0.12.0"
+kubeVersion: ">=1.27.0-0"
+home: https://re-cinq.github.io/ai-agent-subsystem/
+sources:
+  - https://github.com/re-cinq/ai-agent-subsystem
