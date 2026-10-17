@@ -16,8 +16,9 @@ there.
 | GNU make | any | the targets below |
 | Node.js | 22 (`.nvmrc` in `website/` and `packages/agent-contracts/`) | contracts package, docs site |
 | Docker + Buildx | recent | container tests, images |
-| kubectl + kind or minikube | recent | controller integration tests only |
-| python3 | 3.x | `scripts/pin-image-digests.sh` (release tooling) only |
+| kubectl + kind or minikube | recent | controller integration tests (kubectl alone: `make drift`) |
+| Helm | 3.19 (pinned in CI) | `make drift` (the Helm chart check) |
+| python3 + PyYAML | 3.x | `make drift` (the Helm chart check), `scripts/pin-image-digests.sh` |
 
 `dub.json` declares `toolchainRequirements` (frontend >= 2.094 — the oldest CI-proven compiler,
 debian:bullseye's LDC 1.24), so an unsupported compiler fails fast with a clear message instead of
@@ -36,8 +37,8 @@ Rocky 9's and debian:bullseye's 2.35, can split `.tbss` so that two thread-local
 make test    # unit tests for all six packages that have them
 make build   # all runtime + codegen binaries
 make itest   # host-level integration tests - no cluster, no docker, runs in seconds
-make drift   # fail if generated CRDs / TS contracts drifted from the D model
-make regen   # regenerate deploy/crds and packages/agent-contracts/src/types.generated.ts
+make drift   # fail if generated CRDs / TS contracts / the Helm chart drifted from their sources
+make regen   # regenerate deploy/crds (+ the chart's copy) and packages/agent-contracts/src/types.generated.ts
 make hooks   # install the pre-push hook that runs the drift checks
 ```
 
@@ -54,6 +55,13 @@ targets with the same pinned compiler.
 annotated structs in `packages/agentcore/source/agentcore/crds/`. If you touch those structs, run
 `make regen` and commit the output; `make drift` (and CI) fails otherwise. `make hooks` installs a
 pre-push hook so you find out before CI does. Skip it once with `git push --no-verify`.
+
+The Helm chart in `deploy/helm/ai-agent-subsystem/` packages `deploy/`; it is not a second source
+([ADR-004](adrs/ADR-004-helm-chart.md)). `make regen` writes its `crds/` copy; its `templates/` are
+mirrored by hand. `scripts/check-helm-drift.sh` (part of `make drift`) renders the chart with the
+default values, with each of `batch.enabled`, `modelCatalog.enabled` and `realtime.enabled`, and with
+all three, and diffs each render against `kubectl kustomize` of `deploy/` plus the matching
+`deploy/components/*`. After changing `deploy/`, make the chart render the same objects.
 
 Editing the structs usually also affects the TypeScript package's tests: `make contracts` runs its
 vitest suite, which enforces 100% coverage — the same gate CI applies.

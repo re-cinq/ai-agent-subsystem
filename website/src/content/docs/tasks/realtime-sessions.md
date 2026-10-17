@@ -42,7 +42,8 @@ Realtime is off by default, and a realtime Agent then fails with
    From a release, use the release URLs instead
    (`https://github.com/re-cinq/ai-agent-subsystem//deploy?ref=v0.12.0` and
    `https://github.com/re-cinq/ai-agent-subsystem//deploy/components/realtime?ref=v0.12.0`, with the
-   release you install). The release `install.yaml` does not include the component.
+   release you install). The release `install.yaml` does not include the component. With the
+   [Helm chart](../setup/install.md#install-with-helm), set `realtime.enabled=true` instead.
 
 The component makes these changes:
 

@@ -18,7 +18,8 @@ name: Publish images
 #
 # Releases: on a v* tag the `release` job renders deploy/ to a single digest-pinned
 # install.yaml and attaches it to the GitHub Release — the published `kubectl apply
-# -f` artifact. The `pin` job then opens a PR that points deploy/ AND the docs
+# -f` artifact, and pushes the cosign-signed Helm chart packaged from the same
+# checkout to oci://ghcr.io/re-cinq/charts. The `pin` job then opens a PR that points deploy/ AND the docs
 # cosign-verify example at the same digests (scripts/pin-image-digests.sh), so main
 # never ships a floating :latest. See README "Releases".
 
@@ -184,13 +185,19 @@ jobs:
   # .../releases/.../install.yaml` fetches. The digests come from the build outputs
   # above (no registry read). The pin script also rewrites the docs cosign example
   # here, but only deploy/ feeds `kubectl kustomize` and this checkout is discarded.
+  #
+  # The same pinned checkout is packaged as the Helm chart (deploy/helm, ADR-004),
+  # pushed to oci://ghcr.io/re-cinq/charts, cosign-signed by its pushed digest like
+  # the images, and attached to the release next to install.yaml.
   release:
-    name: Render and attach install.yaml
+    name: Render and attach install.yaml and the Helm chart
     needs: merge
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
-      contents: write # create the release and upload the asset
+      contents: write # create the release and upload the assets
+      packages: write # push the chart to ghcr.io/re-cinq/charts
+      id-token: write # keyless cosign signing of the chart
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6 # the tagged commit, so install.yaml matches the release
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -207,17 +214,45 @@ jobs:
           export AGENT_DIGEST="$(cat digests/agent.digest)"
           ./scripts/pin-image-digests.sh "$TAG"
           kubectl kustomize deploy > install.yaml
-      - name: Create or update the release and upload install.yaml
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v3.19.0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: chart
+        name: Package and push the Helm chart
+        env:
+          ACTOR: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          helm registry login ghcr.io --username "$ACTOR" --password-stdin <<<"$REGISTRY_TOKEN"
+          package="$(helm package deploy/helm/ai-agent-subsystem | sed -n 's/^Successfully packaged chart and saved it to: //p')"
+          digest="$(helm push "$package" oci://ghcr.io/re-cinq/charts 2>&1 | tee /dev/stderr | sed -n 's/^Digest: //p')"
+          echo "package=${package}" >> "$GITHUB_OUTPUT"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+      - name: Sign the chart by digest (keyless)
+        env:
+          DIGEST: ${{ steps.chart.outputs.digest }}
+        run: |
+          cosign sign --yes "ghcr.io/re-cinq/charts/ai-agent-subsystem@${DIGEST}"
+          echo "- \`ghcr.io/re-cinq/charts/ai-agent-subsystem@${DIGEST}\` (Helm chart)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Create or update the release and upload install.yaml and the chart
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
+          CHART: ${{ steps.chart.outputs.package }}
         run: |
           # A hyphen marks a semver pre-release (v0.1.0-rc1); flag it so it never
           # becomes the "latest" release that releases/latest/download/ serves.
           prerelease=""
           case "$TAG" in *-*) prerelease="--prerelease";; esac
-          gh release create "$TAG" install.yaml --generate-notes $prerelease \
-            || gh release upload "$TAG" install.yaml --clobber
+          gh release create "$TAG" install.yaml "$CHART" --generate-notes $prerelease \
+            || gh release upload "$TAG" install.yaml "$CHART" --clobber
 
   # On a v* tag, point deploy/ at the exact signed digests this run built and open
   # a PR. The digests come from the build outputs above, so no registry read is

@@ -113,6 +113,7 @@ kubectl apply -k deploy
 | Generated file | Regenerate with |
 | --- | --- |
 | `deploy/crds/*.yaml` | `make regen` |
+| `deploy/helm/ai-agent-subsystem/crds/*.yaml` | `make regen` (copy of `deploy/crds`) |
 | `packages/agent-contracts/src/types.generated.ts` | `make regen` |
 
 ## Compliance constraints
@@ -121,4 +122,4 @@ kubectl apply -k deploy
 - Production binaries are statically linked (LDC) with no runtime dependencies
 - Controller runs as non-root (UID 1000) with `readOnlyRootFilesystem`, `allowPrivilegeEscalation: false`, and all capabilities dropped
 - NetworkPolicy restricts pod egress; see `deploy/rbac/networkpolicy.yaml`
-- Pinned image digests in `deploy/controller.yaml` and `deploy/kustomization.yaml` are kept current by `scripts/pin-image-digests.sh` on each release — never use floating tags in deploy manifests
+- Pinned image digests in `deploy/controller.yaml`, `deploy/kustomization.yaml` and `deploy/helm/ai-agent-subsystem/values.yaml` are kept current by `scripts/pin-image-digests.sh` on each release — never use floating tags in deploy manifests

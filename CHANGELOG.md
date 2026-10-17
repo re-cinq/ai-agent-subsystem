@@ -18,6 +18,16 @@ the npm package versions.
   `template.spec.runtimeClassName` already reached every run pod; a unit test now pins that, the new
   *Isolate runs* guide covers setting it up (and what the controller enforces regardless), and
   `examples/station-gvisor.yaml` is a ready Station.
+- **Helm chart, published as a signed OCI artifact.** `helm install ai-agent-subsystem
+  oci://ghcr.io/re-cinq/charts/ai-agent-subsystem --version <version> --namespace default` installs
+  the same objects as that release's `install.yaml`. The values are `controller.image.repository`,
+  `controller.image.digest` and `agentImage` (digest-pinned only; tags are rejected by the values
+  schema) and the toggles `batch.enabled`, `modelCatalog.enabled` and `realtime.enabled`, which match
+  the `deploy/components/*` kustomize components. Each `v*` release pushes the chart, signs it with
+  cosign (keyless, same identity as the images) and attaches the `.tgz` to the GitHub Release.
+  Kustomize stays the source of truth (ADR-004): `scripts/check-helm-drift.sh`, now part of
+  `make drift`, fails when the chart and `deploy/` render different objects.
+
 - **Realtime sessions: an agent CLI that stays up and takes prompts over HTTP.** An AgentDefinition
   with `execution: realtime` starts its run as usual, with the rendered prompt as the first turn, then
   keeps the session open. Callers send more prompts with

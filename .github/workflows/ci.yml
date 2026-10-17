@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - 'packages/**'
-      - 'deploy/crds/**'
+      - 'deploy/**'
       - 'dub.json'
       - 'scripts/**'
       - 'Makefile'
@@ -30,7 +30,12 @@ jobs:
         run: make test
       - name: Build binaries
         run: make build
-      - name: Drift checks (generated CRDs + TS contracts)
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v3.19.0 # renders the chart in the Helm drift check
+      - name: PyYAML for the Helm drift check
+        run: python3 -c 'import yaml' 2>/dev/null || sudo apt-get install -y python3-yaml
+      - name: Drift checks (generated CRDs + TS contracts + Helm chart)
         run: make drift
       - name: Host integration tests (supervisor + initializer)
         run: make itest
