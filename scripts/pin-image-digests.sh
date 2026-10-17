@@ -12,7 +12,7 @@
 #   - website/.../setup/install.md              cosign verify <controller>@  @digest        -> @digest
 #   - website/.../setup/{install,uninstall}.md  releases/download/<tag>/     tag            -> REF
 #   - website/.../setup/install.md, README.md   TAG=<tag> build example      tag            -> REF
-#   - website/.../{setup/install,tasks/batch-runs,reference/rbac-and-network}.md
+#   - website/.../{setup/install,tasks/batch-runs,tasks/realtime-sessions,reference/rbac-and-network}.md
 #                                               //deploy...?ref=<tag> URLs   tag            -> REF
 #
 # Resolving a digest from a tag reads the registry; both images are public, so this
@@ -100,6 +100,7 @@ v*)
 		"$repo/website/src/content/docs/setup/install.md" \
 		"$repo/website/src/content/docs/setup/uninstall.md" \
 		"$repo/website/src/content/docs/tasks/batch-runs.md" \
+		"$repo/website/src/content/docs/tasks/realtime-sessions.md" \
 		"$repo/website/src/content/docs/reference/rbac-and-network.md" \
 		"$repo/README.md" <<'PY'
 import re, sys
