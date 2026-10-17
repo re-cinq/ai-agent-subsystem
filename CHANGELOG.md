@@ -18,6 +18,18 @@ the npm package versions.
   `template.spec.runtimeClassName` already reached every run pod; a unit test now pins that, the new
   *Isolate runs* guide covers setting it up (and what the controller enforces regardless), and
   `examples/station-gvisor.yaml` is a ready Station.
+- **AgentSpawner: cron-scheduled runs.** A new `AgentSpawner` CRD (`asp`, `v1beta1` only) creates an
+  Agent in `spec.stationRef` with `spec.parameters` on a five-field UTC cron `spec.schedule` (`*`,
+  numbers, ranges, steps and lists; Sunday is 0 or 7). `concurrencyPolicy: Forbid` skips a tick while
+  an Agent it created is still `Pending` or `Running`; `suspend: true` pauses it. The leader checks
+  spawners every 15 seconds and records the slot in `status.lastScheduleTime` and `status.lastAgent`,
+  so a restart or failover neither repeats nor drops a run, and after an outage a spawner runs once
+  for the latest missed slot. Spawned Agents are named `<spawner>-<slot minute>`, labelled
+  `agents.re-cinq.com/spawner=<name>` and owned by the spawner; the Station's history limits prune
+  them. The controller role gains `create` on `agents` and access to `agentspawners`, and the
+  `agent-launcher` role can manage spawners. TS and Go contracts include the new types. See
+  [Schedule runs](https://re-cinq.github.io/ai-agent-subsystem/tasks/schedule-runs/) and
+  `examples/nightly-story.yaml`.
 - **Go contracts: `github.com/re-cinq/ai-agent-subsystem/packages/agent-contracts-go`.** Typed Go
   structs for every CRD, generated from the same D model as the CRDs and the TS package (new
   `ai-agent-tsgen emit-go`), with DeepCopy methods, `*List` types and `AddToScheme` for client-go

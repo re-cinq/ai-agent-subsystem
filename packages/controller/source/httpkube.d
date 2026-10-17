@@ -18,7 +18,10 @@ import metrics : recordApiCall, recordJobCreated, recordStatusPatch;
 
 import agentcore.crds.agent : Agent;
 import agentcore.crds.agent_definition : AgentDefinition;
+import agentcore.crds.agent_spawner : AgentSpawner;
+import agentcore.crds.serialization : fromJson;
 import agentcore.crds.station : Station;
+import agentcore.kube.jobs : safeName;
 import agentcore.kube.jobspec : agentContainerName;
 import agentcore.kube.jsonbody : AgentListPage, parseAgent, parseAgentDefinition, parseAgentListPage, parseJobOutcome,
 	parseStation;
@@ -26,6 +29,7 @@ import agentcore.kube.kubeclient : KubeClient, NotFound, PodResult;
 import agentcore.kube.outputcap : capOutput;
 import agentcore.models.catalog : ModelCatalogClient, modelCatalogName;
 import agentcore.reconcile.reconcile : JobOutcome;
+import agentcore.spawner.spawner : SpawnerClient, spawnerLabel;
 
 import agentcore.crds.api_group : crGroup, crVersion;
 
@@ -115,7 +119,7 @@ interface LeaseClient
 /// bearer-token auth, the cluster CA added to the TLS trust store, and
 /// merge-patch for the status subresource. The long-lived watch stream
 /// (`watchAgents`) is controller-only and sits beside the interface.
-final class HttpKubeClient : KubeClient, LeaseClient, AgentInformerClient, ModelCatalogClient
+final class HttpKubeClient : KubeClient, LeaseClient, AgentInformerClient, ModelCatalogClient, SpawnerClient
 {
 	private ClusterConfig config;
 	private HTTPClientSettings settings; /// normal requests: short read timeout
@@ -287,6 +291,35 @@ final class HttpKubeClient : KubeClient, LeaseClient, AgentInformerClient, Model
 		const url = crUrl(ns, "modelcatalogs", modelCatalogName);
 		send(HTTPMethod.PATCH, url ~ applyQuery, catalog, applyContentType, [200, 201]);
 		send(HTTPMethod.PATCH, url ~ "/status" ~ applyQuery, catalog, applyContentType, [200, 201]);
+	}
+
+	override AgentSpawner[] listAgentSpawners(string ns)
+	{
+		import std.algorithm.iteration : map;
+		import std.array : array;
+
+		return getJson(crCollectionUrl(ns, "agentspawners"), "agentspawners")["items"]
+			.opt!(Json[])(null)
+			.map!(item => fromJson!AgentSpawner(item))
+			.array;
+	}
+
+	override Agent[] listSpawnedAgents(string ns, const AgentSpawner spawner)
+	{
+		const selector = spawnerLabel ~ "=" ~ safeName(spawner.metadata.name);
+		return parseAgentListPage(getJson(crCollectionUrl(ns, "agents") ~ "?labelSelector=" ~ selector,
+			"agents of spawner " ~ spawner.metadata.name)).items;
+	}
+
+	override void createAgent(string ns, Json agent)
+	{
+		send(HTTPMethod.POST, crCollectionUrl(ns, "agents"), agent, "application/json", [201, 409]);
+	}
+
+	override void patchAgentSpawnerStatus(string ns, string name, Json statusPatch)
+	{
+		send(HTTPMethod.PATCH, crUrl(ns, "agentspawners", name) ~ "/status", statusPatch,
+			"application/merge-patch+json", [200]);
 	}
 
 	/// Stream Agent watch events (one newline-delimited JSON object per line) to
@@ -751,4 +784,42 @@ unittest // listAgentDefinitions reads the namespace's AgentDefinitions review a
 	client.listAgentDefinitions("ai-agents").map!(definition => definition.metadata.name).array
 		.should.equal(["review", "triage"]);
 	requested.should.equal("/apis/agents.re-cinq.com/v1beta1/namespaces/ai-agents/agentdefinitions");
+}
+
+unittest // the spawner lists spawners, lists a spawner's Agents by label, creates an Agent and patches spawner status
+{
+	import std.algorithm.iteration : map;
+	import std.array : array;
+	import vibe.http.server : HTTPServerRequest, HTTPServerResponse, HTTPServerSettings, listenHTTP;
+	import vibe.stream.operations : readAllUTF8;
+
+	string[] received;
+	auto settings = new HTTPServerSettings;
+	settings.port = 0;
+	settings.bindAddresses = ["127.0.0.1"];
+	auto listener = listenHTTP(settings, (scope HTTPServerRequest req, scope HTTPServerResponse res) {
+		received ~= req.method.httpMethodString ~ " " ~ req.requestURI ~ " " ~ req.contentType ~ " "
+			~ req.bodyReader.readAllUTF8;
+		if (req.method == HTTPMethod.POST)
+			res.statusCode = 201;
+		res.writeBody(`{"items":[{"metadata":{"name":"nightly"},"spec":{"schedule":"0 3 * * *"}}]}`, "application/json");
+	});
+	scope (exit)
+		listener.stopListening();
+	const apiBase = "http://127.0.0.1:" ~ listener.bindAddresses[0].port.to!string;
+	auto client = new HttpKubeClient(ClusterConfig(apiBase, "tok", "", "", "ai-agents"));
+
+	auto spawners = client.listAgentSpawners("ai-agents");
+	spawners.map!(spawner => spawner.spec.schedule).array.should.equal(["0 3 * * *"]);
+	client.listSpawnedAgents("ai-agents", spawners[0]);
+	client.createAgent("ai-agents", parseJsonString(`{"kind":"Agent"}`));
+	client.patchAgentSpawnerStatus("ai-agents", "nightly", parseJsonString(`{"status":{"lastAgent":"a"}}`));
+
+	const base = "/apis/agents.re-cinq.com/v1beta1/namespaces/ai-agents/";
+	received.should.equal([
+		"GET " ~ base ~ "agentspawners  ",
+		"GET " ~ base ~ "agents?labelSelector=agents.re-cinq.com/spawner=nightly  ",
+		"POST " ~ base ~ `agents application/json {"kind":"Agent"}`,
+		"PATCH " ~ base ~ `agentspawners/nightly/status application/merge-patch+json {"status":{"lastAgent":"a"}}`
+	]);
 }

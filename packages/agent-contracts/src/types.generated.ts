@@ -11,6 +11,7 @@ export type SelectEvent = "tool_call" | "message" | "tool_result" | "result" | "
 export type SelectRole = "assistant" | "user";
 export type SinkType = "stdout" | "http" | "file";
 export type ConcurrencyPolicy = "Allow" | "Forbid" | "Replace";
+export type SpawnerConcurrencyPolicy = "Allow" | "Forbid";
 export type Execution = "interactive" | "batch" | "realtime";
 export type BatchTimeoutAction = "fail" | "fallback";
 export type Phase = "Pending" | "Running" | "Succeeded" | "Failed";
@@ -284,4 +285,33 @@ export interface ModelCatalog {
   kind?: string;
   metadata?: ObjectMeta;
   status?: ModelCatalogStatus;
+}
+
+/** Creates an Agent in a Station on a cron schedule. */
+export interface AgentSpawnerSpec {
+  /** The Station each spawned Agent runs in. */
+  stationRef: string;
+  /** Five-field cron expression (minute hour day-of-month month day-of-week), evaluated in UTC. */
+  schedule: string;
+  /** Copied verbatim into every spawned Agent's spec.parameters. */
+  parameters?: Record<string, string>;
+  /** Allow starts a run on every tick; Forbid skips a tick while an Agent this spawner created is not finished. */
+  concurrencyPolicy?: SpawnerConcurrencyPolicy;
+  /** True stops new runs; runs already started are left alone. */
+  suspend?: boolean;
+}
+
+export interface AgentSpawnerStatus {
+  /** RFC3339 schedule time of the last tick handled, whether it created an Agent or was skipped. */
+  lastScheduleTime?: string;
+  /** Name of the last Agent this spawner created. */
+  lastAgent?: string;
+}
+
+export interface AgentSpawner {
+  apiVersion?: string;
+  kind?: string;
+  metadata?: ObjectMeta;
+  spec?: AgentSpawnerSpec;
+  status?: AgentSpawnerStatus;
 }

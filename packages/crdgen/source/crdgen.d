@@ -328,13 +328,16 @@ string crdYaml(T)()
 	s ~= "      served: true\n";
 	s ~= "      storage: true\n";
 	s ~= body;
-	s ~= "    - name: " ~ crDeprecatedVersion ~ "\n";
-	s ~= "      served: true\n";
-	s ~= "      storage: false\n";
-	s ~= "      deprecated: true\n";
-	s ~= "      deprecationWarning: " ~ yamlStr(group ~ "/" ~ crDeprecatedVersion ~ " " ~ kind
-		~ " is deprecated; use " ~ apiVersion) ~ "\n";
-	s ~= body;
+	static if (!hasUDA!(T, CurrentVersionOnly))
+	{
+		s ~= "    - name: " ~ crDeprecatedVersion ~ "\n";
+		s ~= "      served: true\n";
+		s ~= "      storage: false\n";
+		s ~= "      deprecated: true\n";
+		s ~= "      deprecationWarning: " ~ yamlStr(group ~ "/" ~ crDeprecatedVersion ~ " " ~ kind
+			~ " is deprecated; use " ~ apiVersion) ~ "\n";
+		s ~= body;
+	}
 	return s;
 }
 
@@ -429,6 +432,14 @@ unittest // ModelCatalog has no spec, so its schema neither requires nor declare
 	const yaml = crdYaml!ModelCatalog();
 	[yaml.canFind("- spec"), yaml.canFind("            spec:"), yaml.canFind("status: {}"),
 		yaml.canFind(`description: "The models the subsystem can run`)].should.equal([false, false, true, true]);
+}
+
+unittest // AgentSpawner, added at v1beta1, serves only v1beta1
+{
+	import agentcore.crds.agent_spawner : AgentSpawner;
+
+	const yaml = crdYaml!AgentSpawner();
+	[yaml.canFind("    - name: v1beta1\n"), yaml.canFind("v1alpha1")].should.equal([true, false]);
 }
 
 unittest // Agent is stored at v1beta1 and still served at v1alpha1, deprecated, with the same schema
