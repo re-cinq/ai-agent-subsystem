@@ -55,7 +55,7 @@ The component makes these changes:
 ## Define a realtime recipe
 
 ```yaml
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: AgentDefinition
 metadata: { name: pair-reviewer, namespace: ai-agents }
 spec:
@@ -131,7 +131,7 @@ Pass the earlier run's `status.sessionId` as `spec.resumeSession` on a new Agent
 `pair-reviewer`) whose definition is the realtime recipe:
 
 ```yaml
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: Agent
 metadata: { name: review-42-day2, namespace: ai-agents }
 spec:

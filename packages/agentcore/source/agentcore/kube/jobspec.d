@@ -28,8 +28,8 @@ import agentcore.kube.bundle : bundleRoot, supervisorPath;
 import agentcore.core.env;
 import agentcore.kube.jobs : jobNameFor, safeName;
 import agentcore.core.prompt : renderPrompt;
+import agentcore.crds.api_group : crApiVersion;
 
-enum crApiVersion = "agents.re-cinq.com/v1alpha1";
 enum agentContainerName = "agent";
 enum initContainerName = "init";
 enum bundleVolume = "agent";

@@ -14,7 +14,7 @@ Isolation is a property of the run pod, so it goes on the Station's pod template
 `runtimeClassName` is passed through to every Job the Station creates, init container included:
 
 ```yaml
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: Station
 metadata:
   name: story-writer-gvisor

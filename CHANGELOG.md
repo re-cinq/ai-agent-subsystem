@@ -122,6 +122,12 @@ the npm package versions.
   `controller_batch_cleanup_failures_total` on `/metrics` counts failed provider cleanups.
 
 ### Changed
+- **The CRDs are now `agents.re-cinq.com/v1beta1`.** Objects are stored at `v1beta1`, and the
+  controller, the generated contracts and every example and doc use it. Nothing needs converting:
+  `v1alpha1` is still served with the same schema. The group and version are defined once
+  (`agentcore.crds.api_group`), and crdgen, tsgen, the controller's API paths and Job owner
+  references all read them from there. `@re-cinq/agent-contracts` now exports `GROUP` and
+  `VERSION` from its generated types, and `VERSION` is `"v1beta1"`.
 - **Codex CLI pinned to 0.142.5.** A Codex run used to install whatever `chatgpt.com/codex/install.sh`
   called latest, so a CLI change such as 0.142 no longer reading `OPENAI_API_KEY` reached run pods
   without notice. The init now downloads the 0.142.5 `codex-package-<arch>-unknown-linux-musl.tar.gz`
@@ -148,6 +154,9 @@ the npm package versions.
   and are still billed.
 
 ### Deprecated
+- **`agents.re-cinq.com/v1alpha1`** is still served, but the API server answers each request for
+  it with a deprecation warning. It won't be removed before `v1`. The install guide's *API versions
+  and upgrading* section shows how to rewrite existing objects so they are stored at `v1beta1`.
 - `mcp_servers[].headers_secret`: use `headers: [{name: Authorization, ref: <key>}]`. It keeps
   working unchanged.
 

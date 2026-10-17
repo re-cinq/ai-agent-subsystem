@@ -3,7 +3,7 @@ title: Station CRD
 description: Full field reference for the Station custom resource.
 ---
 
-**Group/Version:** `agents.re-cinq.com/v1alpha1` · **Kind:** `Station` · **Scope:** Namespaced ·
+**Group/Version:** `agents.re-cinq.com/v1beta1` · **Kind:** `Station` · **Scope:** Namespaced ·
 **Short name:** `stn`
 
 The runtime template. It has a `spec` and no `status`.

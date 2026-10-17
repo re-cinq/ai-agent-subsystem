@@ -157,6 +157,27 @@ The digest above is the one this release's `install.yaml` references. A passing 
 was built and signed by this repository's release workflow. The same images also carry an SPDX SBOM
 and SLSA provenance attestation; see [Releases](https://github.com/re-cinq/ai-agent-subsystem#releases).
 
+## API versions and upgrading
+
+The CRDs are served at `agents.re-cinq.com/v1beta1`, which is also the version objects are stored
+at. `v1alpha1` is still served with the identical schema, so manifests and clients written for it
+keep working after an upgrade; the API server answers each `v1alpha1` request with a deprecation
+warning. Nothing needs converting: both versions read and write the same fields.
+
+Objects created before the upgrade stay stored as `v1alpha1` until they are next written. Before a
+future release stops serving `v1alpha1`, rewrite them once so every object is stored at `v1beta1`:
+
+```sh
+for kind in agentdefinitions stations agents modelcatalogs; do
+  kubectl get "$kind.agents.re-cinq.com" -A -o json | kubectl replace -f -
+done
+```
+
+`kubectl get crd agents.agents.re-cinq.com -o jsonpath='{.status.storedVersions}'` lists the versions
+the CRD has recorded as stored. The API server never prunes that list itself; once the rewrite is
+done, drop `v1alpha1` from it (`kubectl patch crd <name> --subresource=status --type=merge -p
+'{"status":{"storedVersions":["v1beta1"]}}'`).
+
 ## Next
 
 Define your first recipe in [Define a recipe](../tasks/define-a-recipe.md), or jump

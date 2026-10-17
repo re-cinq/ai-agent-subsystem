@@ -213,7 +213,7 @@ unittest // refresh applies the default catalog with claude-opus-5-5 and gpt-5.1
 	refreshModelCatalog(client, "ai-agents", (request) => vendorApi(request), "2026-10-14T12:00:00Z");
 
 	client.applied.should.equal(parseJsonString(`{
-		"apiVersion": "agents.re-cinq.com/v1alpha1", "kind": "ModelCatalog", "metadata": {"name": "default"},
+		"apiVersion": "agents.re-cinq.com/v1beta1", "kind": "ModelCatalog", "metadata": {"name": "default"},
 		"status": {"refreshedAt": "2026-10-14T12:00:00Z", "vendors": [
 			{"vendor": "claude", "provider": "anthropic", "secretRefs": ["anthropic-key", "revoked-key"],
 				"error": "revoked-key: GET https://api.anthropic.com/v1/models?limit=1000: HTTP 401: {\"error\":\"invalid x-api-key\"}",

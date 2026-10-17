@@ -12,9 +12,65 @@ spec:
     shortNames:
       - mc
   versions:
-    - name: v1alpha1
+    - name: v1beta1
       served: true
       storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Refreshed
+          type: date
+          jsonPath: .status.refreshedAt
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: "The models the subsystem can run, written by the controller from each vendor's list-models API."
+          properties:
+            status:
+              type: object
+              properties:
+                refreshedAt:
+                  type: string
+                  format: date-time
+                  description: "RFC3339 timestamp of the last refresh."
+                vendors:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      vendor:
+                        type: string
+                        description: "Agent CLI vendor the subsystem routes these model ids to."
+                      provider:
+                        type: string
+                        description: "Provider API whose list-models endpoint was queried."
+                      secretRefs:
+                        type: array
+                        description: "agent-secrets keys that were queried; an AgentDefinition can run these models when its resources.secrets maps one of them."
+                        items:
+                          type: string
+                      error:
+                        type: string
+                        description: "Why the last refresh could not list models with some of the keys; empty when every key answered."
+                      models:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              description: "Model id to set as an AgentDefinition's or Agent's model."
+                            displayName:
+                              type: string
+                              description: "The vendor's human-readable name for the model."
+    - name: v1alpha1
+      served: true
+      storage: false
+      deprecated: true
+      deprecationWarning: "agents.re-cinq.com/v1alpha1 ModelCatalog is deprecated; use agents.re-cinq.com/v1beta1"
       subresources:
         status: {}
       additionalPrinterColumns:

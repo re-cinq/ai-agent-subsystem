@@ -25,7 +25,7 @@ done
 [ -n "$params" ] || params=$'    {}'
 
 kube -n "$ns" create -f - <<EOF
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: Agent
 metadata:
   generateName: ${station}-run-
