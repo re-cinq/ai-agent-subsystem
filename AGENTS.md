@@ -52,6 +52,7 @@ make test           # D unit tests for all six packages (agentcore, controller, 
                     # initializer, crdgen, tsgen) — runs dub test :pkg for each
 make itest          # host-level integration tests (no cluster, no docker, fast)
 make contracts      # vitest 100%-coverage gate for @re-cinq/agent-contracts
+make contracts-go   # go vet + gofmt + go test for packages/agent-contracts-go
 
 # Single package:
 dub test :agentcore
@@ -114,6 +115,7 @@ kubectl apply -k deploy
 | --- | --- |
 | `deploy/crds/*.yaml` | `make regen` |
 | `packages/agent-contracts/src/types.generated.ts` | `make regen` |
+| `packages/agent-contracts-go/types.generated.go` | `make regen` |
 
 ## Compliance constraints
 

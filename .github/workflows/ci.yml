@@ -51,6 +51,17 @@ jobs:
       - name: Build
         run: npm run build
 
+  agent-contracts-go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: packages/agent-contracts-go/go.mod
+          cache-dependency-path: packages/agent-contracts-go/go.sum
+      - name: Vet, gofmt and test
+        run: make contracts-go
+
   website:
     runs-on: ubuntu-latest
     steps:
