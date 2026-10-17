@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.13.0
+
 ### Added
 - **`make demo`: from a checkout to a finished run in one command.** It builds the images, creates a
   kind (or `CLUSTER_TOOL=minikube`) cluster, installs from `deploy/`, and runs the story-writer
