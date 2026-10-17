@@ -11,6 +11,21 @@ Ready-to-apply examples you can try against a running cluster. Each is a recipe
 | [`run-agent.sh`](run-agent.sh) | Launch one run against a Station with `key=value` parameters. |
 | [`notify-listener.mjs`](notify-listener.mjs) | A zero-dependency listener for the `http` output sink. |
 
+## Fastest path: `make demo`
+
+From the repo root, `make demo` creates a local cluster, installs the subsystem, and runs
+`story-writer` for you (see [Local cluster](../website/src/content/docs/setup/local-cluster.md)).
+`EXAMPLES=all make demo` runs every example. The steps below do the same by hand against a
+cluster you already have.
+
+## Every example is tested
+
+CI runs `make itest-examples` on each change to `examples/`, `deploy/` or `packages/`. Each
+manifest is server-side dry-run against the CRDs, then applied, and the `examples/run-agent.sh ...`
+line in its header comment is executed as written, with the model swapped for a mock. The run must
+reach `Succeeded` with output. When you add an example, put its run line in the header; an example
+without one is schema-checked only.
+
 ## Prerequisites
 
 1. **The subsystem installed** into the `ai-agents` namespace — see [Install](../website/src/content/docs/setup/install.md)

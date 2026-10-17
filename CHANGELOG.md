@@ -7,6 +7,13 @@ the npm package versions.
 ## Unreleased
 
 ### Added
+- **`make demo`: from a checkout to a finished run in one command.** It builds the images, creates a
+  kind (or `CLUSTER_TOOL=minikube`) cluster, installs from `deploy/`, and runs the story-writer
+  example, printing the agent's output. With `ANTHROPIC_API_KEY` set the run is real; without it a
+  mock agent stands in, so it needs no key. `EXAMPLES=all` runs every example. CI now runs
+  `make itest-examples` (every example schema-checked and run, mocked) on changes to `examples/`,
+  `deploy/` or `packages/`, so a broken example fails the build. `examples/run-agent.sh` honours
+  `KUBE_CONTEXT` to target a context other than the current one.
 - **Realtime sessions: an agent CLI that stays up and takes prompts over HTTP.** An AgentDefinition
   with `execution: realtime` starts its run as usual, with the rendered prompt as the first turn, then
   keeps the session open. Callers send more prompts with
@@ -141,6 +148,9 @@ the npm package versions.
   working unchanged.
 
 ### Fixed
+- **`examples/run-agent.sh` with more than one `key=value` produced invalid YAML.** Each parameter
+  lost its newline, so the documented bug-fixer command failed with `did not find expected key`.
+  The new examples CI job caught it.
 - **The init can download over https on a bare Debian or Ubuntu image.** When curl was
   missing, the init installed it with `apt-get install --no-install-recommends`, which skips
   `ca-certificates`. Every https download after that, from agent CLI installs to skills and input

@@ -14,6 +14,9 @@ on:
       - 'deploy/**'
       - 'dub.json'
       - 'scripts/itest-controller.sh'
+      - 'scripts/demo.sh'
+      - 'scripts/lib/**'
+      - 'examples/**'
       - 'scripts/container/Dockerfile.agent'
       - 'scripts/container/Dockerfile.agent-itest'
       - 'scripts/container/mock-codex'
@@ -23,6 +26,9 @@ on:
       - 'packages/**'
       - 'deploy/**'
       - 'scripts/itest-controller.sh'
+      - 'scripts/demo.sh'
+      - 'scripts/lib/**'
+      - 'examples/**'
       - 'scripts/container/Dockerfile.agent*'
       - 'scripts/container/mock-codex'
       - '.github/workflows/controller.yml'
@@ -47,3 +53,17 @@ jobs:
           CLUSTER: agent-itest
           KEEP: '1' # the kind cluster is managed by kind-action
         run: ./scripts/itest-controller.sh
+
+  examples:
+    name: Examples run end to end (kind, mocked)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
+        with:
+          cluster_name: agent-demo
+      - name: Schema-check and run every example
+        env:
+          CLUSTER: agent-demo
+          KEEP: '1' # the kind cluster is managed by kind-action
+        run: make itest-examples
