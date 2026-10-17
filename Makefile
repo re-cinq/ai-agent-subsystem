@@ -28,6 +28,14 @@ itest: ## Host-level integration tests (no cluster, no docker)
 itest-controller: ## Controller integration tests (needs kind/minikube + docker)
 	./scripts/itest-controller.sh
 
+.PHONY: demo
+demo: ## Local cluster + install + run an example (real with ANTHROPIC_API_KEY, else mocked)
+	./scripts/demo.sh
+
+.PHONY: itest-examples
+itest-examples: ## Every examples/ manifest schema-checked and run, mocked (needs kind/minikube + docker)
+	MOCK=1 EXAMPLES=all ./scripts/demo.sh
+
 .PHONY: record-fixtures
 record-fixtures: ## Re-record the claude CLI and Anthropic batch fixtures (needs ANTHROPIC_API_KEY)
 	./scripts/record-cli-events.sh

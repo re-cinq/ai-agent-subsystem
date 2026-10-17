@@ -64,6 +64,7 @@ vitest suite, which enforces 100% coverage — the same gate CI applies.
 | Host | `make itest` | nothing beyond the D toolchain |
 | Cross-distro containers | `make ctest` (or the individual `scripts/ctest-*.sh`) | docker |
 | Controller on a cluster | `make itest-controller` | kind or minikube, kubectl, docker |
+| Examples on a cluster | `make itest-examples` (`make demo` for one, real when `ANTHROPIC_API_KEY` is set) | kind or minikube, kubectl, docker |
 | Live batch event parity | `make itest-batch` (`VENDOR=gemini` for Gemini, `VENDOR=openai` for OpenAI/codex) | `ANTHROPIC_API_KEY` (or `GEMINI_API_KEY`, `OPENAI_API_KEY`), curl (spends two small calls); Gemini also needs node |
 
 The ctest scripts take env overrides (`TARGETS`, `BUILDER_IMAGE`, `CONTAINER_ENGINE=podman`, ...);
