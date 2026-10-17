@@ -3,6 +3,7 @@ module agentcore.kube.jobspec;
 import std.algorithm.iteration : filter;
 import std.algorithm.searching : canFind, find;
 import std.algorithm.sorting : sort;
+import std.array : array;
 import std.conv : to;
 import std.exception : enforce;
 import std.range : retro;
@@ -24,7 +25,9 @@ import agentcore.crds.serialization : toJson;
 import agentcore.vendors.select : agentForModel, agentSetupForModel;
 import agentcore.vendors.base.agent : Agent_ = Agent, AgentEnv, AgentSecretAliases, ConversationArgs;
 import agentcore.vendors.realtime : RealtimeArgv, realtimeArgv;
-import agentcore.kube.bundle : bundleRoot, supervisorPath;
+import agentcore.kube.bundle : bundleRoot, initializerPath, supervisorPath;
+import agentcore.crds.delivery_spec : opensPullRequest;
+import agentcore.delivery.plan : outboxRoot, planFor;
 import agentcore.core.env;
 import agentcore.kube.jobs : jobNameFor, safeName;
 import agentcore.core.prompt : renderPrompt;
@@ -37,6 +40,13 @@ enum bundleVolume = "agent";
 /// uid 1000). Init and agent are separate filesystems — without this volume the clone
 /// dies with the init container's layer and the agent finds no repo.
 enum workspaceVolume = "workspace";
+/// A pull request delivery's volumes: the outbox the agent's supervisor drops the
+/// bundle into and the courier reads, and the courier's own scratch HOME, which the
+/// agent never mounts.
+enum outboxVolume = "outbox";
+enum courierVolume = "courier";
+enum courierContainerName = "courier";
+enum courierHome = "/courier";
 
 /// Labels stamped on every run pod. `component=job` is the selector the
 /// `agent-job-egress` NetworkPolicy matches on — without it the policy matches no
@@ -124,12 +134,20 @@ Json buildJob(Agent agent, Station station, AgentDefinition definition, string a
 	if (realtime)
 		env = withRealtimeEnv(env, session, recipe.realtime.idleTimeoutMinutes, realtimeToken,
 			conversation.id.length ? "" : prompt);
+	const delivering = opensPullRequest(recipe.delivery);
+	if (delivering)
+		env = withLiteral(env, envDelivery, toJson(planFor(agent, recipe)).toString());
 
-	auto template_ = wirePodTemplate(deepCopy(station.spec.template_), commandFor(argv), env,
+	// A delivering run's agent gets nothing that can push: the init clones with the
+	// token and the courier pushes with it, each in a container the agent cannot reach.
+	auto template_ = wirePodTemplate(deepCopy(station.spec.template_), commandFor(argv),
+		delivering ? withoutGitCredentials(env, recipe.resources.repos) : env,
 		initEnv(env, agent.spec.files), agentImage);
 	template_ = withRunMetadata(template_, agent, station);
 	if (realtime)
 		template_ = servingPrompts(template_);
+	if (delivering)
+		template_ = withCourier(template_, withLiteral(env, homeEnv, courierHome), agentImage);
 
 	const deadlineMinutes = effectiveDeadlineMinutes(station.spec.deadlineMinutes);
 
@@ -173,6 +191,86 @@ private Json withRealtimeEnv(Json env, const RealtimeArgv session, int idleTimeo
 	if (session.next.length)
 		vars ~= literalEnv(envRealtimeNextArgv, serializeToJsonString(session.next));
 	return Json(vars);
+}
+
+/// `env` with `name` set to `value`, replacing any entry of that name.
+private Json withLiteral(Json env, string name, string value)
+{
+	auto vars = env.get!(Json[]).filter!(entry => entry["name"].get!string != name).array;
+	return Json(vars ~ [literalEnv(name, value)]);
+}
+
+/// `env` without anything that can push: every entry resolving a repo's token key (its
+/// own variable, the `GH_TOKEN` alias, a vendor alias or recipe secret reading the same
+/// key) and the broker's credential and URL.
+private Json withoutGitCredentials(Json env, const RepoRef[] repos)
+{
+	bool pushCapable(Json entry)
+	{
+		const name = entry["name"].get!string;
+		const key = secretKeyOf(entry);
+		return name == envGitCredential || name == envGitCredentialUrl
+			|| (key.length && repos.canFind!(repo => repo.tokenSecret == key));
+	}
+
+	return Json(env.get!(Json[]).filter!(entry => !pushCapable(entry)).array);
+}
+
+/// The agent-secrets key an env entry resolves, or "" for a literal or field entry.
+private string secretKeyOf(Json entry)
+{
+	if ("valueFrom" !in entry || "secretKeyRef" !in entry["valueFrom"])
+		return "";
+	return entry["valueFrom"]["secretKeyRef"]["key"].get!string;
+}
+
+/// `template_` with the courier added: a container of the agent image running
+/// `ai-agent-init courier` with the full run env (`env`, token included), the outbox
+/// mounted read-only, and its own scratch HOME. The agent container mounts the outbox
+/// to leave the bundle there. A regular container, not a native sidecar: it must
+/// outlive the agent to push, and the Job completes once both have exited.
+private Json withCourier(Json template_, Json env, string agentImage)
+{
+	auto pod = template_;
+	auto stationContainers = pod["spec"]["containers"].get!(Json[]);
+	enforce(!stationContainers.canFind!(container => isNamed(container, courierContainerName)),
+		"Station template already has a container named '" ~ courierContainerName
+		~ "', which a pull request delivery runs as");
+
+	Json[] containers;
+	foreach (container; stationContainers)
+	{
+		if (isAgentContainer(container))
+			container["volumeMounts"] = Json(container["volumeMounts"].get!(Json[])
+				~ [reservedMount(outboxVolume, outboxRoot)]);
+		containers ~= container;
+	}
+	containers ~= courierContainer(agentImage, env);
+	pod["spec"]["containers"] = Json(containers);
+	pod["spec"]["volumes"] = Json(pod["spec"]["volumes"].get!(Json[])
+		~ [emptyDirVolume(outboxVolume), emptyDirVolume(courierVolume)]);
+	// The courier runs as the agent's uid, so a shared PID namespace would let the agent
+	// read the courier's token from /proc/<pid>/environ.
+	pod["spec"]["shareProcessNamespace"] = Json(false);
+	return pod;
+}
+
+/// The courier runs as the agent uid, like the agent, and is sized like the init: both
+/// move the whole repository.
+private Json courierContainer(string agentImage, Json env)
+{
+	auto outbox = reservedMount(outboxVolume, outboxRoot);
+	outbox["readOnly"] = true;
+
+	Json[string] container;
+	container["name"] = Json(courierContainerName);
+	container["image"] = Json(agentImage);
+	container["command"] = Json([Json(initializerPath), Json("courier")]);
+	container["env"] = env;
+	container["volumeMounts"] = Json([outbox, reservedMount(courierVolume, courierHome)]);
+	container["securityContext"] = nonRootSecurity();
+	container["resources"] = initResources();
+	return Json(container);
 }
 
 /// `template_` with its pod labelled realtime and its agent container exposing the
@@ -372,7 +470,7 @@ private Json withBundleMount(Json container)
 	if (auto existing = "volumeMounts" in container)
 		if (existing.type == Json.Type.array)
 			foreach (m; (*existing).get!(Json[]))
-				if (!isNamed(m, bundleVolume) && !isNamed(m, workspaceVolume))
+				if (!isReservedVolume(m))
 					mounts ~= m;
 	mounts ~= reservedMount(bundleVolume, bundleRoot);
 	mounts ~= reservedMount(workspaceVolume, defaultWorkspace);
@@ -386,6 +484,12 @@ private bool isNamed(Json entry, string name)
 {
 	return entry.type == Json.Type.object && ("name" in entry)
 		&& entry["name"].type == Json.Type.string && entry["name"].get!string == name;
+}
+
+/// Whether `entry` (a volume or a mount) takes a name the run pod reserves for itself.
+private bool isReservedVolume(Json entry)
+{
+	return [bundleVolume, workspaceVolume, outboxVolume, courierVolume].canFind!(name => isNamed(entry, name));
 }
 
 private Json emptyDirVolume(string name)
@@ -402,7 +506,7 @@ private Json withBundleVolume(Json spec)
 	if (auto existing = "volumes" in spec)
 		if (existing.type == Json.Type.array)
 			foreach (v; (*existing).get!(Json[]))
-				if (!isNamed(v, bundleVolume) && !isNamed(v, workspaceVolume))
+				if (!isReservedVolume(v))
 					volumes ~= v;
 	volumes ~= emptyDirVolume(bundleVolume);
 	volumes ~= emptyDirVolume(workspaceVolume);
@@ -788,7 +892,7 @@ bool isReservedEnvName(string name) @safe pure nothrow
 		envConversationPin, envConversationAuth,
 		envSelect, envWatch, envFiles, envMcpServers, envWorkspace, envParameters, envGitCredential, envGitCredentialUrl, envTargetRepo,
 		envBranch, envModel, envAgentName, envStationName, envTaskId, envPodName,
-		envPodNamespace, envDeadlineMs, homeEnv, pathEnv,
+		envPodNamespace, envDeadlineMs, envDelivery, homeEnv, pathEnv,
 		envRealtimeStyle, envRealtimeIdleMs, envRealtimeToken, envRealtimePrompt, envRealtimeNextArgv, envRealtimePort,
 	];
 	foreach (owned; reserved)
@@ -2083,4 +2187,169 @@ unittest // a recipe env var named like a realtime setting is dropped
 
 	envValues(agentContainer(buildJob(agent, station, definition, "img", "tok-1")), "AGENT_REALTIME_TOKEN")
 		.should.equal(["tok-1"]);
+}
+
+version (unittest)
+{
+	import agentcore.delivery.plan : parsePlan;
+
+	/// A run whose recipe opens a pull request from its one repo, carrying every way a
+	/// pod can receive git credentials: the repo's token, a recipe secret reading the same
+	/// key, and a broker credential.
+	private void deliveryFixtures(out Agent agent, out Station station, out AgentDefinition definition)
+	{
+		fixtures(agent, station, definition);
+		agent.spec.parameters["git_credential"] = "v1.claims-for-run-42.signature";
+		agent.spec.parameters["git_credential_url"] = "https://broker.example.com/api/github-credentials";
+		definition.spec.resources.repos = [
+			RepoRef("app", "https://github.com/octo/app.git", "", "", "GH_TOKEN_APP"),
+		];
+		definition.spec.resources.secrets ~= SecretRef("GITHUB_TOKEN", "GH_TOKEN_APP");
+		definition.spec.delivery.pullRequest.base = "main";
+		definition.spec.delivery.pullRequest.titleTemplate = "Fix {ticket}";
+	}
+
+	private Json containerNamed(Json job, string name)
+	{
+		foreach (container; job["spec"]["template"]["spec"]["containers"].get!(Json[]))
+			if (container["name"].get!string == name)
+				return container;
+		assert(false, "no container " ~ name);
+	}
+
+	/// Every env name in `container` that can push: a variable resolving the repo's token
+	/// key, or the broker's credential and URL.
+	private string[] pushCredentials(Json container)
+	{
+		string[] names;
+		foreach (entry; container["env"].get!(Json[]))
+			if (secretKeyOf(entry) == "GH_TOKEN_APP"
+				|| [envGitCredential, envGitCredentialUrl].canFind(entry["name"].get!string))
+				names ~= entry["name"].get!string;
+		return names;
+	}
+}
+
+unittest // a delivering run's agent container holds no git token, GH_TOKEN or broker credential
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	deliveryFixtures(agent, station, definition);
+
+	auto job = buildJob(agent, station, definition, "img");
+
+	pushCredentials(agentContainer(job)).should.equal(cast(string[])[]);
+}
+
+unittest // a delivering run's courier and init containers receive the token and the broker credential
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	deliveryFixtures(agent, station, definition);
+
+	auto job = buildJob(agent, station, definition, "img");
+
+	pushCredentials(containerNamed(job, courierContainerName)).should.equal(
+		["GH_TOKEN_APP", "GH_TOKEN", "AGENT_GIT_CREDENTIAL", "AGENT_GIT_CREDENTIAL_URL", "GITHUB_TOKEN"]);
+	pushCredentials(initContainerOf(job)).should.equal(
+		["GH_TOKEN_APP", "GH_TOKEN", "AGENT_GIT_CREDENTIAL", "AGENT_GIT_CREDENTIAL_URL", "GITHUB_TOKEN"]);
+}
+
+unittest // a run without delivery keeps the repo token and its GH_TOKEN alias in the agent container
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	deliveryFixtures(agent, station, definition);
+	definition.spec.delivery.pullRequest.base = "";
+
+	auto job = buildJob(agent, station, definition, "img");
+
+	pushCredentials(agentContainer(job)).should.equal(
+		["GH_TOKEN_APP", "GH_TOKEN", "AGENT_GIT_CREDENTIAL", "AGENT_GIT_CREDENTIAL_URL", "GITHUB_TOKEN"]);
+	job["spec"]["template"]["spec"]["containers"].get!(Json[]).length.should.equal(2);
+}
+
+unittest // the courier runs the init binary as the agent uid with the outbox read-only and its own HOME
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	deliveryFixtures(agent, station, definition);
+
+	auto courier = containerNamed(buildJob(agent, station, definition, "img"), courierContainerName);
+
+	courier["image"].get!string.should.equal("img");
+	courier["command"].should.equal(Json([Json("/usr/local/bin/ai-agent-init"), Json("courier")]));
+	courier["volumeMounts"].should.equal(parseJsonString(
+		`[{"name":"outbox","mountPath":"/outbox","readOnly":true},{"name":"courier","mountPath":"/courier"}]`));
+	courier["securityContext"]["runAsUser"].get!long.should.equal(1000);
+	envValues(courier, "HOME").should.equal(["/courier"]);
+}
+
+unittest // the agent mounts the outbox and every container of a delivering run reads the same plan
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	deliveryFixtures(agent, station, definition);
+
+	auto job = buildJob(agent, station, definition, "img");
+	auto pod = job["spec"]["template"]["spec"];
+	const planJson = envValue(agentContainer(job), envDelivery);
+	const plan = parsePlan(planJson);
+
+	[plan.slug, plan.branch, plan.base, plan.title, plan.clone]
+		.should.equal(["octo/app", "agent/bug-fixer-run-1", "main", "Fix ENG-1", "/workspace/app"]);
+	[envValue(initContainerOf(job), envDelivery), envValue(containerNamed(job, courierContainerName), envDelivery)]
+		.should.equal([planJson, planJson]);
+	agentContainer(job)["volumeMounts"][2].should.equal(parseJsonString(`{"name":"outbox","mountPath":"/outbox"}`));
+	[pod["volumes"][2]["name"].get!string, pod["volumes"][3]["name"].get!string].should.equal(["outbox", "courier"]);
+}
+
+unittest // a recipe env named AGENT_DELIVERY cannot replace the controller's plan
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	deliveryFixtures(agent, station, definition);
+	definition.spec.resources.env ~= EnvVar("AGENT_DELIVERY", `{"branch":"main"}`);
+
+	const delivery = envValues(agentContainer(buildJob(agent, station, definition, "img")), envDelivery);
+
+	delivery.length.should.equal(1);
+	parsePlan(delivery[0]).branch.should.equal("agent/bug-fixer-run-1");
+}
+
+unittest
+{
+	// A delivering run never shares its PID namespace, even when the Station asks: the
+	// courier runs as the agent's uid, so /proc would expose its token to the agent.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	deliveryFixtures(agent, station, definition);
+	station.spec.template_ = parseJsonString(
+		`{"spec":{"shareProcessNamespace":true,"containers":[{"name":"agent","image":"node:22"}]}}`);
+
+	auto job = buildJob(agent, station, definition, "ghcr.io/re-cinq/ai-agent:latest");
+
+	job["spec"]["template"]["spec"]["shareProcessNamespace"].get!bool.should.equal(false);
+}
+
+unittest // a Station container named courier cannot take the courier's place
+{
+	import std.exception : collectExceptionMsg;
+
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	deliveryFixtures(agent, station, definition);
+	station.spec.template_ = parseJsonString(
+		`{"spec":{"containers":[{"name":"agent","image":"node:22"},{"name":"courier","image":"evil"}]}}`);
+
+	collectExceptionMsg(buildJob(agent, station, definition, "img")).should.equal(
+		"Station template already has a container named 'courier', which a pull request delivery runs as");
 }

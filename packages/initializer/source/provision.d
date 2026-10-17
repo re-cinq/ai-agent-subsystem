@@ -19,7 +19,7 @@ private extern (C) int lchown(scope const char* path, uid_t owner, gid_t group) 
 import agentcore.crds.enums : SinkType;
 import agentcore.core.env : defaultWorkspace, envConversationAuth,
 	envConversationAuthValue, envConversationId,
-	envConversationSource, envFiles, envGitCredentialUrl, envMcpServers, envModel,
+	envConversationSource, envDelivery, envFiles, envGitCredentialUrl, envMcpServers, envModel,
 	envRepos, envSkills, envSkillsSource, envWorkspace;
 import agentcore.vendors.select : agentForModel;
 import agentcore.output.event : EventSource, sourceFromEnv;
@@ -51,6 +51,7 @@ InitContext contextFromEnv()
 	ctx.repos = parseRepos(environment.get(envRepos, ""));
 	ctx.workspaceDir = environment.get(envWorkspace, defaultWorkspace);
 	ctx.gitCredentialUrl = environment.get(envGitCredentialUrl, "");
+	ctx.courierDelivers = environment.get(envDelivery, "").length > 0;
 	ctx.skills = parseSkills(environment.get(envSkills, ""));
 	ctx.skillsSource = environment.get(envSkillsSource, "");
 	ctx.conversationSource = environment.get(envConversationSource, "");
@@ -85,6 +86,16 @@ unittest
 		environment.remove(envGitCredentialUrl);
 
 	contextFromEnv().gitCredentialUrl.should.equal("https://broker.example.com/api/github-credentials");
+}
+
+unittest // a delivery plan in the env tells the clone that a courier pushes, and its absence that none does
+{
+	const without = contextFromEnv().courierDelivers;
+	environment[envDelivery] = `{"branch":"agent/run-1"}`;
+	scope (exit)
+		environment.remove(envDelivery);
+
+	[without, contextFromEnv().courierDelivers].should.equal([false, true]);
 }
 
 unittest

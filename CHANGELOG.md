@@ -75,6 +75,22 @@ the npm package versions.
   `template.spec.runtimeClassName` already reached every run pod; a unit test now pins that, the new
   *Isolate runs* guide covers setting it up (and what the controller enforces regardless), and
   `examples/station-gvisor.yaml` is a ready Station.
+- **Runs can open a pull request without the agent holding a push token.** An AgentDefinition with
+  `delivery.pullRequest` (`base`, `titleTemplate` rendered from the Agent's parameters, `draft`,
+  `apiUrl`) delivers a successful run's commits as a GitHub pull request and records its URL in
+  `status.prUrl`, which nothing wrote before. The agent container then gets no repo token, no
+  `GH_TOKEN` and no `AGENT_GIT_CREDENTIAL`/`AGENT_GIT_CREDENTIAL_URL`, and the init clones without
+  persisting a credential helper, token file or auth header into the clone. When the agent exits, the
+  supervisor writes a `git bundle` of the clone's `HEAD` to a shared `outbox` volume. A new `courier`
+  container (`ai-agent-init courier`, from the agent image) holds the token, pushes the bundle to
+  `refs/heads/<branch>` (the Agent's `branch`, default `agent/<name>`), opens the pull request on the
+  Agent's `targetRepo` or the repo's own `owner/name` (reusing one already open from that branch), and
+  raises a `{"kind":"delivery",…}` event. The controller reads it from the courier container's log
+  only. A failed push or API call fails the run with `failureReason: pull request delivery failed: …`.
+  Delivery needs `execution: interactive` and a repo with a `token_secret` or a credential broker;
+  otherwise the Agent fails before a Job is created. `@re-cinq/agent-contracts` adds `DeliverySpec`
+  and `PullRequestDelivery`. New task page: *Open pull requests*.
+
 - **Realtime sessions: an agent CLI that stays up and takes prompts over HTTP.** An AgentDefinition
   with `execution: realtime` starts its run as usual, with the rendered prompt as the first turn, then
   keeps the session open. Callers send more prompts with

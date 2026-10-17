@@ -44,7 +44,8 @@ The controller owns `status`:
 - **`exitCode`**: the process exit code (`0` = success).
 - **`output`**: captured summary output (the truncated tail of the pod logs).
 - **`failureReason`**: a human-readable reason when the run fails.
-- **`prUrl`**: a pull-request URL when applicable.
+- **`prUrl`**: the pull request the run opened, when its definition sets
+  [`delivery.pullRequest`](../tasks/open-pull-requests.md).
 - **`sessionId`**: the agent CLI's session id, from the run's session events; pass it as another
   Agent's `resumeSession` to continue a realtime session.
 - **`batchId`** / **`batchProvider`** / **`batchFallback`** / **`batchCleanupAttempts`**: set only

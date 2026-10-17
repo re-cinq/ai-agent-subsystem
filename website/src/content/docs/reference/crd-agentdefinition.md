@@ -24,6 +24,7 @@ The recipe. It has a `spec` and no `status`.
 | `realtime` | object |  | Realtime settings, read only when `execution: realtime`; see below. |
 | `resources` | object |  | Run inputs; see below. |
 | `output` | object |  | Result contract; see below. |
+| `delivery` | object |  | What happens to the run's work once the agent exits; see below. |
 | `tool_config` | object |  | Raw passthrough for tool-specific knobs; unknown fields preserved. |
 
 ### `spec.resources`
@@ -130,3 +131,20 @@ unreachable or failing through its retries, reports `reason: "upload-failed"`. S
 The events delivered to these `sinks` — their envelope, lifecycle and `stream-json` payloads,
 and the HTTP delivery contract — are documented in the
 [Notification API](./notification-api.md) reference.
+
+### `spec.delivery.pullRequest`
+
+Opens a GitHub pull request from a successful run's commits. A `courier` container pushes the branch
+and calls the API, so the agent container gets no token that can push. See
+[Open pull requests](../tasks/open-pull-requests.md).
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `base` | string |  | *Required.* Branch the pull request merges into. |
+| `titleTemplate` | string |  | *Required.* Pull request title; `{placeholder}` tokens filled from Agent `parameters`. |
+| `draft` | bool | `false` | Open the pull request as a draft. |
+| `apiUrl` | string | `https://api.github.com` | GitHub REST API base URL, for GitHub Enterprise. |
+
+The pull request comes from the first `resources.repos` entry, authenticated with its `token_secret` or
+the run's credential broker. It needs `execution: interactive`, a repo, and either a `token_secret` or
+a `git_credential_url` parameter; otherwise the Agent fails with the reason before a Job is created.

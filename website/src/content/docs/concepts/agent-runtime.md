@@ -48,6 +48,9 @@ environment variables:
   `headers_secret` keys those entries name, so a download credential never reaches the agent.
 - `AGENT_WATCH`: the recipe's `output.watch` as JSON (including any `upload`), for the supervisor.
 - `TARGET_REPO` / `BRANCH_NAME`: set when the Agent provides them.
+- `AGENT_DELIVERY`: the [pull request delivery](../tasks/open-pull-requests.md) plan as JSON (repo,
+  branch, base, rendered title, clone and outbox paths), when the recipe has `delivery.pullRequest`.
+  It names the token's variable but never holds the token.
 - `AGENT_NAME` / `STATION_NAME` / `TASK_ID`: the run's identity, stamped onto every event.
 - `POD_NAME` / `POD_NAMESPACE`: the pod's identity, from the downward API.
 - `PATH` / `HOME`: pointed at the injected bundle and home directory.
@@ -130,6 +133,12 @@ variable names and the repo's `owner/name` are in the helper script; a repo whos
 holds anything but GitHub's name characters is not spliced in at all, and clones the way it would
 without a broker. The broker is expected to verify the run credential and grant only the repo it
 names, only while its run is open.
+
+**None of that push auth exists when the recipe sets
+[`delivery.pullRequest`](../tasks/open-pull-requests.md).** The init still clones with the token,
+but persists no helper, token file or header into the clone, and the agent container gets neither the
+repo's token variable nor `GH_TOKEN` nor the broker variables. A `courier` container pushes the work
+instead.
 
 Before running the tools it **self-bootstraps prerequisites**: any executable a tool needs (`git`,
 `bash`, `curl`, `sha256sum`, `base64`) that isn't on `PATH` is installed using the package manager detected
