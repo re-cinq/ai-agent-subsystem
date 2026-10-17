@@ -30,7 +30,7 @@ still cannot list Secrets or read any other one.
 
 ```yaml
 components:
-  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/batch?ref=v0.12.0
+  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/batch?ref=v0.13.0
 ```
 
 The grant is a tradeoff. Without it only run pods ever see provider keys; with it the controller can
@@ -49,7 +49,7 @@ the batch component. Without it the controller does nothing for the catalog.
 
 ```yaml
 components:
-  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/model-catalog?ref=v0.12.0
+  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/model-catalog?ref=v0.13.0
 ```
 
 ### Realtime component (opt-in)

@@ -27,7 +27,7 @@ That is the entire install. To pin a specific release instead of tracking the la
 tag from the [releases page](https://github.com/re-cinq/ai-agent-subsystem/releases):
 
 ```sh
-kubectl apply -f https://github.com/re-cinq/ai-agent-subsystem/releases/download/v0.12.0/install.yaml
+kubectl apply -f https://github.com/re-cinq/ai-agent-subsystem/releases/download/v0.13.0/install.yaml
 ```
 
 Then [verify the deployment](#verify-the-deployment). One thing `install.yaml` cannot ship for you is
@@ -46,7 +46,7 @@ platforms your nodes run:
 
 ```sh
 REGISTRY=your-registry.example.com/your-project
-TAG=v0.12.0
+TAG=v0.13.0
 
 docker buildx build --platform linux/amd64,linux/arm64 --push \
   -f deploy/Dockerfile.controller       -t "$REGISTRY/ai-agent-controller:$TAG" .
@@ -93,9 +93,9 @@ adds the `components/batch` component:
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - https://github.com/re-cinq/ai-agent-subsystem//deploy?ref=v0.12.0
+  - https://github.com/re-cinq/ai-agent-subsystem//deploy?ref=v0.13.0
 components:
-  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/batch?ref=v0.12.0
+  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/batch?ref=v0.13.0
 ```
 
 ```sh
@@ -121,9 +121,9 @@ component, which grants the controller `get` on the `agent-secrets` Secret and s
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - https://github.com/re-cinq/ai-agent-subsystem//deploy?ref=v0.12.0
+  - https://github.com/re-cinq/ai-agent-subsystem//deploy?ref=v0.13.0
 components:
-  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/model-catalog?ref=v0.12.0
+  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/model-catalog?ref=v0.13.0
 ```
 
 List both components to enable batch runs and the catalog together. From a source checkout, use
@@ -148,7 +148,7 @@ The controller image `install.yaml` pins is signed in CI with [cosign](https://d
 (keyless, via the GitHub OIDC token). Confirm the signature before trusting a release:
 
 ```sh
-cosign verify ghcr.io/re-cinq/ai-agent-controller@sha256:0eaacf96c5574bff07ac0fd58644d64d0add385685b0ed51548ec048560ba76b \
+cosign verify ghcr.io/re-cinq/ai-agent-controller@sha256:e3fdada1fa1fd5f62e59b57041b9c284b5ef8f7e61769d6533c94f6b82ce94d5 \
   --certificate-identity-regexp '^https://github.com/re-cinq/ai-agent-subsystem/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
