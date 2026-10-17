@@ -11,8 +11,8 @@ published images are signed, SBOM-attested, and digest-pinned. For exactly what 
 
 ## Planned / deferred
 
-- **API promotion**: the CRDs are `v1alpha1` and may still change; promoting to `v1` is the
-  stability commitment.
+- **API promotion**: the CRDs are `v1beta1` (`v1alpha1` is still served, deprecated); promoting to
+  `v1` is the stability commitment.
 - **External integrations**: persisting results to a database and wiring a web UI, beyond the
   in-cluster caller API.
 - **Multi-tenancy**: per-team/namespace isolation.

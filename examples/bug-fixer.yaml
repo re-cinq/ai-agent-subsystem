@@ -9,7 +9,7 @@
 # To actually clone and push to a repo, add `resources.repos` with a `token_secret`
 # and set the Agent's `targetRepo`/`branch` — see the AgentDefinition reference.
 ---
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: AgentDefinition
 metadata:
   name: bug-fixer
@@ -38,7 +38,7 @@ spec:
     sinks:
       - type: stdout
 ---
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: Station
 metadata:
   name: node-fixer

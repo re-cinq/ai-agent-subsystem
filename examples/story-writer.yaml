@@ -8,7 +8,7 @@
 # Auth: the run pod reads ANTHROPIC_API_KEY from the `agent-secrets` Secret (see the
 # prerequisites in examples/README.md) — no host mounts.
 ---
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: AgentDefinition
 metadata:
   name: story-writer
@@ -37,7 +37,7 @@ spec:
       # - type: http
       #   url: http://host.minikube.internal:8099/notify
 ---
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: Station
 metadata:
   name: story-writer

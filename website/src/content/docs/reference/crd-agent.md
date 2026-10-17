@@ -3,7 +3,7 @@ title: Agent CRD
 description: Full field reference for the Agent custom resource.
 ---
 
-**Group/Version:** `agents.re-cinq.com/v1alpha1` · **Kind:** `Agent` · **Scope:** Namespaced ·
+**Group/Version:** `agents.re-cinq.com/v1beta1` · **Kind:** `Agent` · **Scope:** Namespaced ·
 **Short name:** `agt`
 
 One run. It has a `spec` (your desired run) and a `status` (owned by the controller).

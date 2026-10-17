@@ -3,7 +3,7 @@ title: ModelCatalog CRD
 description: Field reference for the ModelCatalog custom resource, the list of models the subsystem can run.
 ---
 
-**Group/Version:** `agents.re-cinq.com/v1alpha1` · **Kind:** `ModelCatalog` · **Scope:** Namespaced ·
+**Group/Version:** `agents.re-cinq.com/v1beta1` · **Kind:** `ModelCatalog` · **Scope:** Namespaced ·
 **Short name:** `mc`
 
 The models the subsystem can run with the API keys it has. There is one object, named `default`, in

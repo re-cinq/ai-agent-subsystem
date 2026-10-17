@@ -1,6 +1,7 @@
 module agentcore.crds.model_catalog;
 
 import agentcore.crds.object_meta : ObjectMeta;
+import agentcore.crds.api_group : crApiVersion;
 import agentcore.crds.schema;
 
 /// One model a vendor's list-models API reported for a configured key.
@@ -38,7 +39,7 @@ struct ModelCatalogStatus
 @Description("The models the subsystem can run, written by the controller from each vendor's list-models API.")
 struct ModelCatalog
 {
-	@optional string apiVersion = "agents.re-cinq.com/v1alpha1";
+	@optional string apiVersion = crApiVersion;
 	@optional string kind = "ModelCatalog";
 	@optional ObjectMeta metadata;
 	@optional ModelCatalogStatus status;
