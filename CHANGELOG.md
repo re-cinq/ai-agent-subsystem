@@ -14,6 +14,10 @@ the npm package versions.
   `make itest-examples` (every example schema-checked and run, mocked) on changes to `examples/`,
   `deploy/` or `packages/`, so a broken example fails the build. `examples/run-agent.sh` honours
   `KUBE_CONTEXT` to target a context other than the current one.
+- **Isolating runs with gVisor or Kata is documented and tested.** A Station's
+  `template.spec.runtimeClassName` already reached every run pod; a unit test now pins that, the new
+  *Isolate runs* guide covers setting it up (and what the controller enforces regardless), and
+  `examples/station-gvisor.yaml` is a ready Station.
 - **Realtime sessions: an agent CLI that stays up and takes prompts over HTTP.** An AgentDefinition
   with `execution: realtime` starts its run as usual, with the rendered prompt as the first turn, then
   keeps the session open. Callers send more prompts with

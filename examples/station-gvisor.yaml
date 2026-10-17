@@ -1,0 +1,28 @@
+# Station that runs every story-writer run under gVisor, a user-space kernel that
+# intercepts the run pod's system calls. Requires a RuntimeClass named `gvisor` on the
+# cluster (GKE Sandbox installs one; elsewhere install runsc and create it). For Kata
+# Containers, set runtimeClassName to your Kata class (for example `kata-qemu`).
+#
+# Apply it next to story-writer.yaml, then start runs against the `story-writer-gvisor`
+# Station with run-agent.sh exactly as in story-writer.yaml. That command is not written
+# as a header line here on purpose: CI clusters have no gVisor, so `make itest-examples`
+# only schema-checks this file.
+---
+apiVersion: agents.re-cinq.com/v1alpha1
+kind: Station
+metadata:
+  name: story-writer-gvisor
+  namespace: ai-agents
+spec:
+  agentDefRef: story-writer
+  deadlineMinutes: 5
+  template:
+    spec:
+      runtimeClassName: gvisor
+      restartPolicy: Never
+      containers:
+        - name: agent
+          image: node:22-bookworm
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { cpu: "1", memory: 1Gi }

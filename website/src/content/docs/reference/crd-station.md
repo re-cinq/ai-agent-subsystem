@@ -44,6 +44,7 @@ rather than a Job, and the fields above apply as follows. See [batch runs](../ta
 - The container named **`agent`** has its `command` overridden by the controller to run the injected
   supervisor; do not set it yourself.
 - The base image must be **glibc-based**; the injected runtime is glibc-linked.
-- Any volumes, node selectors, tolerations, and resource limits you set are preserved. The controller
+- Any volumes, node selectors, tolerations, `runtimeClassName`, and resource limits you set are
+  preserved, so a RuntimeClass can run the pod under gVisor or Kata ([Isolate runs](../../tasks/isolate-runs/)). The controller
   adds the bundle `emptyDir` and (if present) a credentials volume mount, and a non-root security
   context.
