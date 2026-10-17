@@ -950,6 +950,25 @@ unittest
 
 unittest
 {
+	// A Station's runtimeClassName reaches the Job untouched, so gVisor or Kata isolate the
+	// run, and the builder's own hardening still applies on top of it.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	station.spec.template_ = parseJsonString(
+		`{"spec":{"runtimeClassName":"gvisor","containers":[{"name":"agent","image":"node:22"}]}}`);
+
+	auto job = buildJob(agent, station, definition, "ghcr.io/re-cinq/ai-agent:latest");
+	auto pod = job["spec"]["template"]["spec"];
+
+	pod["runtimeClassName"].get!string.should.equal("gvisor");
+	pod["automountServiceAccountToken"].get!bool.should.equal(false);
+	agentContainer(job)["securityContext"]["runAsNonRoot"].get!bool.should.equal(true);
+}
+
+unittest
+{
 	// A run whose parameters carry a broker credential gets it, and the broker's URL,
 	// as dedicated env vars, so the git credential helper reads two plain names
 	// rather than parsing AGENT_PARAMETERS.

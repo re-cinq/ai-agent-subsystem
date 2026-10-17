@@ -58,6 +58,7 @@ export default defineConfig({
 						{ label: 'Create a station', slug: 'tasks/create-a-station' },
 						{ label: 'Launch an agent', slug: 'tasks/launch-an-agent' },
 						{ label: 'Setting limits', slug: 'tasks/set-limits' },
+						{ label: 'Isolate runs', slug: 'tasks/isolate-runs' },
 						{ label: 'Batch runs', slug: 'tasks/batch-runs' },
 						{ label: 'Realtime sessions', slug: 'tasks/realtime-sessions' },
 						{ label: 'Collect output', slug: 'tasks/collect-output' },
