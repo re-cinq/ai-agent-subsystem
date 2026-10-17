@@ -1,6 +1,6 @@
 # @re-cinq/agent-contracts
 
-TypeScript types and a thin, typed client for the [ai-agent-subsystem](https://github.com/re-cinq/ai-agent-subsystem) Custom Resources: **Agent**, **Station**, **AgentDefinition** and **ModelCatalog** (API group `agents.re-cinq.com/v1beta1`).
+TypeScript types and a thin, typed client for the [ai-agent-subsystem](https://github.com/re-cinq/ai-agent-subsystem) Custom Resources: **Agent**, **Station**, **AgentDefinition**, **ModelCatalog** and **AgentSpawner** (API group `agents.re-cinq.com/v1beta1`).
 
 The types are generated directly from the D source structs that define the CRDs, so they cannot drift from the controller. A CI drift check fails the build if the committed output stops matching the model.
 
@@ -12,7 +12,7 @@ npm install @re-cinq/agent-contracts
 
 ## What you get
 
-- **Types** for every resource and nested field: `Agent`, `Station`, `AgentDefinition`, their `*Spec`/`*Status` shapes, the `ModelCatalog`, `ModelCatalogStatus`, `VendorModels` and `ModelInfo` types, and the string-literal unions (`Phase`, `ConcurrencyPolicy`, `PermissionMode`, ...).
+- **Types** for every resource and nested field: `Agent`, `Station`, `AgentDefinition`, their `*Spec`/`*Status` shapes, the `ModelCatalog`, `ModelCatalogStatus`, `VendorModels` and `ModelInfo` types, the `AgentSpawner`, `AgentSpawnerSpec` and `AgentSpawnerStatus` types, and the string-literal unions (`Phase`, `ConcurrencyPolicy`, `SpawnerConcurrencyPolicy`, `PermissionMode`, ...).
 - **Constants**: `GROUP`, `VERSION`, `DEFAULT_NAMESPACE`.
 - **`AgentContractsClient`** — create/read/list Agents, server-side-apply Stations and AgentDefinitions, and read the ModelCatalog.
 - **Helpers**: `isTerminal(agent)` and `waitForAgent(client, name, options?)`.

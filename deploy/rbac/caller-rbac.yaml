@@ -15,6 +15,11 @@ rules:
   - apiGroups: ["agents.re-cinq.com"]
     resources: ["agents"]
     verbs: ["create", "get", "list", "watch"]
+  # Scheduled runs: the controller creates the Agents, so a spawner grants no more than
+  # creating Agents directly does.
+  - apiGroups: ["agents.re-cinq.com"]
+    resources: ["agentspawners"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
   # Which models the subsystem can run, written by the controller.
   - apiGroups: ["agents.re-cinq.com"]
     resources: ["modelcatalogs"]

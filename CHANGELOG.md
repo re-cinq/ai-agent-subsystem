@@ -16,6 +16,18 @@ the npm package versions.
   now checks the Go file too, and each `v*` release tags the module as
   `packages/agent-contracts-go/vX.Y.Z`. The CRD type list lives in one place
   (`agentcore.crds.registry`), read by crdgen and both emitters.
+- **AgentSpawner: cron-scheduled runs.** A new `AgentSpawner` CRD (`asp`, `v1beta1` only) creates an
+  Agent in `spec.stationRef` with `spec.parameters` on a five-field UTC cron `spec.schedule` (`*`,
+  numbers, ranges, steps and lists; Sunday is 0 or 7). `concurrencyPolicy: Forbid` skips a tick while
+  an Agent it created is still `Pending` or `Running`; `suspend: true` pauses it. The leader checks
+  spawners every 15 seconds and records the slot in `status.lastScheduleTime` and `status.lastAgent`,
+  so a restart or failover neither repeats nor drops a run, and after an outage a spawner runs once
+  for the latest missed slot. Spawned Agents are named `<spawner>-<slot minute>`, labelled
+  `agents.re-cinq.com/spawner=<name>` and owned by the spawner; the Station's history limits prune
+  them. The controller role gains `create` on `agents` and access to `agentspawners`, and the
+  `agent-launcher` role can manage spawners. TS and Go contracts include the new types. See
+  [Schedule runs](https://re-cinq.github.io/ai-agent-subsystem/tasks/schedule-runs/) and
+  `examples/nightly-story.yaml`.
 
 ### Changed
 - **The CRDs are now `agents.re-cinq.com/v1beta1`.** Objects are stored at `v1beta1`, and the

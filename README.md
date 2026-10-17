@@ -158,6 +158,10 @@ orchestrator can discover them
 ([ModelCatalog](https://re-cinq.github.io/ai-agent-subsystem/reference/crd-modelcatalog/)). It is
 opt-in through the `deploy/components/model-catalog` kustomize component.
 
+An **AgentSpawner** (`kubectl get asp`) creates an Agent in a Station on a five-field cron schedule,
+so recurring work needs no external scheduler
+([schedule runs](https://re-cinq.github.io/ai-agent-subsystem/tasks/schedule-runs/)).
+
 ## Architecture
 
 A single dub monorepo (every package under `packages/`) producing **three runtime binaries** and a

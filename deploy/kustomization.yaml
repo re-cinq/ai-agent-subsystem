@@ -7,6 +7,7 @@ resources:
   - crds/station.yaml
   - crds/agent.yaml
   - crds/modelcatalog.yaml
+  - crds/agentspawner.yaml
   - rbac/controller-rbac.yaml
   - rbac/caller-rbac.yaml
   - rbac/networkpolicy.yaml

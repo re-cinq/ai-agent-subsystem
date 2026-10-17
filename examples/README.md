@@ -8,6 +8,7 @@ Ready-to-apply examples you can try against a running cluster. Each is a recipe
 |------|---------------|
 | [`story-writer.yaml`](story-writer.yaml) | Pure text — prompt in, prose out. No repo, no tools. **Start here.** |
 | [`bug-fixer.yaml`](bug-fixer.yaml) | Code editing — reads/edits/tests with a scoped tool allowlist. |
+| [`nightly-story.yaml`](nightly-story.yaml) | An AgentSpawner that runs `story-writer` every night at 03:00 UTC. |
 | [`run-agent.sh`](run-agent.sh) | Launch one run against a Station with `key=value` parameters. |
 | [`notify-listener.mjs`](notify-listener.mjs) | A zero-dependency listener for the `http` output sink. |
 
@@ -67,6 +68,15 @@ The `key=value` arguments fill the recipe's `{ticket}`, `{repo}`, `{branch}` pla
 the agent actually clone and push, add `resources.repos` (with a `token_secret`) to the recipe and
 set the Agent's `targetRepo`/`branch`.
 
+## Run it on a schedule
+
+```sh
+kubectl apply -f examples/nightly-story.yaml
+kubectl -n ai-agents get asp nightly-story   # Last Schedule fills in after 03:00 UTC
+```
+
+See [Schedule runs](../website/src/content/docs/tasks/schedule-runs.md).
+
 ## Stream events to a listener (optional)
 
 Run the listener on your host, then uncomment the `http` sink in `story-writer.yaml`:
@@ -81,5 +91,5 @@ URL for other clusters. Every stream-json event the run emits is POSTed there as
 ## Clean up
 
 ```sh
-kubectl -n ai-agents delete -f examples/story-writer.yaml -f examples/bug-fixer.yaml
+kubectl -n ai-agents delete -f examples/nightly-story.yaml -f examples/story-writer.yaml -f examples/bug-fixer.yaml
 ```

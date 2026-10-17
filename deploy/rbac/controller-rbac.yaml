@@ -10,9 +10,16 @@ metadata:
   name: agent-controller
   namespace: ai-agents
 rules:
+  # create: the AgentSpawner loop starts scheduled runs.
   - apiGroups: ["agents.re-cinq.com"]
     resources: ["agents"]
-    verbs: ["get", "list", "watch", "patch", "update", "delete"]
+    verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
+  - apiGroups: ["agents.re-cinq.com"]
+    resources: ["agentspawners"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["agents.re-cinq.com"]
+    resources: ["agentspawners/status"]
+    verbs: ["get", "patch"]
   - apiGroups: ["agents.re-cinq.com"]
     resources: ["agents/status"]
     verbs: ["get", "update", "patch"]

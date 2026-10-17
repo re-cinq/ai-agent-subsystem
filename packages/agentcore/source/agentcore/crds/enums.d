@@ -52,6 +52,14 @@ enum ConcurrencyPolicy : string
 	replace = "Replace",
 }
 
+/// Whether an AgentSpawner starts a run while one it started earlier is still going.
+/// Allow first: an unknown value falls back to it, as an omitted one does.
+enum SpawnerConcurrencyPolicy : string
+{
+	allow = "Allow",
+	forbid = "Forbid",
+}
+
 /// How a definition runs: interactively as a CLI Job, as a provider batch request, or
 /// as a realtime session that takes prompts over HTTP until it idles out or is closed.
 enum Execution : string
