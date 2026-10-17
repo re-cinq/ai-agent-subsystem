@@ -56,6 +56,7 @@ The inner `event` is one of:
 
 - a **lifecycle event** — owned by the subsystem, tagged `"kind": "lifecycle"` (below).
 - a **session event** — owned by the subsystem, tagged `"kind": "session"` (below).
+- a **delivery event** — owned by the subsystem, tagged `"kind": "delivery"` (below).
 - a **tool-native `stream-json` line** — the agent tool's output, passed through verbatim (below).
 
 ## Lifecycle events
@@ -101,6 +102,21 @@ that knows its id before the first turn also raises one when it starts: a resume
 The id comes from Claude's `system`/`init` `session_id`, Codex's `thread.started` `thread_id`, or
 Gemini's `init` `session_id`. opencode and `exec` runs announce none. The controller records the last
 one as the Agent's `status.sessionId`.
+
+## Delivery events
+
+A run whose definition sets [`delivery.pullRequest`](../tasks/open-pull-requests.md) raises one
+delivery event from its `courier` container once the delivery is settled:
+
+```json
+{ "kind": "delivery", "status": "opened", "url": "https://github.com/acme/app/pull/7" }
+{ "kind": "delivery", "status": "skipped", "reason": "no new commits" }
+{ "kind": "delivery", "status": "failed", "reason": "pushing agent/fix-abc12 failed" }
+```
+
+`status` is `opened` (with the pull request's `url`), `skipped` when the run left nothing to deliver
+(`agent exited <code>`, `no new commits`), or `failed` with the reason. The controller records an
+`opened` event's `url` as `status.prUrl`, and a `failed` one's reason as `failureReason`.
 
 ## Turn events
 

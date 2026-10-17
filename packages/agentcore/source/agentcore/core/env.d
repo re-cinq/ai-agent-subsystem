@@ -20,6 +20,11 @@ enum envGitCredentialUrl = "AGENT_GIT_CREDENTIAL_URL";
 enum envSinkRetryAttempts = "AGENT_SINK_RETRY_ATTEMPTS";
 enum envSinkRetryBaseMs = "AGENT_SINK_RETRY_BASE_MS";
 enum envSinkRetryMaxMs = "AGENT_SINK_RETRY_MAX_MS";
+// The run's pull request delivery plan (agentcore.delivery.plan), set when the recipe has
+// `delivery.pullRequest`. It holds names and paths, never a credential. Its presence
+// tells the init to keep push auth out of the clone, the supervisor to bundle the work
+// branch into the outbox, and the courier what to push and open.
+enum envDelivery = "AGENT_DELIVERY";
 enum envTargetRepo = "TARGET_REPO";
 enum envBranch = "BRANCH_NAME";
 enum envRepos = "AGENT_REPOS";

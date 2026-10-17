@@ -17,7 +17,8 @@ import agentcore.vendors.select : agentForModel;
 import std.file : exists;
 import agentcore.core.env : defaultExitGraceMs, defaultMaxUploadBytes, defaultWorkspace,
 	envAgentName, envConversationPin, envConversationSource, envDeadlineMs, envExitGraceMs,
-	envMaxUploadBytes, envModel, envSelect, envWatch, envWorkspace;
+	envDelivery, envMaxUploadBytes, envModel, envSelect, envWatch, envWorkspace;
+import agentcore.delivery.plan : delivers, parsePlan;
 import agentcore.crds.output_sink : OutputSink;
 import agentcore.output.event : EventSource, sourceFromEnv;
 import agentcore.core.exec : findExecutable;
@@ -29,6 +30,7 @@ import agentcore.output.selectmatcher : parseSelectors, selected;
 import agentcore.output.session : sessionEvent, sessionIdFor;
 import agentcore.output.terminal : terminalFor;
 import archive : collect, tarGz;
+import outbox : fillOutbox, headOf;
 import sink : emit, postConversation, postUpload;
 
 /// How often the wait loop polls the agent's exit / terminal-event state.
@@ -97,11 +99,14 @@ int supervise(string[] agentArgv)
 	const provider = agentForModel(environment.get(envModel, "")).name;
 	const grace = exitGraceFromEnv();
 	const deadline = deadlineFromEnv();
+	const delivery = parsePlan(environment.get(envDelivery, ""));
+	const startHead = delivers(delivery) ? headOf(delivery.clone) : "";
 
 	if (findExecutable(agentArgv[0]).length == 0)
 	{
 		logError("[supervisor] agent not found: " ~ agentArgv[0]);
 		emit(sinks, source, agentFailed("not-found").toJson);
+		fillOutbox(delivery, 1, startHead);
 		return 1;
 	}
 
@@ -116,6 +121,7 @@ int supervise(string[] agentArgv)
 	{
 		logError("[supervisor] failed to start agent: " ~ e.msg);
 		emit(sinks, source, agentFailed("spawn").toJson);
+		fillOutbox(delivery, 1, startHead);
 		return 1;
 	}
 
@@ -129,6 +135,7 @@ int supervise(string[] agentArgv)
 	// stdout open forever, and pod teardown must not block on that (#58).
 	cast(void) waitFlag(agent.readerDone, drainDeadline);
 
+	fillOutbox(delivery, code, startHead);
 	finishRun(sinks, source, code, environment.get(envConversationPin, ""), sessionId);
 	assert(0, "unreachable");
 }

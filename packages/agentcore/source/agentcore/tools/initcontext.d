@@ -17,6 +17,9 @@ struct InitContext
 	/// credential helper asks it for a token scoped to that repo at the moment git
 	/// authenticates, rather than reading a token minted at launch.
 	string gitCredentialUrl;
+	/// Set when a courier pushes the run's work (`AGENT_DELIVERY`): the clone then keeps
+	/// no push auth, so the agent sharing the workspace finds no token in it.
+	bool courierDelivers;
 	/// Recipe `resources.skills` names — the SkillsTool fetches each from `skillsSource`
 	/// into the run's `$HOME/.claude/skills`.
 	string[] skills;

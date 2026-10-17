@@ -142,6 +142,15 @@ never leaks to a sink):
 ./scripts/itest-initializer.sh
 ```
 
+The **pull request delivery** suite drives the init, supervisor and courier through one delivering
+run against a local bare origin and a fake GitHub API (the mock agent's `serve` mode). It asserts the
+clone keeps no push auth, the branch is pushed and the pull request opened, and a failed agent
+delivers nothing:
+
+```sh
+./scripts/itest-delivery.sh
+```
+
 ### Cross-distro init-container tests
 
 The init container self-bootstraps its prerequisites through the distro package manager, so it is

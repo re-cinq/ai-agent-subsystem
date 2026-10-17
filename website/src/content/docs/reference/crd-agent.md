@@ -16,8 +16,8 @@ One run. It has a `spec` (your desired run) and a `status` (owned by the control
 | `parameters` | map[string]string | Per-run values; fill the prompt `{placeholder}` tokens and pass to the agent. |
 | `taskId` | string | Optional external id for correlation. |
 | `model` | string | Optional model id for this run; overrides the AgentDefinition's `model`, including which agent CLI runs (e.g. a `gemini-*` model runs gemini-cli). Omitted, the definition's model applies. |
-| `targetRepo` | string | Optional repo in `owner/name` form. |
-| `branch` | string | Optional git branch. |
+| `targetRepo` | string | Optional repo in `owner/name` form. With [`delivery.pullRequest`](../tasks/open-pull-requests.md), the repo the pull request opens on. |
+| `branch` | string | Optional git branch. With `delivery.pullRequest`, the branch the work is pushed to; default `agent/<Agent name>`. |
 | `files` | [] object | `{path, url, headers_secret?}` — files the init downloads into the workspace before the agent starts. Only the references travel; see [below](#specfiles). |
 | `resumeSession` | string | Optional. The `status.sessionId` of an earlier run to continue. Needs a definition with `execution: realtime` and a `resources.conversation.source`, and a vendor that keeps conversation state (not opencode or `exec`). The saved conversation is restored and the definition's prompt is not sent. |
 
@@ -64,7 +64,7 @@ spec:
 | `exitCode` | int | Process exit code (`0` = success). |
 | `output` | string | Captured summary: the truncated tail of pod logs, capped at `MAX_OUTPUT_BYTES` (default 256 KiB) to stay under etcd's per-object limit. |
 | `failureReason` | string | Human-readable reason on failure. Also set when a run reaches a terminal phase but its result couldn't be fully read back, e.g. `run output unavailable: pod garbage-collected` or `run record unavailable: Job garbage-collected before its result was observed`. |
-| `prUrl` | string | Pull-request URL when applicable. |
+| `prUrl` | string | The pull request the run opened, for a definition with [`delivery.pullRequest`](../tasks/open-pull-requests.md). Read from the last [delivery event](./notification-api.md#delivery-events) in the `courier` container's log when the run ends, never from the agent's own log. Empty when nothing was delivered. |
 | `sessionId` | string | The agent CLI's session id, from the last [session event](./notification-api.md#session-events) in the run's pod log. While a realtime session runs, the prompt API patches it as soon as a prompt's reply carries a new id; it is set again from the pod log when the run ends. Empty for vendors that announce none. |
 | `batchId` | string | Batch runs only. The provider's batch id, set when the controller submits the batch: `msgbatch_...` for Anthropic, `batch_...` for OpenAI, and for Gemini the `<id>` of the operation name `batches/<id>`. Kept after a fallback for the audit trail. |
 | `batchProvider` | string | Batch runs only. The batch API the run was submitted to: `anthropic`, `gemini` or `openai`, from the vendor the model routes to. |

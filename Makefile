@@ -23,6 +23,7 @@ build: ## Build all runtime and codegen binaries
 itest: ## Host-level integration tests (no cluster, no docker)
 	./scripts/itest-supervisor.sh
 	./scripts/itest-initializer.sh
+	./scripts/itest-delivery.sh
 
 .PHONY: itest-controller
 itest-controller: ## Controller integration tests (needs kind/minikube + docker)
