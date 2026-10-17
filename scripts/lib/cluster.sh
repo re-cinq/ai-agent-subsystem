@@ -93,7 +93,8 @@ install_subsystem() { # install_subsystem <injected-agent-image>
 	k apply -f deploy/crds/
 	k apply -f deploy/rbac/controller-rbac.yaml
 	k wait --for condition=Established crd/agents.agents.re-cinq.com \
-		crd/stations.agents.re-cinq.com crd/agentdefinitions.agents.re-cinq.com --timeout=60s
+		crd/stations.agents.re-cinq.com crd/agentdefinitions.agents.re-cinq.com \
+		crd/agentspawners.agents.re-cinq.com --timeout=60s
 
 	echo "== deploy controller (image=$controller_image, AGENT_IMAGE=$injected) =="
 	k apply -f deploy/controller.yaml

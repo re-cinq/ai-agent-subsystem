@@ -30,6 +30,7 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&Station{}, &StationList{},
 		&Agent{}, &AgentList{},
 		&ModelCatalog{}, &ModelCatalogList{},
+		&AgentSpawner{}, &AgentSpawnerList{},
 	)
 	metav1.AddToGroupVersion(scheme, SchemeGroupVersion)
 	return nil
@@ -76,6 +77,11 @@ type ConcurrencyPolicy string
 const ConcurrencyPolicyAllow ConcurrencyPolicy = "Allow"
 const ConcurrencyPolicyForbid ConcurrencyPolicy = "Forbid"
 const ConcurrencyPolicyReplace ConcurrencyPolicy = "Replace"
+
+type SpawnerConcurrencyPolicy string
+
+const SpawnerConcurrencyPolicyAllow SpawnerConcurrencyPolicy = "Allow"
+const SpawnerConcurrencyPolicyForbid SpawnerConcurrencyPolicy = "Forbid"
 
 type Execution string
 
@@ -1168,5 +1174,140 @@ func (in *ModelCatalogList) DeepCopy() *ModelCatalogList {
 
 // DeepCopyObject implements runtime.Object.
 func (in *ModelCatalogList) DeepCopyObject() runtime.Object {
+	return in.DeepCopy()
+}
+
+// Creates an Agent in a Station on a cron schedule.
+type AgentSpawnerSpec struct {
+	// The Station each spawned Agent runs in.
+	StationRef string `json:"stationRef"`
+
+	// Five-field cron expression (minute hour day-of-month month day-of-week), evaluated in UTC.
+	Schedule string `json:"schedule"`
+
+	// Copied verbatim into every spawned Agent's spec.parameters.
+	Parameters map[string]string `json:"parameters,omitempty"`
+
+	// Allow starts a run on every tick; Forbid skips a tick while an Agent this spawner created is not finished.
+	ConcurrencyPolicy SpawnerConcurrencyPolicy `json:"concurrencyPolicy,omitempty"`
+
+	// True stops new runs; runs already started are left alone.
+	Suspend bool `json:"suspend,omitempty"`
+}
+
+// DeepCopyInto copies the receiver into out. in must be non-nil.
+func (in *AgentSpawnerSpec) DeepCopyInto(out *AgentSpawnerSpec) {
+	*out = *in
+	if in.Parameters != nil {
+		in, out := &in.Parameters, &out.Parameters
+		*out = make(map[string]string, len(*in))
+		for key, value := range *in {
+			(*out)[key] = value
+		}
+	}
+}
+
+// DeepCopy returns a deep copy of the receiver.
+func (in *AgentSpawnerSpec) DeepCopy() *AgentSpawnerSpec {
+	if in == nil {
+		return nil
+	}
+	out := new(AgentSpawnerSpec)
+	in.DeepCopyInto(out)
+	return out
+}
+
+type AgentSpawnerStatus struct {
+	// RFC3339 schedule time of the last tick handled, whether it created an Agent or was skipped.
+	LastScheduleTime string `json:"lastScheduleTime,omitempty"`
+
+	// Name of the last Agent this spawner created.
+	LastAgent string `json:"lastAgent,omitempty"`
+}
+
+// DeepCopyInto copies the receiver into out. in must be non-nil.
+func (in *AgentSpawnerStatus) DeepCopyInto(out *AgentSpawnerStatus) {
+	*out = *in
+}
+
+// DeepCopy returns a deep copy of the receiver.
+func (in *AgentSpawnerStatus) DeepCopy() *AgentSpawnerStatus {
+	if in == nil {
+		return nil
+	}
+	out := new(AgentSpawnerStatus)
+	in.DeepCopyInto(out)
+	return out
+}
+
+type AgentSpawner struct {
+	metav1.TypeMeta `json:",inline"`
+
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec AgentSpawnerSpec `json:"spec,omitzero"`
+
+	Status AgentSpawnerStatus `json:"status,omitzero"`
+}
+
+// AgentSpawnerList is a list of AgentSpawner resources.
+type AgentSpawnerList struct {
+	metav1.TypeMeta `json:",inline"`
+
+	metav1.ListMeta `json:"metadata,omitempty"`
+
+	Items []AgentSpawner `json:"items"`
+}
+
+// DeepCopyInto copies the receiver into out. in must be non-nil.
+func (in *AgentSpawner) DeepCopyInto(out *AgentSpawner) {
+	*out = *in
+	out.TypeMeta = in.TypeMeta
+	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
+	in.Spec.DeepCopyInto(&out.Spec)
+	in.Status.DeepCopyInto(&out.Status)
+}
+
+// DeepCopy returns a deep copy of the receiver.
+func (in *AgentSpawner) DeepCopy() *AgentSpawner {
+	if in == nil {
+		return nil
+	}
+	out := new(AgentSpawner)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyObject implements runtime.Object.
+func (in *AgentSpawner) DeepCopyObject() runtime.Object {
+	return in.DeepCopy()
+}
+
+// DeepCopyInto copies the receiver into out. in must be non-nil.
+func (in *AgentSpawnerList) DeepCopyInto(out *AgentSpawnerList) {
+	*out = *in
+	out.TypeMeta = in.TypeMeta
+	in.ListMeta.DeepCopyInto(&out.ListMeta)
+	if in.Items != nil {
+		in, out := &in.Items, &out.Items
+		*out = make([]AgentSpawner, len(*in))
+		for index := range *in {
+			(*in)[index].DeepCopyInto(&(*out)[index])
+		}
+	}
+}
+
+// DeepCopy returns a deep copy of the receiver.
+func (in *AgentSpawnerList) DeepCopy() *AgentSpawnerList {
+	if in == nil {
+		return nil
+	}
+	out := new(AgentSpawnerList)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyObject implements runtime.Object.
+func (in *AgentSpawnerList) DeepCopyObject() runtime.Object {
 	return in.DeepCopy()
 }

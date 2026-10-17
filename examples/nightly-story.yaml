@@ -1,0 +1,21 @@
+# Nightly story: an AgentSpawner that runs the story-writer Station every night at
+# 03:00 UTC. Apply story-writer.yaml first; this file adds only the schedule.
+#
+#   kubectl apply -f examples/story-writer.yaml -f examples/nightly-story.yaml
+#   kubectl -n ai-agents get asp nightly-story
+#   kubectl -n ai-agents get agents -l agents.re-cinq.com/spawner=nightly-story
+#
+# Deleting the spawner also deletes the Agents it created.
+---
+apiVersion: agents.re-cinq.com/v1beta1
+kind: AgentSpawner
+metadata:
+  name: nightly-story
+  namespace: ai-agents
+spec:
+  stationRef: story-writer
+  schedule: "0 3 * * *"
+  # Skip a night if the previous run is somehow still going.
+  concurrencyPolicy: Forbid
+  parameters:
+    title: The Night Shift

@@ -102,6 +102,38 @@ phase="$(wait_terminal "$agent")"
 k -n ai-agents delete agent "$agent" --wait=true
 echo "  PASS  v1alpha1 apply warns, reads at both versions, and runs to Succeeded"
 
+echo "== Scenario F: an every-minute AgentSpawner creates an owned, labelled Agent that succeeds =="
+agent=mock-spawner
+k apply -f - <<'YAML'
+apiVersion: agents.re-cinq.com/v1beta1
+kind: AgentSpawner
+metadata: { name: mock-spawner, namespace: ai-agents }
+spec:
+  stationRef: mock-station
+  schedule: "* * * * *"
+  parameters: { topic: itest }
+YAML
+# The first slot is the next whole minute after creation, picked up by the next 15s tick.
+for _ in $(seq 1 30); do
+	sleep 5
+	agent="$(k -n ai-agents get asp mock-spawner -o jsonpath='{.status.lastAgent}')"
+	[ -n "$agent" ] && break
+done
+[ -n "$agent" ] || fail "no Agent spawned within 150s"
+echo "   spawned $agent"
+phase="$(wait_terminal "$agent")"
+[ "$phase" = "Succeeded" ] || fail "spawned agent phase is '$phase', expected Succeeded"
+spawned="$(k -n ai-agents get agent "$agent" \
+	-o jsonpath='{.metadata.labels.agents\.re-cinq\.com/spawner} {.metadata.ownerReferences[0].kind} {.spec.parameters.topic}')"
+[ "$spawned" = "mock-spawner AgentSpawner itest" ] || fail "spawned agent label/owner/parameters: '$spawned'"
+k -n ai-agents delete asp mock-spawner --wait=true
+for _ in $(seq 1 12); do
+	k -n ai-agents get agent "$agent" >/dev/null 2>&1 || break
+	sleep 5
+done
+k -n ai-agents get agent "$agent" >/dev/null 2>&1 && fail "spawned Agent not garbage-collected with its spawner"
+echo "  PASS  spawner created $agent on schedule; it Succeeded and was deleted with the spawner"
+
 echo "== Scenario B: credential path (agent-secrets -> ANTHROPIC_API_KEY -> agent child) =="
 # Prove the production credential chain end to end with a FAKE key and no network:
 # the controller injects ANTHROPIC_API_KEY from the `agent-secrets` Secret via
