@@ -1,6 +1,6 @@
 # @re-cinq/agent-contracts
 
-TypeScript types and a thin, typed client for the [ai-agent-subsystem](https://github.com/re-cinq/ai-agent-subsystem) Custom Resources: **Agent**, **Station**, **AgentDefinition** and **ModelCatalog** (API group `agents.re-cinq.com/v1alpha1`).
+TypeScript types and a thin, typed client for the [ai-agent-subsystem](https://github.com/re-cinq/ai-agent-subsystem) Custom Resources: **Agent**, **Station**, **AgentDefinition** and **ModelCatalog** (API group `agents.re-cinq.com/v1beta1`).
 
 The types are generated directly from the D source structs that define the CRDs, so they cannot drift from the controller. A CI drift check fails the build if the committed output stops matching the model.
 

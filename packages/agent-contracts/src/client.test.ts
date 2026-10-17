@@ -3,13 +3,12 @@ import {
   AgentContractsClient,
   isTerminal,
   waitForAgent,
-  GROUP,
-  VERSION,
   type KubeRequest,
   type KubeResponse,
   type KubeTransport,
 } from "./client.js";
 import { enforce } from "./enforce.js";
+import { GROUP, VERSION } from "./types.generated.js";
 import type { Agent, AgentDefinition, ModelCatalog, Station } from "./types.generated.js";
 
 // A real in-memory transport: returns queued responses and records the requests
@@ -24,6 +23,12 @@ class FakeTransport implements KubeTransport {
 }
 
 const ok = (body: unknown): KubeResponse => ({ status: 200, body });
+
+describe("API version", () => {
+  it("addresses agents.re-cinq.com/v1beta1", () => {
+    expect(`${GROUP}/${VERSION}`).toBe("agents.re-cinq.com/v1beta1");
+  });
+});
 
 describe("isTerminal", () => {
   it("returns true when phase is Succeeded", () => {

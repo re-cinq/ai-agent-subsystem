@@ -74,7 +74,7 @@ kubectl -n ai-agents create secret generic agent-secrets \
 ```
 
 ```yaml
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: AgentDefinition
 metadata:
   name: ticket-summary
@@ -94,7 +94,7 @@ spec:
       - name: ANTHROPIC_API_KEY
         ref: anthropic-key
 ---
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: Station
 metadata:
   name: ticket-summary
@@ -108,7 +108,7 @@ spec:
         - name: agent
           image: node:22-bookworm-slim
 ---
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: Agent
 metadata:
   generateName: ticket-summary-
@@ -215,7 +215,7 @@ kubectl -n ai-agents create secret generic agent-secrets \
 ```
 
 ```yaml
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: AgentDefinition
 metadata:
   name: ticket-triage
@@ -289,7 +289,7 @@ kubectl -n ai-agents create secret generic agent-secrets \
 ```
 
 ```yaml
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: AgentDefinition
 metadata:
   name: ticket-triage

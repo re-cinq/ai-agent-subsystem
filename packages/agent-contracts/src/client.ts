@@ -3,11 +3,10 @@
 // testable with an in-memory fake (no cluster, no mocks). A concrete transport
 // (fetch / @kubernetes/client-node) is supplied by the consumer (an orchestrator or UI).
 
+import { GROUP, VERSION } from "./types.generated.js";
 import type { Agent, AgentDefinition, ModelCatalog, Station, Phase } from "./types.generated.js";
 import { enforce, enforceHTTPSuccess } from "./enforce.js";
 
-export const GROUP = "agents.re-cinq.com";
-export const VERSION = "v1alpha1";
 export const DEFAULT_NAMESPACE = "ai-agents";
 
 const FIELD_MANAGER = "agent-contracts";
