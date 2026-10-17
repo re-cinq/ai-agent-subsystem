@@ -15,6 +15,7 @@ there.
 | lld | any | LDC release and static builds only (`--linker=lld`); the DMD dev loop does not need it |
 | GNU make | any | the targets below |
 | Node.js | 22 (`.nvmrc` in `website/` and `packages/agent-contracts/`) | contracts package, docs site |
+| Go | the version in `packages/agent-contracts-go/go.mod` | `make contracts-go` only |
 | Docker + Buildx | recent | container tests, images |
 | kubectl + kind or minikube | recent | controller integration tests only |
 | python3 | 3.x | `scripts/pin-image-digests.sh` (release tooling) only |
@@ -37,7 +38,7 @@ make test    # unit tests for all six packages that have them
 make build   # all runtime + codegen binaries
 make itest   # host-level integration tests - no cluster, no docker, runs in seconds
 make drift   # fail if generated CRDs / TS contracts drifted from the D model
-make regen   # regenerate deploy/crds and packages/agent-contracts/src/types.generated.ts
+make regen   # regenerate deploy/crds and the TS and Go contract types
 make hooks   # install the pre-push hook that runs the drift checks
 ```
 
