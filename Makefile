@@ -62,19 +62,24 @@ ctest: ## Cross-distro container tests (needs docker)
 	./scripts/ctest-init-portable.sh
 
 .PHONY: regen
-regen: ## Regenerate deploy/crds and the TypeScript contracts from the D model
+regen: ## Regenerate deploy/crds and the TypeScript and Go contracts from the D model
 	dub build :crdgen
 	./packages/crdgen/ai-agent-crdgen write-structures deploy/crds
 	dub run :tsgen -c application -q -- emit packages/agent-contracts/src/types.generated.ts
+	dub run :tsgen -c application -q -- emit-go packages/agent-contracts-go/types.generated.go
 
 .PHONY: drift
-drift: ## Fail if generated CRDs or TS contracts drifted from the D model
+drift: ## Fail if generated CRDs or TS/Go contracts drifted from the D model
 	./scripts/check-crd-drift.sh
 	./scripts/check-contracts-drift.sh
 
 .PHONY: contracts
 contracts: ## Test and build the @re-cinq/agent-contracts npm package (100% coverage gate)
 	cd packages/agent-contracts && npm ci && npm run test:coverage && npm run build
+
+.PHONY: contracts-go
+contracts-go: ## Vet, format-check and test the Go contracts module (needs Go)
+	cd packages/agent-contracts-go && go vet ./... && test -z "$$(gofmt -l .)" && go test ./...
 
 .PHONY: docs
 docs: ## Build the documentation site

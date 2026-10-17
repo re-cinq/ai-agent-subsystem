@@ -6,7 +6,6 @@
 module tsgen;
 
 import std.array : join;
-import std.meta : AliasSeq;
 import std.traits : isIntegral, isBoolean, isSomeString, isArray, isAssociativeArray,
 	EnumMembers, ForeachType, ValueType;
 
@@ -16,41 +15,7 @@ import described : describe;
 
 import agentcore.crds.api_group : crGroup, crVersion;
 import agentcore.crds.schema : descriptionOf, jsonNameOf, isRequired;
-import agentcore.crds.enums : PermissionMode, McpTransport, OutputFormat, SelectEvent,
-	SelectRole, SinkType, ConcurrencyPolicy, Execution, BatchTimeoutAction;
-import agentcore.core.types : Phase;
-import agentcore.crds.object_meta : ObjectMeta;
-import agentcore.crds.env_var : EnvVar;
-import agentcore.crds.secret_ref : SecretRef;
-import agentcore.crds.mcp_server : McpHeader, McpServer;
-import agentcore.crds.repo_ref : RepoRef;
-import agentcore.crds.conversation_ref : ConversationRef;
-import agentcore.crds.agent_resources : AgentResources;
-import agentcore.crds.output_selector : OutputSelector;
-import agentcore.crds.output_sink : OutputSink;
-import agentcore.crds.output_watch : OutputWatch;
-import agentcore.crds.watch_upload : WatchUpload;
-import agentcore.crds.input_file : InputFile;
-import agentcore.crds.output_spec : OutputSpec;
-import agentcore.crds.agent_definition_spec : AgentDefinitionSpec, BatchSpec, RealtimeSpec;
-import agentcore.crds.agent_definition : AgentDefinition;
-import agentcore.crds.station_spec : StationSpec;
-import agentcore.crds.station : Station;
-import agentcore.crds.agent_spec : AgentSpec;
-import agentcore.crds.agent_status : AgentStatus;
-import agentcore.crds.agent : Agent;
-import agentcore.crds.model_catalog : ModelCatalog, ModelCatalogStatus, ModelInfo, VendorModels;
-
-/// The enums emitted as TypeScript string-union types, in declaration order.
-private alias AllEnums = AliasSeq!(PermissionMode, McpTransport, OutputFormat,
-	SelectEvent, SelectRole, SinkType, ConcurrencyPolicy, Execution, BatchTimeoutAction, Phase);
-
-/// The structs emitted as TypeScript interfaces (dependency-first for readability;
-/// TS does not require forward declaration).
-private alias AllStructs = AliasSeq!(ObjectMeta, EnvVar, SecretRef, McpHeader, McpServer, RepoRef,
-	ConversationRef, AgentResources, OutputSelector, OutputSink, WatchUpload, OutputWatch, OutputSpec,
-	BatchSpec, RealtimeSpec, AgentDefinitionSpec, AgentDefinition, StationSpec, Station, InputFile, AgentSpec, AgentStatus, Agent,
-	ModelInfo, VendorModels, ModelCatalogStatus, ModelCatalog);
+import agentcore.crds.registry : CrdEnums, CrdStructs;
 
 /// The TypeScript type expression for D type `FT`. Mirrors `crdgen.emitType`'s
 /// dispatch: a `Json` preserve-unknown object becomes `unknown`; an enum and a
@@ -119,14 +84,23 @@ string emitTypes()
 	s ~= "// Regenerate: dub run :tsgen -- emit <path>/types.generated.ts\n\n";
 	s ~= "export const GROUP = \"" ~ crGroup ~ "\";\n";
 	s ~= "export const VERSION = \"" ~ crVersion ~ "\";\n\n";
-	static foreach (E; AllEnums)
+	static foreach (E; CrdEnums)
 		s ~= emitEnum!E();
-	static foreach (T; AllStructs)
+	static foreach (T; CrdStructs)
 		s ~= "\n" ~ emitInterface!T();
 	return s;
 }
 
-version (unittest) import fluent.asserts;
+version (unittest)
+{
+	import fluent.asserts;
+	import agentcore.core.types : Phase;
+	import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
+	import agentcore.crds.agent_resources : AgentResources;
+	import agentcore.crds.enums : ConcurrencyPolicy, PermissionMode;
+	import agentcore.crds.env_var : EnvVar;
+	import agentcore.crds.secret_ref : SecretRef;
+}
 
 /// tsType maps each D type kind to its TS expression.
 @safe unittest

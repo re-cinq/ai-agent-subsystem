@@ -1,12 +1,13 @@
-/// CLI for the TypeScript contract generator: `ai-agent-tsgen emit <outfile>`
-/// writes the generated types to `<outfile>` (creating parent dirs). Backs the
-/// `@re-cinq/agent-contracts` build and the contracts drift check.
+/// CLI for the contract generators: `ai-agent-tsgen emit <outfile>` writes the
+/// TypeScript types and `ai-agent-tsgen emit-go <outfile>` the Go types to `<outfile>`
+/// (creating parent dirs). Backs both contract packages and their drift checks.
 module app;
 
 import std.file : write, mkdirRecurse;
 import std.path : dirName;
 import std.stdio : writeln, stderr;
 
+import gogen : emitGoTypes;
 import tsgen : emitTypes;
 
 version (unittest)
@@ -22,9 +23,10 @@ else
 {
 	int main(string[] args)
 	{
-		if (args.length < 3 || args[1] != "emit")
+		const emitters = ["emit": &emitTypes, "emit-go": &emitGoTypes];
+		if (args.length < 3 || args[1] !in emitters)
 		{
-			stderr.writeln("usage: ai-agent-tsgen emit <outfile>");
+			stderr.writeln("usage: ai-agent-tsgen emit|emit-go <outfile>");
 			return 2;
 		}
 
@@ -32,7 +34,7 @@ else
 		const dir = dirName(outfile);
 		if (dir.length)
 			mkdirRecurse(dir);
-		write(outfile, emitTypes());
+		write(outfile, emitters[args[1]]());
 		writeln("wrote ", outfile);
 		return 0;
 	}
