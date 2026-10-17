@@ -1,15 +1,63 @@
 # AI agent subsystem
 
-Run autonomous coding agents as first-class **Kubernetes** resources. Describe the work, pick a
-runtime, launch a run — a reconciling controller does the rest. Kubernetes stays the single source
-of truth: a run *is* a resource, and its result lives on the resource's `status`.
+**The cheapest, most boring way to run coding agents on Kubernetes.**
 
-This is a clean-sheet, standalone rebuild of an internal subsystem, written in **D** as a statically
-linked [dub](https://dub.pm) monorepo with **no runtime dependencies**.
+A run *is* a Kubernetes resource. Create an `Agent`, and a reconciling controller runs Claude Code,
+Codex or Gemini CLI against your repo and writes the result to the Agent's `status`. Nothing else
+to operate: no database, no backend service, no UI to host.
 
-📖 **Documentation:** https://re-cinq.github.io/ai-agent-subsystem/
+Documentation: https://re-cinq.github.io/ai-agent-subsystem/
 
-## Install
+## Why this one
+
+- **Half-price runs, no pod.** A recipe with `execution: batch` skips the Job entirely: the
+  controller sends the prompt to the vendor's batch API (Anthropic, OpenAI or Gemini) at about half
+  the price and records the answer on the Agent, the same as a pod run would.
+  [Batch runs](https://re-cinq.github.io/ai-agent-subsystem/tasks/batch-runs/)
+- **An install your security team will sign off.** One `kubectl apply` of a release
+  `install.yaml` with images pinned by digest, cosign-signed, with SPDX SBOMs and SLSA provenance.
+  The controller runs non-root on a read-only root filesystem with every capability dropped, behind
+  a NetworkPolicy. No cert-manager, no admission webhooks; the three binaries are statically
+  linked.
+- **Kubernetes is the whole API.** Callers create `Agent` resources and read their `status`;
+  `ModelCatalog` lists the models your keys can reach. RBAC, quotas, GitOps and audit logs are the
+  ones you already run. The one exception is opt-in: realtime sessions take follow-up prompts over
+  an HTTP endpoint on the controller.
+
+## Quickstart
+
+You need a Kubernetes cluster (v1.27+), `kubectl`, an Anthropic API key, and a checkout of this
+repository for the example files:
+
+```sh
+kubectl apply -f https://github.com/re-cinq/ai-agent-subsystem/releases/latest/download/install.yaml
+kubectl -n ai-agents create secret generic agent-secrets --from-literal=ANTHROPIC_API_KEY=sk-ant-...
+kubectl apply -n ai-agents -f examples/story-writer.yaml
+examples/run-agent.sh story-writer title="The Last Lighthouse"
+```
+
+The script prints the Agent's name; `kubectl -n ai-agents get agent <name> -o yaml` shows its
+`status.output` once the phase reads `Succeeded`. The [`examples/`](examples/) directory has a
+code-editing recipe too.
+
+## Use it from your language
+
+You never touch D. The CRDs are the API, and typed clients are generated from the same source that
+generates the CRDs, so they cannot drift:
+
+- **YAML / kubectl / GitOps**: apply `AgentDefinition`, `Station` and `Agent` manifests like any other
+  resource ([CRD reference](https://re-cinq.github.io/ai-agent-subsystem/reference/crd-agent/)).
+- **TypeScript**: [`@re-cinq/agent-contracts`](packages/agent-contracts/) has the types plus a
+  small client (`createAgent`, `waitForAgent`, `getModelCatalog`, ...).
+
+  ```sh
+  npm install @re-cinq/agent-contracts
+  ```
+
+D matters only if you change the API itself; [CONTRIBUTING.md](CONTRIBUTING.md) covers the
+toolchain, and [ADR-001](adrs/ADR-001-language-choice.md) explains the choice.
+
+## Install in detail
 
 You need a Kubernetes cluster (v1.27+), `kubectl`, and permission to create cluster-scoped
 resources. One apply stands the whole subsystem up in its own `ai-agents` namespace — CRDs, RBAC,
