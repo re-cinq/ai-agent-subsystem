@@ -21,11 +21,14 @@ class NotFound : Exception
 /// The terminal result of a run pod: the agent container's real exit code and the
 /// stdout it captured (the wrapped event stream the supervisor echoed). Used to
 /// enrich an Agent's `status.exitCode` / `status.output` beyond what the Job's
-/// conditions alone carry.
+/// conditions alone carry. `courierLog` is the courier container's stdout, read only
+/// from a pod that has one: the pull request URL is taken from the container that
+/// opened it, never from the agent's own stream, which the agent could forge.
 struct PodResult
 {
 	int exitCode;
 	string log;
+	string courierLog;
 }
 
 /// The Kubernetes operations the reconcile driver needs, behind an interface so
@@ -64,7 +67,8 @@ interface KubeClient
 	string podNameForJob(string ns, string jobName);
 
 	/// The run pod's terminal result — the `agent` container's exit code and its
-	/// captured stdout — used to enrich the Agent status on a terminal transition.
+	/// captured stdout, plus the courier's stdout when the pod has one — used to enrich
+	/// the Agent status on a terminal transition.
 	PodResult podResult(string ns, string podName);
 
 	/// The decoded value of `key` in Secret `name`; throws `NotFound` when either is absent.

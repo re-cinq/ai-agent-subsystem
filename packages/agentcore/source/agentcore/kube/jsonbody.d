@@ -51,6 +51,8 @@ Json statusPatch(Decision decision, string jobName, string timestamp, string res
 			status["failureReason"] = decision.failureReason;
 		if (decision.sessionId.length)
 			status["sessionId"] = decision.sessionId;
+		if (decision.prUrl.length)
+			status["prUrl"] = decision.prUrl;
 		status["completedAt"] = timestamp;
 		break;
 	case ActionKind.none:
@@ -330,6 +332,17 @@ unittest // a completed run carries its session id, and one without a session om
 	auto without = statusPatch(Decision(ActionKind.complete, Phase.succeeded, 0, "", "out"),
 		"agent-job-x", "2026-06-22T13:00:00Z");
 	(("sessionId" in without["status"]) is null).should.equal(true);
+}
+
+unittest // a completed run carries the pull request it opened, and one that opened none omits the field
+{
+	auto opened = statusPatch(Decision(ActionKind.complete, Phase.succeeded, 0, "", "out", "",
+		"https://github.com/o/app/pull/7"), "agent-job-x", "2026-06-22T13:00:00Z");
+	auto none = statusPatch(Decision(ActionKind.complete, Phase.succeeded, 0, "", "out"),
+		"agent-job-x", "2026-06-22T13:00:00Z");
+
+	[opened["status"]["prUrl"].get!string, ("prUrl" in none["status"]) is null ? "absent" : "present"]
+		.should.equal(["https://github.com/o/app/pull/7", "absent"]);
 }
 
 unittest

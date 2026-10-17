@@ -12,7 +12,7 @@ struct AgentStatus
 	@optional int exitCode;
 	@optional string output;
 	@optional string failureReason;
-	@optional string prUrl;
+	@optional @Description("URL of the pull request the run opened (spec.delivery.pullRequest).") string prUrl;
 	@optional @Description("Harness session id of this run; pass it as spec.resumeSession to continue the conversation.") string sessionId;
 	@optional @Description("Provider batch id while a batch-executed run is in flight.") string batchId;
 	@optional @Description("Provider the batch was submitted to.") string batchProvider;

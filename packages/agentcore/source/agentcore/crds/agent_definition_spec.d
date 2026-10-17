@@ -5,6 +5,7 @@ import vibe.data.json : Json;
 import agentcore.crds.schema;
 import agentcore.crds.enums : BatchTimeoutAction, Execution, PermissionMode;
 import agentcore.crds.agent_resources : AgentResources;
+import agentcore.crds.delivery_spec : DeliverySpec;
 import agentcore.crds.output_spec : OutputSpec;
 import agentcore.core.vendor : Vendor, vendorOf;
 
@@ -49,6 +50,7 @@ struct AgentDefinitionSpec
 
 	@optional AgentResources resources;
 	@optional OutputSpec output;
+	@optional DeliverySpec delivery;
 
 	@optional @wire("tool_config") @PreserveUnknownFields @Description("Raw passthrough for tool-specific knobs.")
 	Json toolConfig;

@@ -108,16 +108,30 @@ private bool safeDest(string dest, string workspaceDir) @safe pure
 /// value (e.g. `--upload-pack=...`) is parsed as data, never as a git flag.
 private string[] cloneStep(in RepoRef r, string dest, string brokerUrl) @safe pure
 {
-	const url = repoUrl(r.url);
+	return ["git"] ~ authFlags(r, brokerUrl) ~ ["clone", "--", repoUrl(r.url), dest];
+}
+
+/// The `-c` flags that make one git invocation authenticate as `r`: through the broker
+/// when the run has one, else through the helper reading `r.tokenSecret` by name, or
+/// none for a repo without credentials. Inherited helpers are reset first.
+private string[] authFlags(in RepoRef r, string brokerUrl) @safe pure
+{
 	const slug = brokerSlug(r, brokerUrl);
 	if (slug.length)
-		return ["git", "-c", "credential.helper=", "-c", "credential.helper=" ~ brokerHelper(slug),
-			"clone", "--", url, dest];
+		return ["-c", "credential.helper=", "-c", "credential.helper=" ~ brokerHelper(slug)];
 	if (!isEnvName(r.tokenSecret))
-		return ["git", "clone", "--", url, dest];
+		return [];
+	return ["-c", "credential.helper=", "-c", "credential.helper=" ~ credentialHelper(r.tokenSecret)];
+}
 
-	return ["git", "-c", "credential.helper=", "-c", "credential.helper=" ~ credentialHelper(r.tokenSecret),
-		"clone", "--", url, dest];
+/// The courier's push of `branch` from the bare repo at `gitDir` to `r`'s origin,
+/// authenticated exactly as the clone was. The refspec names `refs/heads/` on both
+/// sides, so it can neither be read as an option nor reach another ref.
+string[] pushStep(in RepoRef r, string brokerUrl, string gitDir, string branch) @safe pure
+{
+	const ref_ = "refs/heads/" ~ branch;
+	return ["git", "-C", gitDir] ~ authFlags(r, brokerUrl)
+		~ ["push", "-q", "--", repoUrl(r.url), ref_ ~ ":" ~ ref_];
 }
 
 /// The credential helper that answers with the token read from `tokenSecret` — an
@@ -141,7 +155,7 @@ private string credentialHelper(string tokenSecret, string fallbackFile = "") @s
 
 /// The `owner/name` the broker grants by: a bare `owner/name` as-is, or the path of a
 /// `https://github.com/owner/name(.git)` url.
-private string repoSlug(string urlOrOwnerName) @safe pure
+string repoSlug(string urlOrOwnerName) @safe pure
 {
 	enum github = "https://github.com/";
 	enum dotGit = ".git";
@@ -156,7 +170,7 @@ private string repoSlug(string urlOrOwnerName) @safe pure
 /// The `owner/name` to ask the broker for, or "" when the run has no broker or the repo
 /// is not a plain GitHub owner/name — then nothing is spliced into a helper script and
 /// the repo authenticates the way it did before brokers existed.
-private string brokerSlug(in RepoRef r, string brokerUrl) @safe pure
+string brokerSlug(in RepoRef r, string brokerUrl) @safe pure
 {
 	const slug = repoSlug(r.url);
 	return brokerUrl.length && isRepoSlug(slug) ? slug : "";
@@ -164,7 +178,7 @@ private string brokerSlug(in RepoRef r, string brokerUrl) @safe pure
 
 /// True when `s` is `owner/name` in GitHub's name characters — the only shape spliced
 /// into the broker helper's script, so no quote, space or `$` can ever reach it.
-private bool isRepoSlug(string s) @safe pure
+bool isRepoSlug(string s) @safe pure
 {
 	const slash = s.indexOf('/');
 	if (slash <= 0 || slash == s.length - 1 || s[slash + 1 .. $].indexOf('/') >= 0)
@@ -387,7 +401,8 @@ final class GitTool : Tool, Retryable
 				continue;
 			all ~= ["rm", "-rf", dest];
 			all ~= cloneStep(r, dest, ctx.gitCredentialUrl);
-			all ~= persistedAuthSteps(r, dest, ctx.gitCredentialUrl);
+			if (!ctx.courierDelivers)
+				all ~= persistedAuthSteps(r, dest, ctx.gitCredentialUrl);
 			if (r.ref_.length)
 				all ~= checkoutStep(dest, r.ref_);
 		}
@@ -765,4 +780,42 @@ unittest
 	isEnvName("9TOKEN").should.equal(false);
 	isEnvName("GH TOKEN").should.equal(false);
 	isEnvName("GH;rm").should.equal(false);
+}
+
+unittest // a courier-delivered run clones with the token and keeps no push auth in the clone
+{
+	auto git = new GitTool;
+	InitContext ctx;
+	ctx.workspaceDir = "/ws";
+	ctx.courierDelivers = true;
+	auto authed = RepoRef("app", "o/app", "topic");
+	authed.tokenSecret = "GH_TOKEN_b81f9fd2";
+	ctx.repos = [authed];
+
+	const steps = git.steps(ctx);
+
+	steps.length.should.equal(3);
+	steps[1].canFind!(a => a.canFind("password=$GH_TOKEN_b81f9fd2")).should.equal(true);
+	steps[2].should.equal(["git", "-C", "/ws/app", "checkout", "topic"]);
+}
+
+unittest // the courier pushes refs/heads/<branch> to the origin through the token helper
+{
+	auto authed = RepoRef("app", "o/app");
+	authed.tokenSecret = "GH_TOKEN";
+
+	pushStep(authed, "", "/courier/push.git", "agent/run-1").should.equal([
+		"git", "-C", "/courier/push.git", "-c", "credential.helper=", "-c",
+		"credential.helper=!f() { echo username=x-access-token; echo password=$GH_TOKEN; }; f",
+		"push", "-q", "--", "https://github.com/o/app.git",
+		"refs/heads/agent/run-1:refs/heads/agent/run-1",
+	]);
+}
+
+unittest // with a broker the courier's push asks the broker for the token
+{
+	const push = pushStep(RepoRef("app", "o/app"), "https://broker.example.com", "/courier/push.git", "b");
+
+	push[6].canFind(`"$AGENT_GIT_CREDENTIAL_URL"`).should.equal(true);
+	push[7 .. $].should.equal(["push", "-q", "--", "https://github.com/o/app.git", "refs/heads/b:refs/heads/b"]);
 }

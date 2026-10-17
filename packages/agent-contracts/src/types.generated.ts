@@ -126,6 +126,23 @@ export interface OutputSpec {
   watch?: OutputWatch[];
 }
 
+/** Open a pull request from the run's work branch; the push happens outside the agent container. */
+export interface PullRequestDelivery {
+  /** Branch the pull request merges into. */
+  base: string;
+  /** Pull request title; {placeholder} tokens are filled from the Agent's parameters. */
+  titleTemplate: string;
+  /** Open the pull request as a draft. */
+  draft?: boolean;
+  /** GitHub REST API base URL; defaults to https://api.github.com. */
+  apiUrl?: string;
+}
+
+/** What happens to the run's work once the agent exits. */
+export interface DeliverySpec {
+  pullRequest?: PullRequestDelivery;
+}
+
 export interface BatchSpec {
   /** Minutes to wait for the batch result before onTimeout applies. */
   timeoutMinutes?: number;
@@ -157,6 +174,7 @@ export interface AgentDefinitionSpec {
   realtime?: RealtimeSpec;
   resources?: AgentResources;
   output?: OutputSpec;
+  delivery?: DeliverySpec;
   /** Raw passthrough for tool-specific knobs. */
   tool_config?: unknown;
 }
@@ -229,6 +247,7 @@ export interface AgentStatus {
   exitCode?: number;
   output?: string;
   failureReason?: string;
+  /** URL of the pull request the run opened (spec.delivery.pullRequest). */
   prUrl?: string;
   /** Harness session id of this run; pass it as spec.resumeSession to continue the conversation. */
   sessionId?: string;
