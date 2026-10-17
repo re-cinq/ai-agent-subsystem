@@ -1,9 +1,9 @@
 ---
 title: AI agent subsystem
-description: "Run autonomous coding agents as Kubernetes resources: declarative recipes, reusable runtimes, and a reconciling controller."
+description: "The cheapest, most boring way to run coding agents on Kubernetes: a run is a resource, batch runs at half price, and the install is signed and digest-pinned."
 template: splash
 hero:
-  tagline: Run autonomous coding agents as first-class Kubernetes resources. Describe the work, pick a runtime, launch a run. The controller does the rest.
+  tagline: The cheapest, most boring way to run coding agents on Kubernetes. Create an Agent; the controller runs Claude Code, Codex or Gemini CLI and writes the result to its status.
   actions:
     - text: Read the concepts
       link: /ai-agent-subsystem/concepts/overview/
@@ -28,8 +28,26 @@ run you want (parameters). A controller reconciles each run into a Kubernetes `J
 streams its output, and records the result on the resource's `status`. Kubernetes stays the single
 source of truth.
 
-It is a clean-sheet, standalone rebuild of an internal subsystem, written in **D** as a statically
-linked monorepo with no runtime dependencies.
+## Why this one
+
+<CardGrid>
+	<Card title="Half-price runs, no pod" icon="star">
+		`execution: batch` sends the prompt to the vendor's batch API (Anthropic, OpenAI or Gemini) at
+		about half the price and records the answer on the Agent. See [batch runs](/ai-agent-subsystem/tasks/batch-runs/).
+	</Card>
+	<Card title="A signed, pinned install" icon="approve-check">
+		One `install.yaml` per release: images pinned by digest, cosign-signed, with SBOMs and SLSA
+		provenance. Non-root, read-only root filesystem, NetworkPolicy. No cert-manager.
+	</Card>
+	<Card title="Kubernetes is the API" icon="puzzle">
+		No database, no backend service, no UI to host. Your RBAC, quotas, GitOps and audit logs
+		already cover it.
+	</Card>
+	<Card title="You never touch D" icon="seti:typescript">
+		The CRDs are the API. Typed TypeScript contracts are generated from the same source, so they
+		cannot drift. D matters only to contributors changing the API.
+	</Card>
+</CardGrid>
 
 ## The three resources
 
