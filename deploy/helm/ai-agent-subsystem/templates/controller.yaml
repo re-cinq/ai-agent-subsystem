@@ -1,0 +1,102 @@
+{{- /* Mirrors deploy/controller.yaml plus the env and ports deploy/components/* patch in. */ -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-controller
+  namespace: ai-agents
+  labels:
+    agents.re-cinq.com/component: controller
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      agents.re-cinq.com/component: controller
+  template:
+    metadata:
+      labels:
+        agents.re-cinq.com/component: controller
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8081"
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: agent-controller
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: controller
+          image: {{ .Values.controller.image.repository }}@{{ .Values.controller.image.digest }}
+          imagePullPolicy: IfNotPresent
+          env:
+            {{- /* Kustomize prepends each component's env, so the last component listed comes first. */}}
+            {{- if .Values.realtime.enabled }}
+            - name: REALTIME_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: agent-realtime
+                  key: api-token
+            - name: REALTIME_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: agent-realtime
+                  key: signing-key
+            - name: REALTIME_API_PORT
+              value: "8082"
+            {{- end }}
+            {{- if .Values.modelCatalog.enabled }}
+            - name: MODEL_CATALOG_ENABLED
+              value: "true"
+            {{- end }}
+            {{- if .Values.batch.enabled }}
+            - name: BATCH_ENABLED
+              value: "true"
+            {{- end }}
+            - name: NAMESPACE
+              value: ai-agents
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: HEALTH_PORT
+              value: "8081"
+            - name: AGENT_IMAGE
+              value: {{ .Values.agentImage | quote }}
+            - name: MAX_OUTPUT_BYTES
+              value: "262144"
+          ports:
+            {{- if .Values.realtime.enabled }}
+            - name: realtime-api
+              containerPort: 8082
+            {{- end }}
+            - name: health
+              containerPort: 8081
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL

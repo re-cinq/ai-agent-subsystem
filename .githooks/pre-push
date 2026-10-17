@@ -8,3 +8,4 @@ cd "$(git rev-parse --show-toplevel)"
 
 ./scripts/check-crd-drift.sh
 ./scripts/check-contracts-drift.sh
+./scripts/check-helm-drift.sh
