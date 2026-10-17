@@ -28,9 +28,9 @@ check() { # check <name> <condition-rc>
 
 # An origin with one commit on main, the base the pull request targets.
 origin="$work/origin.git"
-git init -q --bare "$origin"
+git init -q --bare --initial-branch=main "$origin"
 seed="$work/seed"
-git init -q "$seed"
+git init -q --initial-branch=main "$seed"
 echo "hello" >"$seed/README.md"
 git -C "$seed" add README.md
 git -C "$seed" -c user.email=itest@example.com -c user.name=itest -c commit.gpgsign=false commit -qm init
