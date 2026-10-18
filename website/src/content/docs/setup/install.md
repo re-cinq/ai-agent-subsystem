@@ -90,7 +90,7 @@ Each release also publishes a Helm chart to `oci://ghcr.io/re-cinq/charts`. It i
 objects as `install.yaml` for the same release. Helm 3.8 or later is needed for OCI charts.
 
 ```sh
-helm install ai-agent-subsystem oci://ghcr.io/re-cinq/charts/ai-agent-subsystem --version 0.12.0 \
+helm install ai-agent-subsystem oci://ghcr.io/re-cinq/charts/ai-agent-subsystem --version 0.13.0 \
   --namespace default
 ```
 
@@ -117,14 +117,14 @@ that release's CRDs yourself (this uses [yq](https://github.com/mikefarah/yq) to
 `install.yaml`):
 
 ```sh
-curl -sL https://github.com/re-cinq/ai-agent-subsystem/releases/download/v0.12.0/install.yaml \
+curl -sL https://github.com/re-cinq/ai-agent-subsystem/releases/download/v0.13.0/install.yaml \
   | yq 'select(.kind == "CustomResourceDefinition")' | kubectl apply -f -
 ```
 
 The chart is signed with cosign the same way as the images:
 
 ```sh
-cosign verify ghcr.io/re-cinq/charts/ai-agent-subsystem:0.12.0 \
+cosign verify ghcr.io/re-cinq/charts/ai-agent-subsystem:0.13.0 \
   --certificate-identity-regexp '^https://github.com/re-cinq/ai-agent-subsystem/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
