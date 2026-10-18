@@ -6,6 +6,17 @@ the npm package versions.
 
 ## Unreleased
 
+### Added
+- **Go contracts: `github.com/re-cinq/ai-agent-subsystem/packages/agent-contracts-go`.** Typed Go
+  structs for every CRD, generated from the same D model as the CRDs and the TS package (new
+  `ai-agent-tsgen emit-go`), with DeepCopy methods, `*List` types and `AddToScheme` for client-go
+  and controller-runtime. A small `Client` mirrors the TS one: `CreateAgent`, `GetAgent`,
+  `FindAgents`, `WaitForAgent`, `GetModelCatalog`, `ApplyAgentDefinition` and `ApplyStation`.
+  Fields the schema defaults are pointers, so an unset field keeps the server's default. `make drift`
+  now checks the Go file too, and each `v*` release tags the module as
+  `packages/agent-contracts-go/vX.Y.Z`. The CRD type list lives in one place
+  (`agentcore.crds.registry`), read by crdgen and both emitters.
+
 ### Changed
 - **The CRDs are now `agents.re-cinq.com/v1beta1`.** Objects are stored at `v1beta1`, and the
   controller, the generated contracts and every example and doc use it. Nothing needs converting:
@@ -39,15 +50,6 @@ the npm package versions.
   `template.spec.runtimeClassName` already reached every run pod; a unit test now pins that, the new
   *Isolate runs* guide covers setting it up (and what the controller enforces regardless), and
   `examples/station-gvisor.yaml` is a ready Station.
-- **Go contracts: `github.com/re-cinq/ai-agent-subsystem/packages/agent-contracts-go`.** Typed Go
-  structs for every CRD, generated from the same D model as the CRDs and the TS package (new
-  `ai-agent-tsgen emit-go`), with DeepCopy methods, `*List` types and `AddToScheme` for client-go
-  and controller-runtime. A small `Client` mirrors the TS one: `CreateAgent`, `GetAgent`,
-  `FindAgents`, `WaitForAgent`, `GetModelCatalog`, `ApplyAgentDefinition` and `ApplyStation`.
-  Fields the schema defaults are pointers, so an unset field keeps the server's default. `make drift`
-  now checks the Go file too, and each `v*` release tags the module as
-  `packages/agent-contracts-go/vX.Y.Z`. The CRD type list lives in one place
-  (`agentcore.crds.registry`), read by crdgen and both emitters.
 - **Realtime sessions: an agent CLI that stays up and takes prompts over HTTP.** An AgentDefinition
   with `execution: realtime` starts its run as usual, with the rendered prompt as the first turn, then
   keeps the session open. Callers send more prompts with
