@@ -67,8 +67,9 @@ check defaults ""
 check batch "--set batch.enabled=true" batch
 check model-catalog "--set modelCatalog.enabled=true" model-catalog
 check realtime "--set realtime.enabled=true" realtime
-check all "--set batch.enabled=true --set modelCatalog.enabled=true --set realtime.enabled=true" \
-	batch model-catalog realtime
+check webhooks "--set webhooks.enabled=true" webhooks
+check all "--set batch.enabled=true --set modelCatalog.enabled=true --set realtime.enabled=true --set webhooks.enabled=true" \
+	batch model-catalog realtime webhooks
 
 if [ "$failed" -ne 0 ]; then
 	echo >&2

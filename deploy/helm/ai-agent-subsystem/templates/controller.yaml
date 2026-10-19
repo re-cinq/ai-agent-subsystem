@@ -34,6 +34,12 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             {{- /* Kustomize prepends each component's env, so the last component listed comes first. */}}
+            {{- if .Values.webhooks.enabled }}
+            - name: WEBHOOKS_ENABLED
+              value: "true"
+            - name: WEBHOOK_PORT
+              value: "8083"
+            {{- end }}
             {{- if .Values.realtime.enabled }}
             - name: REALTIME_API_TOKEN
               valueFrom:
@@ -69,6 +75,10 @@ spec:
             - name: MAX_OUTPUT_BYTES
               value: "262144"
           ports:
+            {{- if .Values.webhooks.enabled }}
+            - name: webhooks
+              containerPort: 8083
+            {{- end }}
             {{- if .Values.realtime.enabled }}
             - name: realtime-api
               containerPort: 8082
