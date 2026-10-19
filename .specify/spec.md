@@ -13,7 +13,7 @@ It has no runtime dependencies beyond a Kubernetes cluster.
 ## Key Capabilities
 
 - **Declarative agent execution**: Define agents, runtimes, and runs as YAML — no custom tooling
-  needed beyond `kubectl`.
+  needed beyond `kubectl`. ([validated by TestEveryExampleManifestDecodesStrictly](packages/agent-contracts-go/types_test.go#L17))
 - **Controller-reconciled lifecycle**: A leader-elected controller watches `Agent` resources, creates
   Kubernetes Jobs for each run, supervises them, patches status on completion, and prunes old runs.
 - **Injected agent toolchain**: The agent CLI (Claude Code or compatible) is injected at runtime via
@@ -21,7 +21,7 @@ It has no runtime dependencies beyond a Kubernetes cluster.
 - **Secure by default**: Non-root (UID 1000), read-only root filesystem, all capabilities dropped,
   NetworkPolicy-restricted, cosign-signed images with SLSA provenance and SPDX SBOMs.
 - **Published TypeScript contracts**: The `@re-cinq/agent-contracts` npm package exposes typed
-  Kubernetes client wrappers generated directly from the D source — types cannot drift.
+  Kubernetes client wrappers generated directly from the D source — types cannot drift. ([validated by addresses agents.re-cinq.com/v1beta1](packages/agent-contracts/src/client.test.ts#L28))
 - **One-command install**: A single `kubectl apply -f install.yaml` brings up the full subsystem
   (CRDs, RBAC, NetworkPolicy, controller) with digest-pinned images.
 
@@ -36,18 +36,18 @@ AgentDefinition  →  Station  →  Agent  →  Job → Pod
 ### AgentDefinition
 
 The recipe. Declares: prompt template, model provider and parameters, allowed tools, tool
-permissions (file paths, network, shell commands), and output sinks. Multiple Stations may reference
+permissions (file paths, network, shell commands), and output sinks. ([validated by TestEveryExampleManifestDecodesStrictly](packages/agent-contracts-go/types_test.go#L17)) Multiple Stations may reference
 one AgentDefinition.
 
 ### Station
 
 The runtime. Holds: a reference to an AgentDefinition, a Pod template (image, env, resource limits),
-and run-history retention limits. Stations are reusable; multiple Agent runs share a Station.
+and run-history retention limits. ([validated by TestEveryExampleManifestDecodesStrictly](packages/agent-contracts-go/types_test.go#L17)) Stations are reusable; multiple Agent runs share a Station.
 
 ### Agent
 
 One run. Holds: a reference to a Station, per-run parameter overrides (prompt variables), and a
-lifecycle `status` (phase, start/end time, output tail). The controller creates a Job per Agent and
+lifecycle `status` (phase, start/end time, output tail). ([validated by TestDeepCopyLeavesTheOriginalUntouched](packages/agent-contracts-go/types_test.go#L63)) The controller creates a Job per Agent and
 patches status as the Job progresses. The output tail is bounded by `MAX_OUTPUT_BYTES` (default
 256 KiB) to stay under etcd's per-object limit.
 
