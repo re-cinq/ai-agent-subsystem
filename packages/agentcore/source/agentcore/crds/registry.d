@@ -6,7 +6,7 @@ module agentcore.crds.registry;
 import std.meta : AliasSeq;
 
 import agentcore.crds.enums : PermissionMode, McpTransport, OutputFormat, SelectEvent,
-	SelectRole, SinkType, ConcurrencyPolicy, Execution, BatchTimeoutAction;
+	SelectRole, SinkType, ConcurrencyPolicy, SpawnerConcurrencyPolicy, Execution, BatchTimeoutAction;
 import agentcore.core.types : Phase;
 import agentcore.crds.object_meta : ObjectMeta;
 import agentcore.crds.env_var : EnvVar;
@@ -29,16 +29,19 @@ import agentcore.crds.agent_spec : AgentSpec;
 import agentcore.crds.agent_status : AgentStatus;
 import agentcore.crds.agent : Agent;
 import agentcore.crds.model_catalog : ModelCatalog, ModelCatalogStatus, ModelInfo, VendorModels;
+import agentcore.crds.agent_spawner : AgentSpawner, AgentSpawnerSpec, AgentSpawnerStatus;
 
 /// The top-level resources, one CustomResourceDefinition each.
-alias CrdKinds = AliasSeq!(AgentDefinition, Station, Agent, ModelCatalog);
+alias CrdKinds = AliasSeq!(AgentDefinition, Station, Agent, ModelCatalog, AgentSpawner);
 
 /// The enums, in declaration order.
 alias CrdEnums = AliasSeq!(PermissionMode, McpTransport, OutputFormat,
-	SelectEvent, SelectRole, SinkType, ConcurrencyPolicy, Execution, BatchTimeoutAction, Phase);
+	SelectEvent, SelectRole, SinkType, ConcurrencyPolicy, SpawnerConcurrencyPolicy, Execution, BatchTimeoutAction,
+	Phase);
 
 /// Every struct, dependency-first so the generated files read top-down.
 alias CrdStructs = AliasSeq!(ObjectMeta, EnvVar, SecretRef, McpHeader, McpServer, RepoRef,
 	ConversationRef, AgentResources, OutputSelector, OutputSink, WatchUpload, OutputWatch, OutputSpec,
 	BatchSpec, RealtimeSpec, AgentDefinitionSpec, AgentDefinition, StationSpec, Station, InputFile, AgentSpec,
-	AgentStatus, Agent, ModelInfo, VendorModels, ModelCatalogStatus, ModelCatalog);
+	AgentStatus, Agent, ModelInfo, VendorModels, ModelCatalogStatus, ModelCatalog, AgentSpawnerSpec,
+	AgentSpawnerStatus, AgentSpawner);

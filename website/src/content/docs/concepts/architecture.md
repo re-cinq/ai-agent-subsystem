@@ -38,7 +38,9 @@ flowchart TB
 
 The pure core, with no process of its own:
 
-- CRD type definitions (`AgentDefinition`, `Station`, `Agent`, `ModelCatalog`).
+- CRD type definitions (`AgentDefinition`, `Station`, `Agent`, `ModelCatalog`, `AgentSpawner`).
+- AgentSpawner scheduling (`agentcore/spawner`): five-field cron parsing and next/previous fire
+  times, when a spawner is due, and the Agent it creates.
 - A Kubernetes REST + watch client.
 - The pure reconcile state machine (I/O injected, so it is unit-testable).
 - Prompt templating.
@@ -73,6 +75,10 @@ With the opt-in `components/model-catalog` component the leader replica also kee
 [ModelCatalog](../reference/crd-modelcatalog.md) current (`catalogloop.d`): right after it wins the
 Lease, then every `MODEL_CATALOG_REFRESH_SECONDS` (default 3600), it lists the models each vendor's
 API reports for the keys the AgentDefinitions map and writes them to the catalog's `status`.
+
+The leader also runs [AgentSpawners](../reference/crd-agentspawner.md) (`spawnerloop.d`): every 15
+seconds it lists them, creates an Agent for each one whose schedule came due, and records the slot in
+the spawner's `status`, so a new leader carries on from there.
 
 With the opt-in `components/realtime` component every replica, leader or not, also serves the
 [prompt API](../reference/prompt-api.md) on port 8082 (`promptapi.d`). It forwards each prompt or close

@@ -103,6 +103,10 @@ struct Format
 	string value;
 }
 
+/// Marks a resource type added at the current API version: its CRD serves no deprecated
+/// version, since no manifest was ever written against one.
+enum CurrentVersionOnly;
+
 /// The `@Plural` value of a resource type.
 template pluralOf(alias T)
 {

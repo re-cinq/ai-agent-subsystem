@@ -1,7 +1,7 @@
 # agent-contracts-go
 
 Go types and a small client for the [ai-agent-subsystem](https://github.com/re-cinq/ai-agent-subsystem)
-Custom Resources: **Agent**, **Station**, **AgentDefinition** and **ModelCatalog** (API group
+Custom Resources: **Agent**, **Station**, **AgentDefinition**, **ModelCatalog** and **AgentSpawner** (API group
 `agents.re-cinq.com/v1beta1`).
 
 The types are generated from the D structs that define the CRDs, the same source the CRD YAML and

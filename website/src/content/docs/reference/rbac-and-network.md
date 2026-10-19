@@ -9,7 +9,9 @@ The subsystem ships least-privilege RBAC and a restrictive network policy for ru
 
 The controller's ServiceAccount is granted exactly what reconciliation needs:
 
-- **Agents**: watch, list, get, and patch (including `status`); delete (for history pruning).
+- **Agents**: watch, list, get, and patch (including `status`); delete (for history pruning);
+  create (for the runs an [AgentSpawner](./crd-agentspawner.md) starts).
+- **AgentSpawners**: get, list and watch, and patch on `status` (to record the last schedule time).
 - **Stations** and **AgentDefinitions**: get and list (read-only).
 - **ModelCatalogs**: get, create, and patch (including `status`), to server-side apply the
   [ModelCatalog](./crd-modelcatalog.md) when the model catalog component is enabled.
@@ -67,6 +69,8 @@ A separate, narrower role lets other in-cluster apps launch and inspect runs **w
 Jobs or pods:
 
 - **Agents**: create, get, list, watch.
+- **AgentSpawners**: create, get, list, watch, update, patch, delete, to [schedule runs](../tasks/schedule-runs.md).
+  The controller creates the scheduled Agents, so this grants nothing beyond creating Agents directly.
 - **ModelCatalogs**: get, list, watch, to discover which models the subsystem can run (see
   [ModelCatalog](./crd-modelcatalog.md)).
 
