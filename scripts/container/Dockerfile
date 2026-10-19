@@ -15,10 +15,10 @@ RUN set -eu; \
 	if command -v apt-get >/dev/null 2>&1; then \
 		export DEBIAN_FRONTEND=noninteractive; \
 		apt-get update; \
-		apt-get install -y --no-install-recommends ldc dub gcc libc6-dev zlib1g-dev git ca-certificates; \
+		apt-get install -y --no-install-recommends ldc dub gcc lld libc6-dev zlib1g-dev git ca-certificates; \
 		rm -rf /var/lib/apt/lists/*; \
 	elif command -v dnf >/dev/null 2>&1; then \
-		dnf install -y ldc dub gcc glibc-devel zlib-devel git; dnf clean all; \
+		dnf install -y ldc dub gcc lld glibc-devel zlib-devel git; dnf clean all; \
 	else \
 		echo "no supported builder package manager" >&2; exit 1; \
 	fi
@@ -26,8 +26,11 @@ WORKDIR /src
 COPY . .
 # Link druntime/phobos statically so the binary is self-contained and runs on a
 # minimal runtime image with no D shared libraries. `-L-lz` resolves std.zlib,
-# which the static phobos drags in.
-RUN DFLAGS="-link-defaultlib-shared=false -L-lz" dub build :initializer --compiler=ldc2
+# which the static phobos drags in. Linked with lld, as every LDC build is: an ld.bfd
+# older than 2.36 (a bullseye or Rocky 9 BUILDER_IMAGE) splits .tbss, so thread-locals
+# alias (see scripts/check-tbss.sh).
+RUN DFLAGS="-link-defaultlib-shared=false -L-lz --linker=lld" dub build :initializer --compiler=ldc2
+RUN scripts/check-tbss.sh packages/initializer/ai-agent-init
 
 # A throwaway origin repo to clone from, built where git exists.
 RUN git config --global user.email t@example.com; \
