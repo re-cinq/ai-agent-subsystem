@@ -19,6 +19,7 @@ struct JobOutcome
 	string reason;
 	string output;
 	string sessionId;
+	string prUrl;
 }
 
 /// Reconcile the Job-level state with a pod-reported exit code so `status` never
@@ -79,6 +80,7 @@ struct Decision
 	string failureReason;
 	string output;
 	string sessionId;
+	string prUrl;
 }
 
 /**
@@ -121,9 +123,9 @@ Decision decide(Phase current, bool refsResolved, bool hasOutcome, JobOutcome ou
 			return Decision(ActionKind.none, Phase.running);
 		if (outcome.state == JobState.succeeded)
 			return Decision(ActionKind.complete, Phase.succeeded, outcome.exitCode, outcome.reason,
-					outcome.output, outcome.sessionId);
+					outcome.output, outcome.sessionId, outcome.prUrl);
 		return Decision(ActionKind.complete, Phase.failed, outcome.exitCode, outcome.reason,
-				outcome.output, outcome.sessionId);
+				outcome.output, outcome.sessionId, outcome.prUrl);
 	case Phase.succeeded:
 	case Phase.failed:
 		return Decision(ActionKind.none, current);

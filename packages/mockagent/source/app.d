@@ -32,9 +32,10 @@ module app;
 //                 turn:   one Codex-style turn: `thread.started` carrying MOCK_SESSION,
 //                         `{"argv":[…]}` with its own arguments, then `turn.completed`
 //                 serve:  not an agent at all — a local HTTP fixture for the init's
-//                         file download. Listens on 127.0.0.1:MOCK_SERVE_PORT, answers
-//                         every request 200 with MOCK_SERVE_BODY, appends each request's
-//                         head to MOCK_SERVE_LOG, and runs until killed. Emits
+//                         file download and the courier's GitHub API. Listens on
+//                         127.0.0.1:MOCK_SERVE_PORT, answers every request
+//                         MOCK_SERVE_STATUS (default 200) with MOCK_SERVE_BODY, appends
+//                         each whole request to MOCK_SERVE_LOG, and runs until killed. Emits
 //                         `{"listening":1}` once it accepts connections
 
 import std.conv : to;
@@ -174,6 +175,7 @@ private void serve()
 
 	const port = environment.get("MOCK_SERVE_PORT", "18200").to!ushort;
 	const body_ = environment.get("MOCK_SERVE_BODY", "served");
+	const status = environment.get("MOCK_SERVE_STATUS", "200");
 	const log = environment.get("MOCK_SERVE_LOG", "");
 
 	auto listener = new TcpSocket();
@@ -186,18 +188,31 @@ private void serve()
 	{
 		auto conn = listener.accept();
 		char[4096] buf;
-		string head;
-		while (head.indexOf("\r\n\r\n") < 0)
+		string request;
+		while (request.indexOf("\r\n\r\n") < 0 || request.length < requestLength(request))
 		{
 			const n = conn.receive(buf[]);
 			if (n <= 0)
 				break;
-			head ~= buf[0 .. cast(size_t) n].idup;
+			request ~= buf[0 .. cast(size_t) n].idup;
 		}
 		if (log.length)
-			append(log, head);
-		conn.send("HTTP/1.1 200 OK\r\nContent-Length: " ~ body_.length.to!string
+			append(log, request ~ "\n");
+		conn.send("HTTP/1.1 " ~ status ~ " Mock\r\nContent-Length: " ~ body_.length.to!string
 				~ "\r\nConnection: close\r\n\r\n" ~ body_);
 		conn.close();
 	}
+}
+
+/// The full length of a request whose head is complete: the head plus its
+/// `Content-Length` body, so a POST is logged whole.
+private size_t requestLength(string request)
+{
+	import std.string : indexOf, splitLines, strip, toLower;
+
+	const headEnd = request.indexOf("\r\n\r\n") + 4;
+	foreach (line; request[0 .. headEnd].splitLines)
+		if (line.toLower.indexOf("content-length:") == 0)
+			return headEnd + line["content-length:".length .. $].strip.to!size_t;
+	return headEnd;
 }

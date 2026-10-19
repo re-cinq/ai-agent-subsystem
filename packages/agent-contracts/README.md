@@ -82,6 +82,9 @@ const finished = await waitForAgent(client, run.metadata!.name!);
 console.log(finished.status?.phase, finished.status?.prUrl);
 ```
 
+`status.prUrl` is set when the Station's AgentDefinition has `spec.delivery.pullRequest`
+(`DeliverySpec`, `PullRequestDelivery`): the run's commits are pushed and opened as a pull request.
+
 ### API surface
 
 | Member | Purpose |

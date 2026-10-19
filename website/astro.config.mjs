@@ -64,6 +64,7 @@ export default defineConfig({
 						{ label: 'Batch runs', slug: 'tasks/batch-runs' },
 						{ label: 'Realtime sessions', slug: 'tasks/realtime-sessions' },
 						{ label: 'Collect output', slug: 'tasks/collect-output' },
+						{ label: 'Open pull requests', slug: 'tasks/open-pull-requests' },
 						{ label: 'Connect MCP servers', slug: 'tasks/connect-mcp-servers' },
 						{ label: 'Receive notifications', slug: 'tasks/receive-notifications' },
 						{ label: 'Examples', slug: 'tasks/examples' },

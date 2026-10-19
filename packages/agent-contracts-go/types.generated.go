@@ -494,6 +494,57 @@ func (in *OutputSpec) DeepCopy() *OutputSpec {
 	return out
 }
 
+// Open a pull request from the run's work branch; the push happens outside the agent container.
+type PullRequestDelivery struct {
+	// Branch the pull request merges into.
+	Base string `json:"base"`
+
+	// Pull request title; {placeholder} tokens are filled from the Agent's parameters.
+	TitleTemplate string `json:"titleTemplate"`
+
+	// Open the pull request as a draft.
+	Draft bool `json:"draft,omitempty"`
+
+	// GitHub REST API base URL; defaults to https://api.github.com.
+	APIURL string `json:"apiUrl,omitempty"`
+}
+
+// DeepCopyInto copies the receiver into out. in must be non-nil.
+func (in *PullRequestDelivery) DeepCopyInto(out *PullRequestDelivery) {
+	*out = *in
+}
+
+// DeepCopy returns a deep copy of the receiver.
+func (in *PullRequestDelivery) DeepCopy() *PullRequestDelivery {
+	if in == nil {
+		return nil
+	}
+	out := new(PullRequestDelivery)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// What happens to the run's work once the agent exits.
+type DeliverySpec struct {
+	PullRequest PullRequestDelivery `json:"pullRequest,omitzero"`
+}
+
+// DeepCopyInto copies the receiver into out. in must be non-nil.
+func (in *DeliverySpec) DeepCopyInto(out *DeliverySpec) {
+	*out = *in
+	in.PullRequest.DeepCopyInto(&out.PullRequest)
+}
+
+// DeepCopy returns a deep copy of the receiver.
+func (in *DeliverySpec) DeepCopy() *DeliverySpec {
+	if in == nil {
+		return nil
+	}
+	out := new(DeliverySpec)
+	in.DeepCopyInto(out)
+	return out
+}
+
 type BatchSpec struct {
 	// Minutes to wait for the batch result before onTimeout applies.
 	TimeoutMinutes *int32 `json:"timeoutMinutes,omitempty"`
@@ -584,6 +635,8 @@ type AgentDefinitionSpec struct {
 
 	Output OutputSpec `json:"output,omitzero"`
 
+	Delivery DeliverySpec `json:"delivery,omitzero"`
+
 	// Raw passthrough for tool-specific knobs.
 	ToolConfig runtime.RawExtension `json:"tool_config,omitempty"`
 }
@@ -605,6 +658,7 @@ func (in *AgentDefinitionSpec) DeepCopyInto(out *AgentDefinitionSpec) {
 	in.Realtime.DeepCopyInto(&out.Realtime)
 	in.Resources.DeepCopyInto(&out.Resources)
 	in.Output.DeepCopyInto(&out.Output)
+	in.Delivery.DeepCopyInto(&out.Delivery)
 	in.ToolConfig.DeepCopyInto(&out.ToolConfig)
 }
 
@@ -907,6 +961,7 @@ type AgentStatus struct {
 
 	FailureReason string `json:"failureReason,omitempty"`
 
+	// URL of the pull request the run opened (spec.delivery.pullRequest).
 	PrURL string `json:"prUrl,omitempty"`
 
 	// Harness session id of this run; pass it as spec.resumeSession to continue the conversation.

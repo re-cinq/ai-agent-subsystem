@@ -22,7 +22,7 @@ import agentcore.crds.agent_spawner : AgentSpawner;
 import agentcore.crds.serialization : fromJson;
 import agentcore.crds.station : Station;
 import agentcore.kube.jobs : safeName;
-import agentcore.kube.jobspec : agentContainerName;
+import agentcore.kube.jobspec : agentContainerName, courierContainerName;
 import agentcore.kube.jsonbody : AgentListPage, parseAgent, parseAgentDefinition, parseAgentListPage, parseJobOutcome,
 	parseStation;
 import agentcore.kube.kubeclient : KubeClient, NotFound, PodResult;
@@ -263,10 +263,12 @@ final class HttpKubeClient : KubeClient, LeaseClient, AgentInformerClient, Model
 
 	override PodResult podResult(string ns, string podName)
 	{
-		const code = agentExitCode(getJson(podUrl(ns, podName), "pod " ~ podName));
-		const log = capOutput(getText(podLogUrl(ns, podName), "logs for " ~ podName),
+		auto pod = getJson(podUrl(ns, podName), "pod " ~ podName);
+		const log = capOutput(getText(podLogUrl(ns, podName, agentContainerName), "logs for " ~ podName),
 			config.maxOutputBytes);
-		return PodResult(code, log);
+		const courierLog = hasContainer(pod, courierContainerName)
+			? getText(podLogUrl(ns, podName, courierContainerName), "courier logs for " ~ podName) : "";
+		return PodResult(agentExitCode(pod), log, courierLog);
 	}
 
 	override string secretValue(string ns, string name, string key)
@@ -531,12 +533,12 @@ final class HttpKubeClient : KubeClient, LeaseClient, AgentInformerClient, Model
 		return podsUrl(ns) ~ "/" ~ name;
 	}
 
-	private string podLogUrl(string ns, string name)
+	private string podLogUrl(string ns, string name, string container)
 	{
 		// Name the container explicitly: a Station template with a sidecar makes an
 		// unqualified /log 400 ("a container name must be specified"), which would mark
 		// every run in that Station output-unavailable.
-		return podUrl(ns, name) ~ "/log?container=" ~ agentContainerName ~ "&tailLines="
+		return podUrl(ns, name) ~ "/log?container=" ~ container ~ "&tailLines="
 			~ logTailLines.to!string;
 	}
 
@@ -573,6 +575,23 @@ LeaseRecord parseLeaseRecord(Json lease)
 	record.renewTime = leaseField(lease, "spec", "renewTime");
 	record.transitions = cast(int) leaseTransitions(lease);
 	return record;
+}
+
+/// Whether the pod object `pod` declares a container named `name`.
+private bool hasContainer(Json pod, string name)
+{
+	auto spec = "spec" in pod;
+	return spec !is null && (*spec)["containers"].opt!(Json[])(null)
+		.canFind!(container => container["name"].opt!string("") == name);
+}
+
+unittest // a pod declaring a courier has one and a pod without it, or without a spec, has none
+{
+	const courier = parseJsonString(`{"spec":{"containers":[{"name":"agent"},{"name":"courier"}]}}`);
+	const plain = parseJsonString(`{"spec":{"containers":[{"name":"agent"}]}}`);
+
+	[hasContainer(courier, "courier"), hasContainer(plain, "courier"), hasContainer(Json.emptyObject, "courier")]
+		.should.equal([true, false, false]);
 }
 
 private string leaseField(Json lease, string section, string key)
@@ -646,7 +665,7 @@ unittest
 		"https://api:443/apis/agents.re-cinq.com/v1beta1/namespaces/ai-agents/stations");
 	client.jobUrl("ai-agents", "agent-job-run-1").should.equal(
 		"https://api:443/apis/batch/v1/namespaces/ai-agents/jobs/agent-job-run-1");
-	client.podLogUrl("ai-agents", "p1").should.equal(
+	client.podLogUrl("ai-agents", "p1", "agent").should.equal(
 		"https://api:443/api/v1/namespaces/ai-agents/pods/p1/log?container=agent&tailLines=10000");
 	client.leaseUrl("ai-agents", "agent-controller").should.equal(
 		"https://api:443/apis/coordination.k8s.io/v1/namespaces/ai-agents/leases/agent-controller");

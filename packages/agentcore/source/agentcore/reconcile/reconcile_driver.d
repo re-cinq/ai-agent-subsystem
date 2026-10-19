@@ -16,6 +16,8 @@ import agentcore.core.log : logError;
 import agentcore.core.token : runToken;
 import agentcore.kube.outputcap : capOutput;
 import agentcore.output.session : lastSessionId;
+import agentcore.delivery.outbox : DeliveryStatus, lastDelivery;
+import agentcore.delivery.plan : deliveryViolation;
 import std.array : join;
 import agentcore.core.prompt : renderPrompt;
 import agentcore.core.vendor : vendorOf;
@@ -483,6 +485,7 @@ private string runViolation(const Agent agent, const AgentDefinitionSpec recipe,
 		batchViolation(recipe),
 		realtimeViolation(recipe),
 		resumeViolation(agent.spec.resumeSession, recipe),
+		deliveryViolation(agent, recipe),
 		recipe.execution == Execution.realtime && !realtimeEnabled ? realtimeDisabledReason : "",
 	].find!(violation => violation.length > 0);
 	if (violations.length)
@@ -570,6 +573,7 @@ private void enrichFromPod(KubeClient client, string ns, string jobName, ref Job
 		outcome.exitCode = coherentExitCode(outcome.state, pod.exitCode);
 		outcome.output = pod.log;
 		outcome.sessionId = lastSessionId(pod.log);
+		recordDelivery(outcome, pod.courierLog);
 	}
 	catch (Exception)
 	{
@@ -578,6 +582,18 @@ private void enrichFromPod(KubeClient client, string ns, string jobName, ref Job
 		// which would propagate up and leave the Agent stuck Running forever.
 		markOutputUnavailable(outcome);
 	}
+}
+
+/// Record what the courier reported in its `courierLog`: the pull request it opened, or,
+/// when its delivery failed, why. That reason replaces the Job's generic one
+/// (`BackoffLimitExceeded`): the courier only fails after the agent succeeded, so its
+/// failure is what failed the pod.
+private void recordDelivery(ref JobOutcome outcome, string courierLog)
+{
+	const delivery = lastDelivery(courierLog);
+	outcome.prUrl = delivery.status == DeliveryStatus.opened ? delivery.url : "";
+	if (delivery.status == DeliveryStatus.failed)
+		outcome.reason = "pull request delivery failed: " ~ delivery.reason;
 }
 
 /// Record that the run pod's output couldn't be read back (it was GC'd), keeping any
@@ -1018,6 +1034,69 @@ unittest // a finished run records the last session id its pod log announced as 
 	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", []);
 
 	client.statusPatches[0]["status"]["sessionId"].get!string.should.equal("sess-9");
+}
+
+version (unittest)
+{
+	/// A Running Agent whose Job ended `state`, with the agent's pod `log` and the
+	/// courier's `courierLog`, reconciled once; returns the status it was patched with.
+	private Json deliveredStatus(JobState state, string log, string courierLog)
+	{
+		auto client = new FakeKubeClient;
+		client.outcome = JobOutcome(state, 0, state == JobState.failed ? "BackoffLimitExceeded" : "", "");
+		client.podNameValue = "agent-job-run-8-abc";
+		client.podResultValue = PodResult(0, log, courierLog);
+		client.station.metadata.name = "stn";
+
+		Agent agent;
+		agent.metadata.name = "run-8";
+		agent.spec.stationRef = "stn";
+		agent.status.phase = Phase.running;
+		agent.status.jobName = "agent-job-run-8";
+
+		reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", []);
+		return client.statusPatches[0]["status"];
+	}
+}
+
+unittest // a finished run records the pull request its courier opened as status.prUrl
+{
+	const status = deliveredStatus(JobState.succeeded, "",
+		`{"kind":"delivery","status":"opened","url":"https://github.com/o/app/pull/7"}`);
+
+	status["prUrl"].get!string.should.equal("https://github.com/o/app/pull/7");
+}
+
+unittest // a delivery event in the agent's own log is never taken as the run's pull request
+{
+	const status = deliveredStatus(JobState.succeeded,
+		`{"kind":"delivery","status":"opened","url":"https://evil.example/pull/1"}`, "");
+
+	(("prUrl" in status) is null).should.equal(true);
+}
+
+unittest // a failed delivery replaces the Job's generic failure reason with the courier's
+{
+	const status = deliveredStatus(JobState.failed, "",
+		`{"kind":"delivery","status":"failed","reason":"push rejected"}`);
+
+	[status["failureReason"].get!string, ("prUrl" in status) is null ? "absent" : "present"]
+		.should.equal(["pull request delivery failed: push rejected", "absent"]);
+}
+
+unittest // a pull request delivery that cannot run fails the Agent Pending, with no Job
+{
+	auto client = new FakeKubeClient;
+	client.station.metadata.name = "stn";
+	client.station.spec.agentDefRef = "def";
+	client.definition.spec.delivery.pullRequest.base = "main";
+	client.definition.spec.delivery.pullRequest.titleTemplate = "Fix";
+
+	reconcileAgent(client, "ai-agents", pendingAgent("run-9", "stn"), "img", "2026-06-22T12:00:00Z", null);
+
+	client.createdJobs.length.should.equal(0);
+	client.statusPatches[0]["status"]["failureReason"].get!string.should
+		.equal("delivery.pullRequest needs a repo in resources.repos");
 }
 
 unittest

@@ -76,7 +76,7 @@ string curlConfig(string url, string line, string headers) @safe
 
 /// Escape a value for a curl config double-quoted string: backslash and double-quote
 /// are the only metacharacters (header/payload lines never contain a newline).
-private string curlConfEscape(string value) @safe
+string curlConfEscape(string value) @safe
 {
 	string out_;
 	foreach (char c; value)
