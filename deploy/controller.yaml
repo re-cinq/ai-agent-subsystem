@@ -38,7 +38,7 @@ spec:
           # Pinned inline (not only via the kustomize `images:` overlay) so
           # `kubectl apply -f deploy/controller.yaml` is safe standalone, not just
           # `apply -k deploy`. Kept in sync by scripts/pin-image-digests.sh.
-          image: ghcr.io/re-cinq/ai-agent-controller@sha256:e3fdada1fa1fd5f62e59b57041b9c284b5ef8f7e61769d6533c94f6b82ce94d5
+          image: ghcr.io/re-cinq/ai-agent-controller@sha256:c1abb59da048e98329caf04ffc1c2bde41736e10a140307b83e848fefabb92c4
           imagePullPolicy: IfNotPresent
           env:
             - name: NAMESPACE
@@ -54,7 +54,7 @@ spec:
             # Image whose init container injects the agent runtime + supervisor
             # into each run pod. Override with ai-agent:dev for local clusters.
             - name: AGENT_IMAGE
-              value: ghcr.io/re-cinq/ai-agent@sha256:13ee5bcf586b5d124cf54a3a13f43f4caed8fb90426ca6e012b904c8aee33a0f
+              value: ghcr.io/re-cinq/ai-agent@sha256:114888ca18e4c5616b60d92d0c22ac21c88d51e396aacb0c030235e210c650b2
             # Bytes of run-pod log kept in status.output (the tail). Bounds the
             # Agent object under etcd's ~1.5 MB per-object limit. Default 256 KiB.
             - name: MAX_OUTPUT_BYTES
