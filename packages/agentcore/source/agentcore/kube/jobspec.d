@@ -113,6 +113,8 @@ Json buildJob(Agent agent, Station station, AgentDefinition definition, string a
 	string realtimeToken = "")
 {
 	auto recipe = runRecipe(agent, definition.spec);
+	const violation = templateViolation(station.spec.template_, recipe);
+	enforce(violation.length == 0, violation);
 	const prompt = renderPrompt(recipe.prompt, agent.spec.parameters);
 	// The conversation to continue rides into the argv: the adapter decides whether it
 	// is a flag or a subcommand, and adds a pin when its CLI supports one.
@@ -233,9 +235,6 @@ private Json withCourier(Json template_, Json env, string agentImage)
 {
 	auto pod = template_;
 	auto stationContainers = pod["spec"]["containers"].get!(Json[]);
-	enforce(!stationContainers.canFind!(container => isNamed(container, courierContainerName)),
-		"Station template already has a container named '" ~ courierContainerName
-		~ "', which a pull request delivery runs as");
 
 	Json[] containers;
 	foreach (container; stationContainers)
@@ -294,10 +293,6 @@ private Json withPromptPort(Json container)
 {
 	Json[] ports = ("ports" in container && container["ports"].type == Json.Type.array)
 		? container["ports"].get!(Json[]).dup : null;
-	foreach (port; ports)
-		enforce(("containerPort" !in port) || port["containerPort"].to!long != defaultRealtimePort,
-			"Station template's agent container already uses port " ~ defaultRealtimePort.to!string
-			~ ", which a realtime run serves prompts on");
 	Json[string] prompt;
 	prompt["name"] = Json("realtime");
 	prompt["containerPort"] = Json(defaultRealtimePort);
@@ -379,16 +374,10 @@ private Json[] commandFor(string[] argv)
 private Json wirePodTemplate(Json template_, Json[] command, Json env, Json initEnv_,
 	string agentImage)
 {
-	enforce(template_.type == Json.Type.object, "Station template must be an object");
 	auto pod = template_;
-	enforce("spec" in pod, "Station template needs a spec");
 	auto spec = pod["spec"];
-	enforce(spec.type == Json.Type.object && ("containers" in spec),
-		"Station template.spec.containers is required");
-	enforceNoHostEscapes(spec);
 
 	Json[] containers;
-	bool wired = false;
 	foreach (container; spec["containers"].get!(Json[]))
 	{
 		if (isAgentContainer(container))
@@ -399,12 +388,9 @@ private Json wirePodTemplate(Json template_, Json[] command, Json env, Json init
 			container["securityContext"] = nonRootSecurity();
 			if (!("resources" in container))
 				container["resources"] = agentResources();
-			wired = true;
 		}
 		containers ~= container;
 	}
-	enforce(wired, "Station template has no container named '" ~ agentContainerName ~ "'");
-
 	spec["containers"] = Json(containers);
 	spec["initContainers"] = Json([initContainer(agentImage, initEnv_)]);
 	spec["volumes"] = withBundleVolume(spec);
@@ -429,6 +415,39 @@ private bool jsonIsTrue(Json value)
 	return value.type == Json.Type.bool_ && value.get!bool;
 }
 
+/// Why `template_` cannot become the run pod for `recipe`, or "". `buildJob` enforces it,
+/// and the reconcile driver checks it before starting a run, so a template that can never
+/// run fails the Agent instead of being retried on every reconcile.
+string templateViolation(Json template_, const AgentDefinitionSpec recipe)
+{
+	const shape = templateShapeViolation(template_);
+	if (shape.length)
+		return shape;
+	auto spec = template_["spec"];
+	auto containers = spec["containers"].get!(Json[]);
+	auto violations = [
+		hostNamespaceViolation(spec),
+		hostPathViolation(spec),
+		privilegedViolation(containers),
+		agentContainerViolation(containers),
+		opensPullRequest(recipe.delivery) ? courierNameViolation(containers) : "",
+		recipe.execution == Execution.realtime ? promptPortViolation(containers) : "",
+	].find!(violation => violation.length > 0);
+	return violations.length ? violations[0] : "";
+}
+
+private string templateShapeViolation(Json template_)
+{
+	if (template_.type != Json.Type.object)
+		return "Station template must be an object";
+	if ("spec" !in template_)
+		return "Station template needs a spec";
+	auto spec = template_["spec"];
+	if (spec.type != Json.Type.object || ("containers" !in spec) || spec["containers"].type != Json.Type.array)
+		return "Station template.spec.containers is required";
+	return "";
+}
+
 // The Station template is an x-kubernetes-preserve-unknown-fields passthrough, so a
 // Station author can smuggle a node escape into a pod that runs untrusted agent code:
 // host namespaces, a hostPath volume onto the node filesystem, or a privileged
@@ -436,24 +455,50 @@ private bool jsonIsTrue(Json value)
 // privileged container at admission, but NOT the hostPath volume (that needs
 // `restricted`, which the root init container can't satisfy) — so reject all three
 // here. An agent run never legitimately needs any of them.
-private void enforceNoHostEscapes(Json spec)
+private string hostNamespaceViolation(Json spec)
 {
-	foreach (field; ["hostNetwork", "hostPID", "hostIPC"])
-		if (auto v = field in spec)
-			enforce(!jsonIsTrue(*v),
-				"Station template must not enable " ~ field ~ " on an agent run pod");
+	auto enabled = ["hostNetwork", "hostPID", "hostIPC"].find!(field => (field in spec) && jsonIsTrue(spec[field]));
+	return enabled.length ? "Station template must not enable " ~ enabled[0] ~ " on an agent run pod" : "";
+}
 
-	if (auto volumes = "volumes" in spec)
-		if ((*volumes).type == Json.Type.array)
-			foreach (v; (*volumes).get!(Json[]))
-				enforce(!(v.type == Json.Type.object && ("hostPath" in v)),
-					"Station template must not mount a hostPath volume into an agent run pod");
+private string hostPathViolation(Json spec)
+{
+	if (("volumes" !in spec) || spec["volumes"].type != Json.Type.array)
+		return "";
+	const mountsHost = spec["volumes"].get!(Json[]).canFind!(volume =>
+		volume.type == Json.Type.object && ("hostPath" in volume));
+	return mountsHost ? "Station template must not mount a hostPath volume into an agent run pod" : "";
+}
 
-	foreach (container; spec["containers"].get!(Json[]))
-		if (auto sc = "securityContext" in container)
-			if (auto privileged = "privileged" in *sc)
-				enforce(!jsonIsTrue(*privileged),
-					"Station template container must not be privileged");
+private string privilegedViolation(Json[] containers)
+{
+	const privileged = containers.canFind!(container => ("securityContext" in container)
+		&& ("privileged" in container["securityContext"]) && jsonIsTrue(container["securityContext"]["privileged"]));
+	return privileged ? "Station template container must not be privileged" : "";
+}
+
+private string agentContainerViolation(Json[] containers)
+{
+	return containers.canFind!(container => isAgentContainer(container)) ? ""
+		: "Station template has no container named '" ~ agentContainerName ~ "'";
+}
+
+private string courierNameViolation(Json[] containers)
+{
+	return containers.canFind!(container => isNamed(container, courierContainerName))
+		? "Station template already has a container named '" ~ courierContainerName
+			~ "', which a pull request delivery runs as" : "";
+}
+
+private string promptPortViolation(Json[] containers)
+{
+	auto agent = containers.find!(container => isAgentContainer(container));
+	if (!agent.length || ("ports" !in agent[0]) || agent[0]["ports"].type != Json.Type.array)
+		return "";
+	const clashes = agent[0]["ports"].get!(Json[]).canFind!(port => ("containerPort" in port)
+		&& port["containerPort"].to!long == defaultRealtimePort);
+	return clashes ? "Station template's agent container already uses port " ~ defaultRealtimePort.to!string
+		~ ", which a realtime run serves prompts on" : "";
 }
 
 private Json reservedMount(string name, string path)

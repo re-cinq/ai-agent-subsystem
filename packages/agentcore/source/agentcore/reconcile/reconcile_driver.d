@@ -7,7 +7,7 @@ import agentcore.crds.agent_definition_spec : AgentDefinitionSpec, batchViolatio
 import agentcore.crds.station : Station;
 import agentcore.reconcile.concurrency : effectiveMaxRuns, oldestRunningRun, stationAtCapacity;
 import agentcore.kube.jobs : jobNameFor;
-import agentcore.kube.jobspec : buildJob, runRecipe;
+import agentcore.kube.jobspec : buildJob, runRecipe, templateViolation;
 import agentcore.batch.provider : batchCleanupFinalizer, batchSettleMinutes, maxBatchCleanupAttempts, BatchNotSettled,
 	BatchPoll, BatchProvider, BatchProviderFor, BatchRequest, BatchState, batchModel, batchVendor;
 import agentcore.batch.translate : batchCliEvents;
@@ -21,7 +21,7 @@ import agentcore.delivery.plan : deliveryViolation;
 import std.array : join;
 import agentcore.core.prompt : renderPrompt;
 import agentcore.core.vendor : vendorOf;
-import agentcore.crds.enums : Execution;
+import agentcore.crds.enums : BatchTimeoutAction, Execution;
 import agentcore.crds.secret_ref : SecretRef;
 import agentcore.kube.jobspec : agentSecretName;
 import agentcore.kube.jsonbody : batchCleanupAttemptsPatch, addFinalizerPatch, batchSubmittedPatch, removeFinalizerPatch, statusPatch;
@@ -120,7 +120,8 @@ ReconcileEffect reconcileAgent(KubeClient client, string ns, Agent agent, string
 
 	return run.apply(decide(phase, refsResolved, observesJob, outcome, atCapacity,
 		run.station.spec.concurrencyPolicy,
-		runViolation(agent, run.definition.spec, batchConfig.providers !is null, realtimeConfig.enabled),
+		runViolation(agent, run.definition.spec, run.station.spec.template_, batchConfig.providers !is null,
+			realtimeConfig.enabled),
 		BatchRun(run.definition.spec.execution == Execution.batch, agent.status.batchId,
 			agent.status.batchFallback, awaitingFallbackJob)));
 }
@@ -472,21 +473,23 @@ private enum batchDisabledReason = "batch execution is disabled on this controll
 
 /// Why the Agent cannot run its resolved recipe, or "": the recipe's own batch or realtime
 /// violation, else a `resumeSession` the recipe cannot honour, else a realtime recipe on a
-/// controller without a signing key, else, for a non-batch recipe, its invalid
-/// `resources.mcp_servers`, else a batch recipe on a controller without batch providers
-/// (`BATCH_ENABLED` unset), else per-run input files, which a batch request has no
-/// workspace to download into.
-private string runViolation(const Agent agent, const AgentDefinitionSpec recipe, bool batchEnabled,
-	bool realtimeEnabled) @safe
+/// controller without a signing key, else a Station template the run pod cannot be built
+/// from, else, for a non-batch recipe, its invalid `resources.mcp_servers`, else a batch
+/// recipe on a controller without batch providers (`BATCH_ENABLED` unset), else per-run
+/// input files, which a batch request has no workspace to download into.
+private string runViolation(const Agent agent, const AgentDefinitionSpec recipe, Json stationTemplate,
+	bool batchEnabled, bool realtimeEnabled)
 {
 	import std.algorithm.searching : find;
 
+	const buildsPod = recipe.execution != Execution.batch || recipe.batch.onTimeout == BatchTimeoutAction.fallback;
 	const violations = [
 		batchViolation(recipe),
 		realtimeViolation(recipe),
 		resumeViolation(agent.spec.resumeSession, recipe),
 		deliveryViolation(agent, recipe),
 		recipe.execution == Execution.realtime && !realtimeEnabled ? realtimeDisabledReason : "",
+		buildsPod ? templateViolation(stationTemplate, recipe) : "",
 	].find!(violation => violation.length > 0);
 	if (violations.length)
 		return violations[0];
@@ -654,6 +657,13 @@ version (unittest)
 	{
 		Station station;
 		AgentDefinition definition;
+
+		// The CRD requires a template, so every Station the API server serves has one.
+		this()
+		{
+			station.spec.template_ = parseJsonString(`{"spec":{"containers":[{"name":"agent"}]}}`);
+		}
+
 		bool stationMissing;
 		JobOutcome outcome;
 		bool jobMissing;
@@ -1082,6 +1092,33 @@ unittest // a failed delivery replaces the Job's generic failure reason with the
 
 	[status["failureReason"].get!string, ("prUrl" in status) is null ? "absent" : "present"]
 		.should.equal(["pull request delivery failed: push rejected", "absent"]);
+}
+
+unittest // a Station template with hostNetwork fails the Agent Pending with the reason, with no Job
+{
+	auto client = new FakeKubeClient;
+	client.station.metadata.name = "stn";
+	client.station.spec.agentDefRef = "def";
+	client.station.spec.template_ = parseJsonString(
+		`{"spec":{"hostNetwork":true,"containers":[{"name":"agent","image":"node:22"}]}}`);
+
+	reconcileAgent(client, "ai-agents", pendingAgent("run-9", "stn"), "img", "2026-06-22T12:00:00Z", null);
+
+	client.createdJobs.length.should.equal(0);
+	[client.statusPatches[0]["status"]["phase"].get!string, client.statusPatches[0]["status"]["failureReason"].get!string]
+		.should.equal(["Failed", "Station template must not enable hostNetwork on an agent run pod"]);
+}
+
+unittest // a batch recipe without a fallback Job is not held to its Station's template
+{
+	auto client = new FakeKubeClient;
+	client.station.metadata.name = "stn";
+	client.station.spec.agentDefRef = "def";
+	client.station.spec.template_ = parseJsonString(`{"spec":{"hostNetwork":true,"containers":[{"name":"agent"}]}}`);
+	client.definition.spec.execution = Execution.batch;
+
+	runViolation(pendingAgent("run-9", "stn"), client.definition.spec, client.station.spec.template_, true, false)
+		.should.equal("");
 }
 
 unittest // a pull request delivery that cannot run fails the Agent Pending, with no Job
