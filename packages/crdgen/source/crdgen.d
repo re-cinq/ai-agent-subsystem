@@ -3,10 +3,10 @@
 /// v3 schemas using open-api's vocabulary. Backs the `write-structures` command.
 module crdgen;
 
+import std.array : join;
 import std.conv : to;
 import std.format : format;
 import std.file : mkdirRecurse, write;
-import std.meta : AliasSeq;
 import std.path : buildPath;
 import std.stdio : writeln, stderr;
 import std.string : indexOf, toLower;
@@ -21,9 +21,8 @@ import openapi.definitions : SchemaType;
 import agentcore.crds.api_group : crDeprecatedVersion;
 import agentcore.crds.schema;
 import agentcore.crds.agent : Agent;
-import agentcore.crds.agent_definition : AgentDefinition;
 import agentcore.crds.model_catalog : ModelCatalog;
-import agentcore.crds.station : Station;
+import agentcore.crds.registry : CrdKinds;
 
 /// Renders an open-api `SchemaType` to its wire string (e.g. `object` -> "object").
 private enum st(SchemaType t) = cast(string) t;
@@ -339,8 +338,8 @@ string crdYaml(T)()
 	return s;
 }
 
-/// Handle the `write-structures <dir>` sub-command: generate the three CRD
-/// YAMLs into `dir`. `args` is the sub-command argv (args[0] is the verb).
+/// Handle the `write-structures <dir>` sub-command: generate one CRD YAML per
+/// registered kind into `dir`. `args` is the sub-command argv (args[0] is the verb).
 /// Returns the process exit code.
 int writeStructures(string[] args)
 {
@@ -352,13 +351,15 @@ int writeStructures(string[] args)
 
 	const dir = args[1];
 	mkdirRecurse(dir);
-	static foreach (T; AliasSeq!(AgentDefinition, Station, Agent, ModelCatalog))
+	string[] written;
+	static foreach (T; CrdKinds)
 	{{
-		enum yaml = crdYaml!T();
-		write(buildPath(dir, toLower(T.init.kind) ~ ".yaml"), yaml);
+		enum fileName = toLower(T.init.kind) ~ ".yaml";
+		write(buildPath(dir, fileName), crdYaml!T());
+		written ~= fileName;
 	}}
 
-	writeln("wrote agentdefinition.yaml, station.yaml, agent.yaml, modelcatalog.yaml to ", dir);
+	writeln("wrote ", written.join(", "), " to ", dir);
 	return 0;
 }
 
