@@ -10,9 +10,16 @@ metadata:
   name: agent-controller
   namespace: ai-agents
 rules:
+  # create: the AgentSpawner loop starts scheduled runs.
   - apiGroups: ["agents.re-cinq.com"]
     resources: ["agents"]
-    verbs: ["get", "list", "watch", "patch", "update", "delete"]
+    verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
+  - apiGroups: ["agents.re-cinq.com"]
+    resources: ["agentspawners"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["agents.re-cinq.com"]
+    resources: ["agentspawners/status"]
+    verbs: ["get", "patch"]
   - apiGroups: ["agents.re-cinq.com"]
     resources: ["agents/status"]
     verbs: ["get", "update", "patch"]
@@ -32,9 +39,10 @@ rules:
   - apiGroups: [""]
     resources: ["pods/log"]
     verbs: ["get"]
-  # No Secret access here: batch execution and the model catalog, the features that need
-  # the controller to read agent-secrets, are opt-in via the deploy/components/batch and
-  # deploy/components/model-catalog kustomize components.
+  # No Secret access here: batch execution, the model catalog and GitHub webhooks, the
+  # features that need the controller to read agent-secrets, are opt-in via the
+  # deploy/components/batch, deploy/components/model-catalog and deploy/components/webhooks
+  # kustomize components.
   # Leader election: replicas contend for a single Lease so only one reconciles.
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
