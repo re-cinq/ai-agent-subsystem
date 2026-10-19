@@ -1,0 +1,16 @@
+# Image digests are kept in step with deploy/ by scripts/pin-image-digests.sh.
+controller:
+  image:
+    repository: ghcr.io/re-cinq/ai-agent-controller
+    digest: sha256:e3fdada1fa1fd5f62e59b57041b9c284b5ef8f7e61769d6533c94f6b82ce94d5
+
+# Injected into each run pod as the init container that provides the agent runtime.
+agentImage: ghcr.io/re-cinq/ai-agent@sha256:13ee5bcf586b5d124cf54a3a13f43f4caed8fb90426ca6e012b904c8aee33a0f
+
+# Each toggle reproduces the deploy/components/<name> kustomize component.
+batch:
+  enabled: false
+modelCatalog:
+  enabled: false
+realtime:
+  enabled: false

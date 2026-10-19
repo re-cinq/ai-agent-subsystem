@@ -1,6 +1,6 @@
 ---
 title: Install
-description: Install the subsystem with a single kubectl apply, then verify the deployment.
+description: Install the subsystem with a single kubectl apply or the Helm chart, then verify the deployment.
 ---
 
 Each release ships a single `install.yaml` that bundles the namespace, the Custom Resource
@@ -83,6 +83,55 @@ The controller runs least-privilege: it can watch and patch Agents, read Station
 AgentDefinitions, manage Jobs, read pod logs, and write the
 [ModelCatalog](../reference/crd-modelcatalog.md). See [RBAC & network](../reference/rbac-and-network.md).
 
+## Install with Helm
+
+Each release also publishes a Helm chart to `oci://ghcr.io/re-cinq/charts`. It is packaged from
+`deploy/`, and CI fails if the two render different objects, so a Helm install creates the same
+objects as `install.yaml` for the same release. Helm 3.8 or later is needed for OCI charts.
+
+```sh
+helm install ai-agent-subsystem oci://ghcr.io/re-cinq/charts/ai-agent-subsystem --version 0.13.0 \
+  --namespace default
+```
+
+The chart creates the `ai-agents` namespace itself, as `install.yaml` does, and every object goes
+there. `--namespace` only chooses where Helm keeps its release record, so it must name a namespace
+that already exists. Do not pass `--namespace ai-agents --create-namespace`: Helm would create the
+namespace first and then fail on the chart's own Namespace object.
+
+| Value | Default | Effect |
+| --- | --- | --- |
+| `controller.image.repository` | `ghcr.io/re-cinq/ai-agent-controller` | Controller image, without tag or digest |
+| `controller.image.digest` | the release's signed digest | Controller image digest (`sha256:…`). Tags are rejected |
+| `agentImage` | `ghcr.io/re-cinq/ai-agent@sha256:…` | Agent runtime image injected into run pods. Must be digest-pinned |
+| `batch.enabled` | `false` | Same as the `components/batch` component: [batch runs](#enable-batch-runs-optional) |
+| `modelCatalog.enabled` | `false` | Same as the `components/model-catalog` component: [model catalog](#enable-the-model-catalog-optional) |
+| `realtime.enabled` | `false` | Same as the `components/realtime` component: [realtime sessions](#enable-realtime-sessions-optional). Create the `agent-realtime` Secret first |
+
+The chart accepts no other values. For a private registry, set `controller.image.repository`,
+`controller.image.digest` and `agentImage` to your own images.
+
+Helm installs the CRDs from the chart's `crds/` directory on the first install only. `helm upgrade`
+does not change them and `helm uninstall` leaves them in place. When a release changes a CRD, apply
+that release's CRDs yourself (this uses [yq](https://github.com/mikefarah/yq) to pick them out of
+`install.yaml`):
+
+```sh
+curl -sL https://github.com/re-cinq/ai-agent-subsystem/releases/download/v0.13.0/install.yaml \
+  | yq 'select(.kind == "CustomResourceDefinition")' | kubectl apply -f -
+```
+
+The chart is signed with cosign the same way as the images:
+
+```sh
+cosign verify ghcr.io/re-cinq/charts/ai-agent-subsystem:0.13.0 \
+  --certificate-identity-regexp '^https://github.com/re-cinq/ai-agent-subsystem/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+The same chart is attached to each [GitHub release](https://github.com/re-cinq/ai-agent-subsystem/releases)
+as `ai-agent-subsystem-<version>.tgz`, for tools that cannot pull OCI charts.
+
 ## Enable batch runs (optional)
 
 [Batch runs](../tasks/batch-runs.md) are off by default, and neither `install.yaml` nor `deploy/`
@@ -102,13 +151,15 @@ components:
 kubectl apply -k .
 ```
 
-From a source checkout, list `deploy` and `deploy/components/batch` as local paths instead.
+From a source checkout, list `deploy` and `deploy/components/batch` as local paths instead. With
+[Helm](#install-with-helm), set `batch.enabled=true`.
 
 ## Enable realtime sessions (optional)
 
 [Realtime sessions](../tasks/realtime-sessions.md) are off by default. To enable them, create the
 `agent-realtime` Secret and add the `components/realtime` component; the
-[guide](../tasks/realtime-sessions.md#enable-realtime-on-the-controller) has both steps.
+[guide](../tasks/realtime-sessions.md#enable-realtime-on-the-controller) has both steps. With
+[Helm](#install-with-helm), create the Secret and set `realtime.enabled=true`.
 
 ## Enable GitHub webhooks (optional)
 
@@ -146,7 +197,8 @@ components:
 ```
 
 List both components to enable batch runs and the catalog together. From a source checkout, use
-`deploy/components/model-catalog` as a local path. Once the controller has refreshed, read the
+`deploy/components/model-catalog` as a local path. With [Helm](#install-with-helm), set
+`modelCatalog.enabled=true`. Once the controller has refreshed, read the
 catalog with `kubectl get mc default -n ai-agents -o yaml`.
 
 ## Verify the deployment

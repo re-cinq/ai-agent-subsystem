@@ -56,6 +56,15 @@ the npm package versions.
   Delivery needs `execution: interactive` and a repo with a `token_secret` or a credential broker;
   otherwise the Agent fails before a Job is created. `@re-cinq/agent-contracts` adds `DeliverySpec`
   and `PullRequestDelivery`. New task page: *Open pull requests*.
+- **Helm chart, published as a signed OCI artifact.** `helm install ai-agent-subsystem
+  oci://ghcr.io/re-cinq/charts/ai-agent-subsystem --version <version> --namespace default` installs
+  the same objects as that release's `install.yaml`. The values are `controller.image.repository`,
+  `controller.image.digest` and `agentImage` (digest-pinned only; tags are rejected by the values
+  schema) and the toggles `batch.enabled`, `modelCatalog.enabled` and `realtime.enabled`, which match
+  the `deploy/components/*` kustomize components. Each `v*` release pushes the chart, signs it with
+  cosign (keyless, same identity as the images) and attaches the `.tgz` to the GitHub Release.
+  Kustomize stays the source of truth (ADR-004): `scripts/check-helm-drift.sh`, now part of
+  `make drift`, fails when the chart and `deploy/` render different objects.
 
 ### Changed
 - **The CRDs are now `agents.re-cinq.com/v1beta1`.** Objects are stored at `v1beta1`, and the

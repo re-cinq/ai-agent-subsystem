@@ -63,16 +63,18 @@ ctest: ## Cross-distro container tests (needs docker)
 	./scripts/ctest-init-portable.sh
 
 .PHONY: regen
-regen: ## Regenerate deploy/crds and the TypeScript and Go contracts from the D model
+regen: ## Regenerate deploy/crds (and the Helm chart's copy) and the TypeScript and Go contracts from the D model
 	dub build :crdgen
 	./packages/crdgen/ai-agent-crdgen write-structures deploy/crds
+	cp deploy/crds/*.yaml deploy/helm/ai-agent-subsystem/crds/
 	dub run :tsgen -c application -q -- emit packages/agent-contracts/src/types.generated.ts
 	dub run :tsgen -c application -q -- emit-go packages/agent-contracts-go/types.generated.go
 
 .PHONY: drift
-drift: ## Fail if generated CRDs or TS/Go contracts drifted from the D model
+drift: ## Fail if generated CRDs, TS/Go contracts or the Helm chart drifted from their sources
 	./scripts/check-crd-drift.sh
 	./scripts/check-contracts-drift.sh
+	./scripts/check-helm-drift.sh
 
 .PHONY: contracts
 contracts: ## Test and build the @re-cinq/agent-contracts npm package (100% coverage gate)
