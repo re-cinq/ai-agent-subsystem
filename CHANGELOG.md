@@ -7,6 +7,10 @@ the npm package versions.
 ## Unreleased
 
 ### Added
+- **The Helm chart can enable GitHub webhooks.** `webhooks.enabled=true` adds what the
+  `deploy/components/webhooks` component does: `WEBHOOKS_ENABLED`/`WEBHOOK_PORT` and the `webhooks`
+  container port on the controller, the `agent-controller-webhooks` Service, and the controller's
+  `get` on the `agent-secrets` Secret. The Helm drift check covers the new toggle.
 - **AgentSpawner: runs from signed GitHub webhooks.** A spawner's new `spec.github` trigger
   (`secretRef`, `events` such as `issues.labeled`, optional `label` and `repository` filters) starts
   a run for each matching delivery to `POST /v1/namespaces/<ns>/agentspawners/<name>/github`, served

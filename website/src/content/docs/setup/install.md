@@ -107,6 +107,7 @@ namespace first and then fail on the chart's own Namespace object.
 | `batch.enabled` | `false` | Same as the `components/batch` component: [batch runs](#enable-batch-runs-optional) |
 | `modelCatalog.enabled` | `false` | Same as the `components/model-catalog` component: [model catalog](#enable-the-model-catalog-optional) |
 | `realtime.enabled` | `false` | Same as the `components/realtime` component: [realtime sessions](#enable-realtime-sessions-optional). Create the `agent-realtime` Secret first |
+| `webhooks.enabled` | `false` | Same as the `components/webhooks` component: [GitHub webhooks](#enable-github-webhooks-optional). Store the HMAC key in `agent-secrets` first |
 
 The chart accepts no other values. For a private registry, set `controller.image.repository`,
 `controller.image.digest` and `agentImage` to your own images.
@@ -178,7 +179,8 @@ components:
 
 Then store the webhook's HMAC key in `agent-secrets`, expose the Service to GitHub and add the
 webhook; the [guide](../tasks/trigger-from-github.md) has each step. From a source checkout, use
-`deploy/components/webhooks` as a local path.
+`deploy/components/webhooks` as a local path. With [Helm](#install-with-helm), set `webhooks.enabled=true`
+instead of adding the component.
 
 ## Enable the model catalog (optional)
 

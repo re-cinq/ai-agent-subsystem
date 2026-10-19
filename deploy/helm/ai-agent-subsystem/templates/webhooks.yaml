@@ -1,0 +1,44 @@
+{{- if .Values.webhooks.enabled }}
+# The GitHub webhook receiver. Every controller replica serves it, leader or not.
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-controller-webhooks
+  namespace: ai-agents
+  labels:
+    agents.re-cinq.com/component: controller
+spec:
+  selector:
+    agents.re-cinq.com/component: controller
+  ports:
+    - name: webhooks
+      port: 8083
+      targetPort: webhooks
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: agent-controller-webhooks
+  namespace: ai-agents
+rules:
+  # Only the agent-secrets Secret, only get: the controller reads the HMAC key a
+  # spawner's github.secretRef names, to verify each delivery's signature.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["agent-secrets"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agent-controller-webhooks
+  namespace: ai-agents
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: agent-controller-webhooks
+subjects:
+  - kind: ServiceAccount
+    name: agent-controller
+    namespace: ai-agents
+{{- end }}

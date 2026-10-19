@@ -38,7 +38,8 @@ components:
 kubectl apply -k .
 ```
 
-From a source checkout, list `deploy` and `deploy/components/webhooks` as local paths instead.
+From a source checkout, list `deploy` and `deploy/components/webhooks` as local paths instead. With the
+[Helm chart](../setup/install.md#install-with-helm), set `webhooks.enabled=true` instead.
 
 ## Create the HMAC key
 
