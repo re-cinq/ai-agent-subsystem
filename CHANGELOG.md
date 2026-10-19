@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.14.0
+
 ### Added
 - **The Helm chart can enable GitHub webhooks.** `webhooks.enabled=true` adds what the
   `deploy/components/webhooks` component does: `WEBHOOKS_ENABLED`/`WEBHOOK_PORT` and the `webhooks`
