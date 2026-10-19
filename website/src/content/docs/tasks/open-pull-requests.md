@@ -15,7 +15,7 @@ over can then push anywhere that token reaches. With `delivery`, it can only com
 ## Configure the recipe
 
 ```yaml
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: AgentDefinition
 metadata: { name: bug-fixer, namespace: ai-agents }
 spec:
@@ -48,7 +48,7 @@ API call.
 ## Launch a run
 
 ```yaml
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: Agent
 metadata: { generateName: fix-, namespace: ai-agents }
 spec:

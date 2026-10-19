@@ -232,6 +232,7 @@ spec:
                   type: string
                 prUrl:
                   type: string
+                  description: "URL of the pull request the run opened (spec.delivery.pullRequest)."
                 sessionId:
                   type: string
                   description: "Harness session id of this run; pass it as spec.resumeSession to continue the conversation."

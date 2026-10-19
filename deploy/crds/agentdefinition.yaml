@@ -614,6 +614,27 @@ spec:
                               headers_secret:
                                 type: string
                                 description: "Secret key holding the header block sent with the upload."
+                delivery:
+                  type: object
+                  properties:
+                    pullRequest:
+                      type: object
+                      required:
+                        - base
+                        - titleTemplate
+                      properties:
+                        base:
+                          type: string
+                          description: "Branch the pull request merges into."
+                        titleTemplate:
+                          type: string
+                          description: "Pull request title; {placeholder} tokens are filled from the Agent's parameters."
+                        draft:
+                          type: boolean
+                          description: "Open the pull request as a draft."
+                        apiUrl:
+                          type: string
+                          description: "GitHub REST API base URL; defaults to https://api.github.com."
                 tool_config:
                   type: object
                   description: "Raw passthrough for tool-specific knobs."
