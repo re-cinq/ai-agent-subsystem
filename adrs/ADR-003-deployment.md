@@ -10,7 +10,8 @@ domains: [deployment, operations, security]
 
 ## Status
 
-Accepted
+Accepted. Amended by [ADR-004](ADR-004-helm-chart.md): a Helm chart is published as a drift-checked
+packaging of `deploy/`, which stays the source of truth.
 
 ## Context
 

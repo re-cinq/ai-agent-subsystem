@@ -68,6 +68,10 @@ built:
 kubectl apply -f https://github.com/re-cinq/ai-agent-subsystem/releases/latest/download/install.yaml
 ```
 
+Helm users can install the same objects from the signed OCI chart,
+`helm install ai-agent-subsystem oci://ghcr.io/re-cinq/charts/ai-agent-subsystem --namespace default`
+(see the [install guide](https://re-cinq.github.io/ai-agent-subsystem/setup/install/#install-with-helm)).
+
 Verify the controller is up and reconciling:
 
 ```sh
