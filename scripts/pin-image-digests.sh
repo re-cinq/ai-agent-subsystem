@@ -108,7 +108,7 @@ ref, paths = sys.argv[1], sys.argv[2:]
 patterns = [
     (re.compile(r"(/releases/download/)[^/]+(/install\.yaml)"), r"\g<1>" + ref + r"\g<2>"),
     (re.compile(r"(?m)^TAG=v\S+"), "TAG=" + ref),
-    (re.compile(r"(ai-agent-subsystem//deploy\S*\?ref=)v\S+"), r"\g<1>" + ref),
+    (re.compile(r"(ai-agent-subsystem//deploy\S*?\?ref=)v[0-9][0-9A-Za-z.+-]*"), r"\g<1>" + ref),
 ]
 landed = 0
 for path in paths:

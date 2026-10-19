@@ -6,6 +6,12 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+- **The release pin step no longer breaks the realtime guide's release URLs.** Its `?ref=` rewrite
+  matched `v\S+`, which swallowed the closing backtick and comma after the version, so v0.13.0's
+  *Realtime sessions* page rendered both component URLs as broken code spans. It now matches only
+  the version, and the page is repaired.
+
 ## v0.13.0
 
 ### Added
