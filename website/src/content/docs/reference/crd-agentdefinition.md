@@ -3,7 +3,7 @@ title: AgentDefinition CRD
 description: Full field reference for the AgentDefinition custom resource.
 ---
 
-**Group/Version:** `agents.re-cinq.com/v1alpha1` · **Kind:** `AgentDefinition` · **Scope:**
+**Group/Version:** `agents.re-cinq.com/v1beta1` · **Kind:** `AgentDefinition` · **Scope:**
 Namespaced · **Short names:** `agentdef`, `ad`
 
 The recipe. It has a `spec` and no `status`.

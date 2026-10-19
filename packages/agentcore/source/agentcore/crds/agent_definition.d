@@ -2,6 +2,7 @@ module agentcore.crds.agent_definition;
 
 import agentcore.crds.object_meta : ObjectMeta;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
+import agentcore.crds.api_group : crApiVersion;
 import agentcore.crds.schema;
 
 @Plural("agentdefinitions")
@@ -10,7 +11,7 @@ import agentcore.crds.schema;
 @PrinterColumn("Age", "date", ".metadata.creationTimestamp")
 struct AgentDefinition
 {
-	@optional string apiVersion = "agents.re-cinq.com/v1alpha1";
+	@optional string apiVersion = crApiVersion;
 	@optional string kind = "AgentDefinition";
 	@optional ObjectMeta metadata;
 	@optional AgentDefinitionSpec spec;

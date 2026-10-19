@@ -11,6 +11,8 @@
 #   D) realtime: with the realtime component applied, a realtime Agent takes prompts
 #      through the controller's prompt API, records its session id, ends on close as
 #      Succeeded, and refuses a finished run (409) or a caller without the token (401).
+#   E) API versions: a v1alpha1 Agent is accepted with a deprecation warning, reads back
+#      at both v1alpha1 and v1beta1, and the controller runs it to Succeeded.
 #   C) scale (opt-in, LOAD=<N>): drive N Agents through one Station and assert they all
 #      reach Succeeded while the controller stays Ready — exercises the informer-cache
 #      reconcile loop at hundreds of Agents. Off unless LOAD is set; needs pod capacity.
@@ -31,7 +33,7 @@ install_subsystem "$itest_image"
 echo "== Scenario A: controller wiring (mock agent, no secret) =="
 agent=mock-run
 k apply -f - <<'YAML'
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: AgentDefinition
 metadata: { name: mock-writer, namespace: ai-agents }
 spec:
@@ -39,7 +41,7 @@ spec:
   prompt: "say hello"
   output: { format: stream-json, sinks: [{ type: stdout }] }
 ---
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: Station
 metadata: { name: mock-station, namespace: ai-agents }
 spec:
@@ -53,7 +55,7 @@ spec:
           image: ai-agent:itest      # has libssl3 for the staged supervisor + the mock
           imagePullPolicy: IfNotPresent
 ---
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: Agent
 metadata: { name: mock-run, namespace: ai-agents }
 spec: { stationRef: mock-station }
@@ -82,6 +84,24 @@ sleep 3
 k -n ai-agents get job "$job" >/dev/null 2>&1 && fail "Job not garbage-collected" || true
 echo "  PASS  Job garbage-collected via ownerReference"
 
+echo "== Scenario E: a v1alpha1 manifest is still served, deprecated, and runs =="
+agent=legacy-run
+warnings="$(k apply -f - 2>&1 >/dev/null <<'YAML'
+apiVersion: agents.re-cinq.com/v1alpha1
+kind: Agent
+metadata: { name: legacy-run, namespace: ai-agents }
+spec: { stationRef: mock-station }
+YAML
+)"
+echo "$warnings" | grep -q "agents.re-cinq.com/v1alpha1 Agent is deprecated" \
+	|| fail "no deprecation warning for a v1alpha1 apply (got: $warnings)"
+k -n ai-agents get agents.v1alpha1.agents.re-cinq.com "$agent" >/dev/null 2>&1 || fail "not readable at v1alpha1"
+k -n ai-agents get agents.v1beta1.agents.re-cinq.com "$agent" >/dev/null || fail "not readable at v1beta1"
+phase="$(wait_terminal "$agent")"
+[ "$phase" = "Succeeded" ] || fail "v1alpha1 agent phase is '$phase', expected Succeeded"
+k -n ai-agents delete agent "$agent" --wait=true
+echo "  PASS  v1alpha1 apply warns, reads at both versions, and runs to Succeeded"
+
 echo "== Scenario B: credential path (agent-secrets -> ANTHROPIC_API_KEY -> agent child) =="
 # Prove the production credential chain end to end with a FAKE key and no network:
 # the controller injects ANTHROPIC_API_KEY from the `agent-secrets` Secret via
@@ -96,7 +116,7 @@ agent=secret-run
 fake_key=sk-ant-itest-FAKE-9f3a
 k -n ai-agents create secret generic agent-secrets --from-literal=ANTHROPIC_API_KEY="$fake_key"
 k apply -f - <<YAML
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: AgentDefinition
 metadata: { name: secret-writer, namespace: ai-agents }
 spec:
@@ -107,7 +127,7 @@ spec:
     env: [{ name: AGENT_EXPECT_API_KEY, value: $fake_key }]
   output: { format: stream-json, sinks: [{ type: stdout }] }
 ---
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: Station
 metadata: { name: secret-station, namespace: ai-agents }
 spec:
@@ -121,7 +141,7 @@ spec:
           image: ai-agent:itest    # no ~/.claude mount: auth must come only from the Secret
           imagePullPolicy: IfNotPresent
 ---
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: Agent
 metadata: { name: secret-run, namespace: ai-agents }
 spec: { stationRef: secret-station }
@@ -171,7 +191,7 @@ k -n ai-agents patch deploy/agent-controller --type=strategic \
 k -n ai-agents rollout status deploy/agent-controller --timeout=90s
 
 k apply -f - <<'YAML'
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: AgentDefinition
 metadata: { name: rt-writer, namespace: ai-agents }
 spec:
@@ -180,7 +200,7 @@ spec:
   execution: realtime
   realtime: { idleTimeoutMinutes: 5 }
 ---
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: Station
 metadata: { name: rt-station, namespace: ai-agents }
 spec:
@@ -194,7 +214,7 @@ spec:
           image: ai-agent:itest
           imagePullPolicy: IfNotPresent
 ---
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: Agent
 metadata: { name: rt-run, namespace: ai-agents }
 spec: { stationRef: rt-station }
@@ -254,7 +274,7 @@ if [ "${LOAD:-0}" -gt 0 ]; then
 	load_n="${LOAD}"
 	echo "== Scenario C: load — ${load_n} Agents through one Station (opt-in) =="
 	k apply -f - <<'YAML'
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: AgentDefinition
 metadata: { name: load-writer, namespace: ai-agents }
 spec:
@@ -262,7 +282,7 @@ spec:
   prompt: "say hello"
   output: { format: stream-json, sinks: [{ type: stdout }] }
 ---
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: Station
 metadata: { name: load-station, namespace: ai-agents }
 spec:
@@ -281,7 +301,7 @@ YAML
 
 	echo "== create ${load_n} Agents =="
 	for i in $(seq 1 "$load_n"); do
-		printf 'apiVersion: agents.re-cinq.com/v1alpha1\nkind: Agent\nmetadata: { name: load-%s, namespace: ai-agents }\nspec: { stationRef: load-station }\n---\n' "$i"
+		printf 'apiVersion: agents.re-cinq.com/v1beta1\nkind: Agent\nmetadata: { name: load-%s, namespace: ai-agents }\nspec: { stationRef: load-station }\n---\n' "$i"
 	done | k apply -f - >/dev/null
 	echo "  created ${load_n} Agents"
 

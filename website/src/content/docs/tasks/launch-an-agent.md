@@ -7,7 +7,7 @@ An [Agent](../concepts/agent.md) is one run. Creating it triggers the controller
 build a Job, supervise it, and record the result.
 
 ```yaml
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: Agent
 metadata:
   generateName: bug-fixer-run-
@@ -31,7 +31,7 @@ The init container downloads each file into the workspace before the agent start
 can simply point at the path:
 
 ```yaml
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: Agent
 metadata:
   generateName: writer-run-
@@ -93,7 +93,7 @@ kubectl -n ai-agents create secret generic agent-secrets \
 ```
 
 ```yaml
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: AgentDefinition
 metadata: { name: auth-check, namespace: ai-agents }
 spec:
@@ -107,7 +107,7 @@ spec:
         ref: ANTHROPIC_API_KEY
   output: { format: stream-json, sinks: [{ type: stdout }] }
 ---
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: Station
 metadata: { name: auth-check-station, namespace: ai-agents }
 spec:
@@ -120,7 +120,7 @@ spec:
         - name: agent
           image: node:22-bookworm   # glibc-based + Node: the init container installs the Claude CLI
 ---
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: Agent
 metadata: { name: auth-check-run, namespace: ai-agents }
 spec: { stationRef: auth-check-station }

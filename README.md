@@ -226,7 +226,7 @@ the docs site goes deeper.
 
 Active development. The controller, supervisor, initializer, and the `agentcore` library are
 implemented and covered by unit + integration tests, and tagged releases publish signed, SBOM'd
-images plus a one-command `install.yaml`. The CRD APIs are `v1alpha1` (pre-GA) and may still change.
+images plus a one-command `install.yaml`. The CRD APIs are `v1beta1` (pre-GA; `v1alpha1` is still served, deprecated).
 See the [roadmap](https://re-cinq.github.io/ai-agent-subsystem/contribute/roadmap/) for direction.
 
 ## Releases

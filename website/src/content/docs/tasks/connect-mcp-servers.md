@@ -11,7 +11,7 @@ spec's argv or on disk.
 ## Declare the servers
 
 ```yaml
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: AgentDefinition
 metadata:
   name: triage

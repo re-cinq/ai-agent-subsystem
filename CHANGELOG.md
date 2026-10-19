@@ -6,6 +6,19 @@ the npm package versions.
 
 ## Unreleased
 
+### Changed
+- **The CRDs are now `agents.re-cinq.com/v1beta1`.** Objects are stored at `v1beta1`, and the
+  controller, the generated contracts and every example and doc use it. Nothing needs converting:
+  `v1alpha1` is still served with the same schema. The group and version are defined once
+  (`agentcore.crds.api_group`), and crdgen, tsgen, the controller's API paths and Job owner
+  references all read them from there. `@re-cinq/agent-contracts` now exports `GROUP` and
+  `VERSION` from its generated types, and `VERSION` is `"v1beta1"`.
+
+### Deprecated
+- **`agents.re-cinq.com/v1alpha1`** is still served, but the API server answers each request for
+  it with a deprecation warning. It won't be removed before `v1`. The install guide's *API versions
+  and upgrading* section shows how to rewrite existing objects so they are stored at `v1beta1`.
+
 ### Fixed
 - **The release pin step no longer breaks the realtime guide's release URLs.** Its `?ref=` rewrite
   matched `v\S+`, which swallowed the closing backtick and comma after the version, so v0.13.0's

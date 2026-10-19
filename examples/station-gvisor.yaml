@@ -8,7 +8,7 @@
 # as a header line here on purpose: CI clusters have no gVisor, so `make itest-examples`
 # only schema-checks this file.
 ---
-apiVersion: agents.re-cinq.com/v1alpha1
+apiVersion: agents.re-cinq.com/v1beta1
 kind: Station
 metadata:
   name: story-writer-gvisor

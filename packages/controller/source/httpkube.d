@@ -27,9 +27,10 @@ import agentcore.kube.outputcap : capOutput;
 import agentcore.models.catalog : ModelCatalogClient, modelCatalogName;
 import agentcore.reconcile.reconcile : JobOutcome;
 
+import agentcore.crds.api_group : crGroup, crVersion;
+
 import incluster : ClusterConfig;
 
-enum crGroup = "agents.re-cinq.com";
 
 /// Defensive ceilings on how much a single API-server read may buffer, so a pathological
 /// or malformed response can't grow controller memory without bound. A watch line carries
@@ -38,7 +39,6 @@ enum crGroup = "agents.re-cinq.com";
 /// same as any other read error, instead of reading unboundedly.
 enum maxWatchLineBytes = 4 * 1024 * 1024;
 enum maxResponseBytes = 64 * 1024 * 1024;
-enum crVersion = "v1alpha1";
 
 /// Server-side apply as the controller's field manager, taking over fields another manager set.
 enum applyQuery = "?fieldManager=ai-agent-controller&force=true";
@@ -601,9 +601,9 @@ unittest
 	// connection.
 	auto client = new HttpKubeClient(ClusterConfig("https://api:443", "tok", "/ca", "ai-agents"));
 	client.crUrl("ai-agents", "agents", "run-1").should.equal(
-		"https://api:443/apis/agents.re-cinq.com/v1alpha1/namespaces/ai-agents/agents/run-1");
+		"https://api:443/apis/agents.re-cinq.com/v1beta1/namespaces/ai-agents/agents/run-1");
 	client.crCollectionUrl("ai-agents", "stations").should.equal(
-		"https://api:443/apis/agents.re-cinq.com/v1alpha1/namespaces/ai-agents/stations");
+		"https://api:443/apis/agents.re-cinq.com/v1beta1/namespaces/ai-agents/stations");
 	client.jobUrl("ai-agents", "agent-job-run-1").should.equal(
 		"https://api:443/apis/batch/v1/namespaces/ai-agents/jobs/agent-job-run-1");
 	client.podLogUrl("ai-agents", "p1").should.equal(
@@ -696,7 +696,7 @@ unittest // patchAgent sends the finalizer patch as application/json-patch+json 
 
 	client.patchAgent("ai-agents", "run-1", parseJsonString(`[{"op":"remove","path":"/metadata/finalizers/0"}]`));
 
-	received.should.equal("PATCH /apis/agents.re-cinq.com/v1alpha1/namespaces/ai-agents/agents/run-1 "
+	received.should.equal("PATCH /apis/agents.re-cinq.com/v1beta1/namespaces/ai-agents/agents/run-1 "
 		~ `application/json-patch+json [{"op":"remove","path":"/metadata/finalizers/0"}]`);
 }
 
@@ -721,7 +721,7 @@ unittest // applyModelCatalog server-side applies the default ModelCatalog, then
 
 	client.applyModelCatalog("ai-agents", parseJsonString(`{"kind":"ModelCatalog"}`));
 
-	const url = "/apis/agents.re-cinq.com/v1alpha1/namespaces/ai-agents/modelcatalogs/default";
+	const url = "/apis/agents.re-cinq.com/v1beta1/namespaces/ai-agents/modelcatalogs/default";
 	received.should.equal([
 		"PATCH " ~ url ~ `?fieldManager=ai-agent-controller&force=true application/apply-patch+yaml {"kind":"ModelCatalog"}`,
 		"PATCH " ~ url ~ `/status?fieldManager=ai-agent-controller&force=true application/apply-patch+yaml {"kind":"ModelCatalog"}`
@@ -750,5 +750,5 @@ unittest // listAgentDefinitions reads the namespace's AgentDefinitions review a
 
 	client.listAgentDefinitions("ai-agents").map!(definition => definition.metadata.name).array
 		.should.equal(["review", "triage"]);
-	requested.should.equal("/apis/agents.re-cinq.com/v1alpha1/namespaces/ai-agents/agentdefinitions");
+	requested.should.equal("/apis/agents.re-cinq.com/v1beta1/namespaces/ai-agents/agentdefinitions");
 }

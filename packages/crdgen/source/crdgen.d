@@ -18,6 +18,7 @@ import vibe.data.json : Json;
 import described : describe;
 import openapi.definitions : SchemaType;
 
+import agentcore.crds.api_group : crDeprecatedVersion;
 import agentcore.crds.schema;
 import agentcore.crds.agent : Agent;
 import agentcore.crds.agent_definition : AgentDefinition;
@@ -285,44 +286,56 @@ string crdYaml(T)()
 	s ~= "    shortNames:\n";
 	static foreach (name; shortNames)
 		s ~= "      - " ~ name ~ "\n";
-	s ~= "  versions:\n";
-	s ~= "    - name: " ~ version_ ~ "\n";
-	s ~= "      served: true\n";
-	s ~= "      storage: true\n";
+	string body;
 	static if (hasStatus)
 	{
-		s ~= "      subresources:\n";
-		s ~= "        status: {}\n";
+		body ~= "      subresources:\n";
+		body ~= "        status: {}\n";
 	}
-	s ~= "      additionalPrinterColumns:\n";
+	body ~= "      additionalPrinterColumns:\n";
 	static foreach (column; columns)
 	{
-		s ~= "        - name: " ~ column.name ~ "\n";
-		s ~= "          type: " ~ column.type ~ "\n";
-		s ~= "          jsonPath: " ~ column.jsonPath ~ "\n";
+		body ~= "        - name: " ~ column.name ~ "\n";
+		body ~= "          type: " ~ column.type ~ "\n";
+		body ~= "          jsonPath: " ~ column.jsonPath ~ "\n";
 	}
-	s ~= "      schema:\n";
-	s ~= "        openAPIV3Schema:\n";
-	s ~= "          type: object\n";
+	body ~= "      schema:\n";
+	body ~= "        openAPIV3Schema:\n";
+	body ~= "          type: object\n";
 	static if (crdDescription.length > 0)
-		s ~= "          description: " ~ yamlStr(crdDescription) ~ "\n";
+		body ~= "          description: " ~ yamlStr(crdDescription) ~ "\n";
 	static if (hasSpec)
 	{
-		s ~= "          required:\n";
-		s ~= "            - spec\n";
+		body ~= "          required:\n";
+		body ~= "            - spec\n";
 	}
-	s ~= "          properties:\n";
+	body ~= "          properties:\n";
 	static if (hasSpec)
 	{
-		s ~= "            spec:\n";
-		s ~= emitType!(typeof(T.init.spec))(7, Deco.init);
+		body ~= "            spec:\n";
+		body ~= emitType!(typeof(T.init.spec))(7, Deco.init);
 	}
 	static if (hasStatus)
 	{
 		alias StatusT = typeof(T.init.status);
-		s ~= "            status:\n";
-		s ~= emitType!StatusT(7, Deco.init);
+		body ~= "            status:\n";
+		body ~= emitType!StatusT(7, Deco.init);
 	}
+
+	// Both versions share one schema, so the API server's default `None` conversion is
+	// lossless and no conversion webhook is needed.
+	s ~= "  versions:\n";
+	s ~= "    - name: " ~ version_ ~ "\n";
+	s ~= "      served: true\n";
+	s ~= "      storage: true\n";
+	s ~= body;
+	s ~= "    - name: " ~ crDeprecatedVersion ~ "\n";
+	s ~= "      served: true\n";
+	s ~= "      storage: false\n";
+	s ~= "      deprecated: true\n";
+	s ~= "      deprecationWarning: " ~ yamlStr(group ~ "/" ~ crDeprecatedVersion ~ " " ~ kind
+		~ " is deprecated; use " ~ apiVersion) ~ "\n";
+	s ~= body;
 	return s;
 }
 
@@ -415,4 +428,15 @@ unittest // ModelCatalog has no spec, so its schema neither requires nor declare
 	const yaml = crdYaml!ModelCatalog();
 	[yaml.canFind("- spec"), yaml.canFind("            spec:"), yaml.canFind("status: {}"),
 		yaml.canFind(`description: "The models the subsystem can run`)].should.equal([false, false, true, true]);
+}
+
+unittest // Agent is stored at v1beta1 and still served at v1alpha1, deprecated, with the same schema
+{
+	const yaml = crdYaml!Agent();
+	const stored = yaml.indexOf("    - name: v1beta1\n      served: true\n      storage: true\n");
+	const servedOnly = yaml.indexOf("    - name: v1alpha1\n      served: true\n      storage: false\n      deprecated: true\n"
+		~ `      deprecationWarning: "agents.re-cinq.com/v1alpha1 Agent is deprecated; use agents.re-cinq.com/v1beta1"` ~ "\n");
+	[stored > 0, servedOnly > stored].should.equal([true, true]);
+	yaml[stored .. servedOnly].canFind("openAPIV3Schema").should.equal(true);
+	yaml[servedOnly .. $].canFind("openAPIV3Schema").should.equal(true);
 }
