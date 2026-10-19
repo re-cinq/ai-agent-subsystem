@@ -76,6 +76,11 @@ A definition the CLI cannot honour fails the Agent before a Job is created, with
 `status.failureReason`. That covers `mcp_servers` on `exec`, `sse` on Codex, a duplicate or invalid
 name, `http`/`sse` without `url`, `stdio` without `command`, `headers` on a stdio server or `env`
 on a remote one, a header or variable name that is invalid or repeated, and an entry without `ref`.
+It also covers two credentials whose names fold to the same pod variable with different `ref`s, for
+example server `a-b` with header `C` and server `a` with header `B-C` (both `MCP_A_B_C`), or servers
+`Tools` and `tools`. The run pod can carry only one value under that name, so the controller refuses
+the definition (`… lands on env var MCP_A_B_C, which another credential already uses`) instead of
+handing one server the other's secret. Rename the server, header or variable.
 
 A headless gemini-cli run can only call MCP tools under `permission_mode: bypass`; see
 [agent runtime](../concepts/agent-runtime.md).
