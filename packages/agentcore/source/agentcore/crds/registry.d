@@ -20,6 +20,7 @@ import agentcore.crds.output_sink : OutputSink;
 import agentcore.crds.output_watch : OutputWatch;
 import agentcore.crds.watch_upload : WatchUpload;
 import agentcore.crds.input_file : InputFile;
+import agentcore.crds.delivery_spec : DeliverySpec, PullRequestDelivery;
 import agentcore.crds.output_spec : OutputSpec;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec, BatchSpec, RealtimeSpec;
 import agentcore.crds.agent_definition : AgentDefinition;
@@ -42,6 +43,6 @@ alias CrdEnums = AliasSeq!(PermissionMode, McpTransport, OutputFormat,
 /// Every struct, dependency-first so the generated files read top-down.
 alias CrdStructs = AliasSeq!(ObjectMeta, EnvVar, SecretRef, McpHeader, McpServer, RepoRef,
 	ConversationRef, AgentResources, OutputSelector, OutputSink, WatchUpload, OutputWatch, OutputSpec,
-	BatchSpec, RealtimeSpec, AgentDefinitionSpec, AgentDefinition, StationSpec, Station, InputFile, AgentSpec,
-	AgentStatus, Agent, ModelInfo, VendorModels, ModelCatalogStatus, ModelCatalog, GitHubTrigger, AgentSpawnerSpec,
-	AgentSpawnerStatus, AgentSpawner);
+	PullRequestDelivery, DeliverySpec, BatchSpec, RealtimeSpec, AgentDefinitionSpec, AgentDefinition, StationSpec,
+	Station, InputFile, AgentSpec, AgentStatus, Agent, ModelInfo, VendorModels, ModelCatalogStatus, ModelCatalog,
+	GitHubTrigger, AgentSpawnerSpec, AgentSpawnerStatus, AgentSpawner);
