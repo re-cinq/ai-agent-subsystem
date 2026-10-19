@@ -114,7 +114,10 @@ string headerEnvName(in McpServer server) @safe pure
 /// Why `servers` cannot be handed to the `vendor` agent CLI, or "" when they can. The
 /// exec runner has no CLI to read them and Codex speaks no sse — without this check those
 /// servers would be dropped without a word. Each entry needs a unique name that every
-/// CLI's config accepts as a key, and the field its transport connects through.
+/// CLI's config accepts as a key, and the field its transport connects through. Two
+/// credentials whose names fold to the same pod env var (`a-b`/`C` and `a`/`B-C`, or
+/// servers `Tools` and `tools`) are refused unless they carry the same secret: the
+/// controller injects only the first, so the other server would send its secret.
 string mcpViolation(in McpServer[] servers, string vendor) @safe pure
 {
 	import std.algorithm.searching : all, canFind;
@@ -123,6 +126,8 @@ string mcpViolation(in McpServer[] servers, string vendor) @safe pure
 	if (servers.length && vendor == "exec")
 		return "the exec model does not support resources.mcp_servers";
 	string[] seen;
+	string[] injectedVars;
+	string[] injectedSecrets;
 	foreach (server; servers)
 	{
 		if (!server.name.length)
@@ -166,6 +171,15 @@ string mcpViolation(in McpServer[] servers, string vendor) @safe pure
 		foreach (credential; credentials(server))
 			if (!credential.secret.length)
 				return where ~ "\"" ~ credential.name ~ "\" has no ref";
+		foreach (credential; credentials(server))
+		{
+			foreach (i, envVar; injectedVars)
+				if (envVar == credential.envVar && injectedSecrets[i] != credential.secret)
+					return where ~ "\"" ~ credential.name ~ "\" lands on env var " ~ envVar
+						~ ", which another credential already uses; rename the server, header or env";
+			injectedVars ~= credential.envVar;
+			injectedSecrets ~= credential.secret;
+		}
 	}
 	return "";
 }
@@ -260,4 +274,29 @@ version (unittest) import fluent.asserts;
 	withEnv.env = [SecretRef("GITHUB_TOKEN", "gh-token")];
 	stdioLaunch(withEnv).should.equal(["sh", "-c",
 		`export GITHUB_TOKEN="$MCP_GH_GITHUB_TOKEN"; exec "$0" "$@"`, "gh-mcp", "--ro"]);
+}
+
+@safe unittest // credentials that fold to one pod env var are refused unless they carry the same secret
+{
+	McpServer http(string name, string headersSecret, McpHeader[] headers)
+	{
+		return McpServer(name, McpTransport.http, "", null, "https://x", headersSecret, headers);
+	}
+
+	const violations = [
+		mcpViolation([http("a-b", "", [McpHeader("C", "k1")]), http("a", "", [McpHeader("B-C", "k2")])], "claude"),
+		mcpViolation([http("Tools", "", [McpHeader("X-Key", "k1")]), http("tools", "", [McpHeader("X-Key", "k2")])], "claude"),
+		mcpViolation([http("one", "x-y", null), http("two", "x_y", null)], "claude"),
+		mcpViolation([McpServer("t", McpTransport.stdio, "c", null, "", "", [], [SecretRef("a", "k1"), SecretRef("A", "k2")])], "claude"),
+		mcpViolation([http("one", "shared-auth", null), http("two", "shared-auth", null)], "claude"),
+		mcpViolation([http("Tools", "", [McpHeader("X-Key", "k1")]), http("tools", "", [McpHeader("X-Key", "k1")])], "claude"),
+	];
+	violations.should.equal([
+		`resources.mcp_servers "a" "B-C" lands on env var MCP_A_B_C, which another credential already uses; rename the server, header or env`,
+		`resources.mcp_servers "tools" "X-Key" lands on env var MCP_TOOLS_X_KEY, which another credential already uses; rename the server, header or env`,
+		`resources.mcp_servers "two" "Authorization" lands on env var X_Y, which another credential already uses; rename the server, header or env`,
+		`resources.mcp_servers "t" "A" lands on env var MCP_T_A, which another credential already uses; rename the server, header or env`,
+		"",
+		"",
+	]);
 }

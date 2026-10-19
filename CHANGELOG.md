@@ -84,6 +84,14 @@ the npm package versions.
   matched `v\S+`, which swallowed the closing backtick and comma after the version, so v0.13.0's
   *Realtime sessions* page rendered both component URLs as broken code spans. It now matches only
   the version, and the page is repaired.
+- **Two MCP credentials that map to the same pod variable no longer leak one server's secret to
+  the other.** Credential names fold to `MCP_<SERVER>_<NAME>` (and a legacy `headers_secret` to its
+  key in capitals), so server `a-b` with header `C` and server `a` with header `B-C`, or servers
+  `Tools` and `tools`, landed on one variable. The controller injected only the first, and the
+  second server silently sent the first one's secret. Such a definition now fails the Agent with
+  `resources.mcp_servers "<server>" "<name>" lands on env var <VAR>, which another credential already
+  uses; rename the server, header or env`. Credentials that share a variable and the same `ref`
+  stay allowed.
 
 ## v0.13.0
 
