@@ -27,6 +27,8 @@ struct ClusterConfig
 	string realtimeApiToken; /// the bearer prompt API callers present
 	string realtimeSigningKey; /// the key realtime run tokens are derived from
 	ushort realtimeApiPort = defaultRealtimeApiPort; /// where the prompt API listens
+	bool webhooksEnabled; /// whether the controller serves GitHub webhooks (opt-in)
+	ushort webhookPort = defaultWebhookPort; /// where the webhook receiver listens
 
 	/// Realtime execution runs only with both secrets set (the realtime component).
 	bool realtimeEnabled() const @safe pure nothrow
@@ -44,6 +46,14 @@ enum envRealtimeSigningKey = "REALTIME_SIGNING_KEY";
 enum envRealtimeApiPort = "REALTIME_API_PORT";
 /// ditto
 enum ushort defaultRealtimeApiPort = 8082;
+
+/// Env setting that opts the controller into serving GitHub webhooks for AgentSpawners;
+/// off unless set to "true".
+enum envWebhooksEnabled = "WEBHOOKS_ENABLED";
+/// Env setting for the webhook receiver's port, and its default.
+enum envWebhookPort = "WEBHOOK_PORT";
+/// ditto
+enum ushort defaultWebhookPort = 8083;
 
 /// Env setting that opts the controller into publishing the ModelCatalog; off unless set to "true".
 enum envModelCatalogEnabled = "MODEL_CATALOG_ENABLED";
@@ -109,6 +119,9 @@ ClusterConfig loadClusterConfig()
 	config.realtimeSigningKey = environment.get(envRealtimeSigningKey, "");
 	config.realtimeApiPort = parseCount(envRealtimeApiPort,
 		environment.get(envRealtimeApiPort, defaultRealtimeApiPort.to!string)).to!ushort;
+	config.webhooksEnabled = parseFlag(envWebhooksEnabled, environment.get(envWebhooksEnabled, "false"));
+	config.webhookPort = parseCount(envWebhookPort,
+		environment.get(envWebhookPort, defaultWebhookPort.to!string)).to!ushort;
 	return config;
 }
 

@@ -63,6 +63,46 @@ Secret itself), opens the [prompt API](./prompt-api.md) on port 8082 behind the
 `agent-controller-api` Service, and adds the `agent-job-realtime-ingress` NetworkPolicy described
 [below](#network-policy-for-run-pods).
 
+### Webhooks component (opt-in)
+
+[GitHub webhooks](../tasks/trigger-from-github.md) need the controller to read the HMAC key a
+spawner's `github.secretRef` names. The `deploy/components/webhooks` component adds a separate
+`agent-controller-webhooks` Role and RoleBinding with `get` on the `agent-secrets` Secret only, sets
+`WEBHOOKS_ENABLED=true` and `WEBHOOK_PORT=8083`, and adds the `agent-controller-webhooks` Service on
+port 8083. The tradeoff is the same as for the batch component: the controller can read every key in
+`agent-secrets`, though it only reads the keys spawners name.
+
+```yaml
+components:
+  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/webhooks?ref=v0.13.0
+```
+
+The component adds no NetworkPolicy. No policy selects the controller pods, so their ingress is open
+and your ingress controller can already reach 8083. A policy selecting them would deny every port it
+does not list, including health and metrics on 8081 and the prompt API on 8082. If your namespace
+denies ingress by default, admit your ingress controller to 8083 yourself:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-controller-webhooks-ingress
+  namespace: ai-agents
+spec:
+  podSelector:
+    matchLabels:
+      agents.re-cinq.com/component: controller
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx   # your ingress controller's namespace
+      ports:
+        - protocol: TCP
+          port: 8083
+```
+
 ## Caller role
 
 A separate, narrower role lets other in-cluster apps launch and inspect runs **without** touching

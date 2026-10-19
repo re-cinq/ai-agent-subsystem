@@ -160,7 +160,10 @@ opt-in through the `deploy/components/model-catalog` kustomize component.
 
 An **AgentSpawner** (`kubectl get asp`) creates an Agent in a Station on a five-field cron schedule,
 so recurring work needs no external scheduler
-([schedule runs](https://re-cinq.github.io/ai-agent-subsystem/tasks/schedule-runs/)).
+([schedule runs](https://re-cinq.github.io/ai-agent-subsystem/tasks/schedule-runs/)), or for each
+signed GitHub webhook delivery it matches, such as an issue getting a label
+([trigger runs from GitHub](https://re-cinq.github.io/ai-agent-subsystem/tasks/trigger-from-github/)).
+Webhooks are opt-in through the `deploy/components/webhooks` kustomize component.
 
 ## Architecture
 

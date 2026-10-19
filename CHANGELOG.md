@@ -7,6 +7,19 @@ the npm package versions.
 ## Unreleased
 
 ### Added
+- **AgentSpawner: runs from signed GitHub webhooks.** A spawner's new `spec.github` trigger
+  (`secretRef`, `events` such as `issues.labeled`, optional `label` and `repository` filters) starts
+  a run for each matching delivery to `POST /v1/namespaces/<ns>/agentspawners/<name>/github`, served
+  on port 8083 by every controller replica. The receiver checks `X-Hub-Signature-256` against the
+  HMAC key the spawner names in `agent-secrets` in constant time (401 when missing or wrong; 404 for
+  an unknown spawner; 413 over 1 MiB; 202 with the reason for a signed delivery that does not
+  match). The Agent is named `<spawner>-<X-GitHub-Delivery>` and labelled
+  `agents.re-cinq.com/github-delivery`, so a redelivery starts no second run. The issue fills the
+  `issue_number`, `issue_title`, `issue_body`, `issue_url` and `repo` parameters and `targetRepo`;
+  a webhook run never carries the `git_credential` parameters. `schedule` is now optional: a
+  spawner needs `schedule`, `github` or both. Opt in with the `deploy/components/webhooks` component
+  (Service, `WEBHOOKS_ENABLED`, `get` on `agent-secrets`). Issue text is untrusted prompt input; see
+  [Trigger runs from GitHub](https://re-cinq.github.io/ai-agent-subsystem/tasks/trigger-from-github/).
 - **Go contracts: `github.com/re-cinq/ai-agent-subsystem/packages/agent-contracts-go`.** Typed Go
   structs for every CRD, generated from the same D model as the CRDs and the TS package (new
   `ai-agent-tsgen emit-go`), with DeepCopy methods, `*List` types and `AddToScheme` for client-go

@@ -34,6 +34,7 @@ import agentcore.spawner.spawner : SpawnerClient, spawnerLabel;
 import agentcore.crds.api_group : crGroup, crVersion;
 
 import incluster : ClusterConfig;
+import webhook : WebhookCluster;
 
 
 /// Defensive ceilings on how much a single API-server read may buffer, so a pathological
@@ -119,7 +120,8 @@ interface LeaseClient
 /// bearer-token auth, the cluster CA added to the TLS trust store, and
 /// merge-patch for the status subresource. The long-lived watch stream
 /// (`watchAgents`) is controller-only and sits beside the interface.
-final class HttpKubeClient : KubeClient, LeaseClient, AgentInformerClient, ModelCatalogClient, SpawnerClient
+final class HttpKubeClient : KubeClient, LeaseClient, AgentInformerClient, ModelCatalogClient, SpawnerClient,
+	WebhookCluster
 {
 	private ClusterConfig config;
 	private HTTPClientSettings settings; /// normal requests: short read timeout
@@ -311,9 +313,14 @@ final class HttpKubeClient : KubeClient, LeaseClient, AgentInformerClient, Model
 			"agents of spawner " ~ spawner.metadata.name)).items;
 	}
 
-	override void createAgent(string ns, Json agent)
+	override bool createAgent(string ns, Json agent)
 	{
-		send(HTTPMethod.POST, crCollectionUrl(ns, "agents"), agent, "application/json", [201, 409]);
+		return send(HTTPMethod.POST, crCollectionUrl(ns, "agents"), agent, "application/json", [201, 409]) == 201;
+	}
+
+	override AgentSpawner getAgentSpawner(string ns, string name)
+	{
+		return fromJson!AgentSpawner(getJson(crUrl(ns, "agentspawners", name), "AgentSpawner " ~ name));
 	}
 
 	override void patchAgentSpawnerStatus(string ns, string name, Json statusPatch)
@@ -786,7 +793,7 @@ unittest // listAgentDefinitions reads the namespace's AgentDefinitions review a
 	requested.should.equal("/apis/agents.re-cinq.com/v1beta1/namespaces/ai-agents/agentdefinitions");
 }
 
-unittest // the spawner lists spawners, lists a spawner's Agents by label, creates an Agent and patches spawner status
+unittest // the spawner client lists spawners and their Agents, gets a spawner, creates an Agent and patches status
 {
 	import std.algorithm.iteration : map;
 	import std.array : array;
@@ -812,13 +819,15 @@ unittest // the spawner lists spawners, lists a spawner's Agents by label, creat
 	auto spawners = client.listAgentSpawners("ai-agents");
 	spawners.map!(spawner => spawner.spec.schedule).array.should.equal(["0 3 * * *"]);
 	client.listSpawnedAgents("ai-agents", spawners[0]);
-	client.createAgent("ai-agents", parseJsonString(`{"kind":"Agent"}`));
+	client.getAgentSpawner("ai-agents", "nightly");
+	client.createAgent("ai-agents", parseJsonString(`{"kind":"Agent"}`)).should.equal(true);
 	client.patchAgentSpawnerStatus("ai-agents", "nightly", parseJsonString(`{"status":{"lastAgent":"a"}}`));
 
 	const base = "/apis/agents.re-cinq.com/v1beta1/namespaces/ai-agents/";
 	received.should.equal([
 		"GET " ~ base ~ "agentspawners  ",
 		"GET " ~ base ~ "agents?labelSelector=agents.re-cinq.com/spawner=nightly  ",
+		"GET " ~ base ~ "agentspawners/nightly  ",
 		"POST " ~ base ~ `agents application/json {"kind":"Agent"}`,
 		"PATCH " ~ base ~ `agentspawners/nightly/status application/merge-patch+json {"status":{"lastAgent":"a"}}`
 	]);

@@ -1177,13 +1177,51 @@ func (in *ModelCatalogList) DeepCopyObject() runtime.Object {
 	return in.DeepCopy()
 }
 
-// Creates an Agent in a Station on a cron schedule.
+// Starts a run for each signed GitHub webhook delivery that matches.
+type GitHubTrigger struct {
+	// Key in the agent-secrets Secret holding the webhook's HMAC secret.
+	SecretRef string `json:"secretRef"`
+
+	// Deliveries that start a run, as <X-GitHub-Event>.<action> (issues.labeled); an event without an action by its name alone.
+	Events []string `json:"events"`
+
+	// Only issues carrying this label start a run; for issues.labeled, only when it is the label just added.
+	Label string `json:"label,omitempty"`
+
+	// Only deliveries from this owner/name repository start a run.
+	Repository string `json:"repository,omitempty"`
+}
+
+// DeepCopyInto copies the receiver into out. in must be non-nil.
+func (in *GitHubTrigger) DeepCopyInto(out *GitHubTrigger) {
+	*out = *in
+	if in.Events != nil {
+		in, out := &in.Events, &out.Events
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
+}
+
+// DeepCopy returns a deep copy of the receiver.
+func (in *GitHubTrigger) DeepCopy() *GitHubTrigger {
+	if in == nil {
+		return nil
+	}
+	out := new(GitHubTrigger)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// Creates an Agent in a Station on a cron schedule, on GitHub webhook deliveries, or both.
 type AgentSpawnerSpec struct {
 	// The Station each spawned Agent runs in.
 	StationRef string `json:"stationRef"`
 
 	// Five-field cron expression (minute hour day-of-month month day-of-week), evaluated in UTC.
-	Schedule string `json:"schedule"`
+	Schedule string `json:"schedule,omitempty"`
+
+	// Starts a run for each matching GitHub webhook delivery.
+	Github GitHubTrigger `json:"github,omitzero"`
 
 	// Copied verbatim into every spawned Agent's spec.parameters.
 	Parameters map[string]string `json:"parameters,omitempty"`
@@ -1198,6 +1236,7 @@ type AgentSpawnerSpec struct {
 // DeepCopyInto copies the receiver into out. in must be non-nil.
 func (in *AgentSpawnerSpec) DeepCopyInto(out *AgentSpawnerSpec) {
 	*out = *in
+	in.Github.DeepCopyInto(&out.Github)
 	if in.Parameters != nil {
 		in, out := &in.Parameters, &out.Parameters
 		*out = make(map[string]string, len(*in))

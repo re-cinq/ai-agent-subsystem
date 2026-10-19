@@ -1,0 +1,15 @@
+# The GitHub webhook receiver. Every controller replica serves it, leader or not.
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-controller-webhooks
+  namespace: ai-agents
+  labels:
+    agents.re-cinq.com/component: controller
+spec:
+  selector:
+    agents.re-cinq.com/component: controller
+  ports:
+    - name: webhooks
+      port: 8083
+      targetPort: webhooks

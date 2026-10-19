@@ -1,14 +1,15 @@
 ---
 title: AgentSpawner CRD
-description: Field reference for the AgentSpawner custom resource, which creates Agents on a cron schedule.
+description: Field reference for the AgentSpawner custom resource, which creates Agents on a cron schedule or from GitHub webhooks.
 ---
 
 **Group/Version:** `agents.re-cinq.com/v1beta1` · **Kind:** `AgentSpawner` · **Scope:** Namespaced ·
 **Short name:** `asp`
 
-Creates an Agent in a Station on a cron schedule. It has a `spec` you write and a `status` the
-controller writes. The kind was added at `v1beta1` and is not served at `v1alpha1`. For a walkthrough,
-see [Schedule runs](../tasks/schedule-runs.md).
+Creates an Agent in a Station on a cron schedule, for each matching signed GitHub webhook delivery,
+or both. It has a `spec` you write and a `status` the controller writes. The kind was added at
+`v1beta1` and is not served at `v1alpha1`. For walkthroughs, see
+[Schedule runs](../tasks/schedule-runs.md) and [Trigger runs from GitHub](../tasks/trigger-from-github.md).
 
 `kubectl get asp` prints the `Schedule`, `Station`, `Suspend`, `Last Schedule` and `Age` columns.
 
@@ -17,10 +18,44 @@ see [Schedule runs](../tasks/schedule-runs.md).
 | Field | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `stationRef` | string | *required* | The Station each spawned Agent runs in. A DNS-1123 name. |
-| `schedule` | string | *required* | Five-field cron expression, evaluated in **UTC**. See [Schedule syntax](#schedule-syntax). |
+| `schedule` | string | none | Five-field cron expression, evaluated in **UTC**. See [Schedule syntax](#schedule-syntax). |
+| `github` | object | none | Starts a run for each matching signed GitHub webhook delivery. See [`spec.github`](#specgithub). |
 | `parameters` | map[string]string | `{}` | Copied as-is into every spawned Agent's `spec.parameters`; they fill the recipe's `{name}` prompt tokens. |
 | `concurrencyPolicy` | enum | `Allow` | `Allow` starts a run on every tick. `Forbid` skips a tick while an Agent this spawner created is still `Pending` or `Running`. An unknown value is treated as `Allow`. |
-| `suspend` | bool | `false` | `true` stops new runs. Runs already started are not touched. |
+| `suspend` | bool | `false` | `true` stops new runs, scheduled or from webhooks. Runs already started are not touched. |
+
+A spawner needs `schedule`, `github`, or both. The API server rejects one with neither
+(`set schedule, github, or both`).
+
+### `spec.github`
+
+Needs the [webhooks component](../tasks/trigger-from-github.md#enable-webhooks-on-the-controller).
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `secretRef` | string | *required* | Key in the `agent-secrets` Secret holding the webhook's HMAC secret. |
+| `events` | []string | *required* | Deliveries that start a run, as `<X-GitHub-Event>.<action>` (`issues.opened`, `issues.labeled`). An event without an `action` is listed by its name alone. |
+| `label` | string | none | Only issues carrying this label start a run. For `issues.labeled`, only when it is the label just added. |
+| `repository` | string | none | `owner/name`. Only deliveries whose `repository.full_name` equals it (ignoring case) start a run. |
+
+The receiver serves `POST /v1/namespaces/<namespace>/agentspawners/<name>/github` on port 8083. It
+reads the spawner, then the HMAC key, and checks `X-Hub-Signature-256` (`sha256=` and the hex
+HMAC-SHA256 of the raw body) in constant time before it reads the payload. A matching delivery
+creates an Agent named `<spawner>-<X-GitHub-Delivery>`, labelled
+`agents.re-cinq.com/github-delivery=<delivery id>` as well as with the spawner, with `targetRepo` set
+to the repository and these parameters over the spawner's own:
+
+| Parameter | From the payload |
+| --- | --- |
+| `issue_number` | `issue.number` |
+| `issue_title` | `issue.title` |
+| `issue_body` | `issue.body` (empty when null) |
+| `issue_url` | `issue.html_url` |
+| `repo` | `repository.full_name` |
+
+A redelivery of the same delivery finds its Agent already there and starts nothing. The response
+codes are listed in the [task guide](../tasks/trigger-from-github.md#what-a-delivery-starts).
+`concurrencyPolicy` applies to scheduled runs only.
 
 ## `status`
 
@@ -53,7 +88,10 @@ schedule is fixed. A schedule that can never fire (`0 0 30 2 *`) is logged as
 
 ## What the controller does
 
-Only the leader replica runs spawners. Every 15 seconds it lists the AgentSpawners in its namespace.
+This section covers `schedule`; webhook deliveries are answered by every replica, as they arrive.
+
+Only the leader replica runs schedules. Every 15 seconds it lists the AgentSpawners in its namespace.
+A spawner without a `schedule` is skipped.
 For each one it takes the latest schedule time at or before now. If that is later than
 `status.lastScheduleTime` (or than the spawner's `creationTimestamp` when it has never fired), the
 spawner is due:
@@ -109,9 +147,11 @@ then written.
 
 ## Parameters and reserved keys
 
-`parameters` are copied as they are, including the reserved `git_credential` and
-`git_credential_url` keys the run uses for brokered git access (see
-[Agent runtime](../concepts/agent-runtime.md)). A spawner is written by someone who can create
+For scheduled runs, `parameters` are copied as they are, including the reserved `git_credential`
+and `git_credential_url` keys the run uses for brokered git access (see
+[Agent runtime](../concepts/agent-runtime.md)). Runs started by a webhook never carry those two keys:
+they are dropped from the spawner's parameters, and the payload fills only the five issue
+parameters. A spawner is written by someone who can create
 Agents anyway, so this grants nothing new. A run credential is usually short-lived, though, and
 putting one in a spawner stores it in the cluster in plain text and reuses it on every run. Leave
 those keys out of a spawner unless the credential is meant to be long-lived.
@@ -119,11 +159,12 @@ those keys out of a spawner unless the credential is meant to be long-lived.
 ## RBAC
 
 The controller role has `create` on `agents`, `get`/`list`/`watch` on `agentspawners` and `patch`
-on `agentspawners/status`. The `agent-launcher` caller role can create, read, update and delete
+on `agentspawners/status`. The webhooks component adds `get` on the `agent-secrets` Secret, to read
+the HMAC keys. The `agent-launcher` caller role can create, read, update and delete
 AgentSpawners. See [RBAC & network](./rbac-and-network.md).
 
 ## From TypeScript and Go
 
-`@re-cinq/agent-contracts` exports the `AgentSpawner`, `AgentSpawnerSpec`, `AgentSpawnerStatus` and
-`SpawnerConcurrencyPolicy` types. The Go module has the same types plus `AgentSpawnerList`,
+`@re-cinq/agent-contracts` exports the `AgentSpawner`, `AgentSpawnerSpec`, `GitHubTrigger`,
+`AgentSpawnerStatus` and `SpawnerConcurrencyPolicy` types. The Go module has the same types plus `AgentSpawnerList`,
 registered by `AddToScheme`.

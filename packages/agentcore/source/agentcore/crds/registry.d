@@ -29,7 +29,7 @@ import agentcore.crds.agent_spec : AgentSpec;
 import agentcore.crds.agent_status : AgentStatus;
 import agentcore.crds.agent : Agent;
 import agentcore.crds.model_catalog : ModelCatalog, ModelCatalogStatus, ModelInfo, VendorModels;
-import agentcore.crds.agent_spawner : AgentSpawner, AgentSpawnerSpec, AgentSpawnerStatus;
+import agentcore.crds.agent_spawner : AgentSpawner, AgentSpawnerSpec, AgentSpawnerStatus, GitHubTrigger;
 
 /// The top-level resources, one CustomResourceDefinition each.
 alias CrdKinds = AliasSeq!(AgentDefinition, Station, Agent, ModelCatalog, AgentSpawner);
@@ -43,5 +43,5 @@ alias CrdEnums = AliasSeq!(PermissionMode, McpTransport, OutputFormat,
 alias CrdStructs = AliasSeq!(ObjectMeta, EnvVar, SecretRef, McpHeader, McpServer, RepoRef,
 	ConversationRef, AgentResources, OutputSelector, OutputSink, WatchUpload, OutputWatch, OutputSpec,
 	BatchSpec, RealtimeSpec, AgentDefinitionSpec, AgentDefinition, StationSpec, Station, InputFile, AgentSpec,
-	AgentStatus, Agent, ModelInfo, VendorModels, ModelCatalogStatus, ModelCatalog, AgentSpawnerSpec,
+	AgentStatus, Agent, ModelInfo, VendorModels, ModelCatalogStatus, ModelCatalog, GitHubTrigger, AgentSpawnerSpec,
 	AgentSpawnerStatus, AgentSpawner);

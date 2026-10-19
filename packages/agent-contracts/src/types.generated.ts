@@ -287,12 +287,26 @@ export interface ModelCatalog {
   status?: ModelCatalogStatus;
 }
 
-/** Creates an Agent in a Station on a cron schedule. */
+/** Starts a run for each signed GitHub webhook delivery that matches. */
+export interface GitHubTrigger {
+  /** Key in the agent-secrets Secret holding the webhook's HMAC secret. */
+  secretRef: string;
+  /** Deliveries that start a run, as <X-GitHub-Event>.<action> (issues.labeled); an event without an action by its name alone. */
+  events: string[];
+  /** Only issues carrying this label start a run; for issues.labeled, only when it is the label just added. */
+  label?: string;
+  /** Only deliveries from this owner/name repository start a run. */
+  repository?: string;
+}
+
+/** Creates an Agent in a Station on a cron schedule, on GitHub webhook deliveries, or both. */
 export interface AgentSpawnerSpec {
   /** The Station each spawned Agent runs in. */
   stationRef: string;
   /** Five-field cron expression (minute hour day-of-month month day-of-week), evaluated in UTC. */
-  schedule: string;
+  schedule?: string;
+  /** Starts a run for each matching GitHub webhook delivery. */
+  github?: GitHubTrigger;
   /** Copied verbatim into every spawned Agent's spec.parameters. */
   parameters?: Record<string, string>;
   /** Allow starts a run on every tick; Forbid skips a tick while an Agent this spawner created is not finished. */

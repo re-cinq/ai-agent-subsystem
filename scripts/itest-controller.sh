@@ -13,6 +13,9 @@
 #      Succeeded, and refuses a finished run (409) or a caller without the token (401).
 #   E) API versions: a v1alpha1 Agent is accepted with a deprecation warning, reads back
 #      at both v1alpha1 and v1beta1, and the controller runs it to Succeeded.
+#   G) GitHub webhooks: with the webhooks component applied, a signed issues.labeled delivery
+#      to a github AgentSpawner creates one Agent with the issue parameters that Succeeds; its
+#      redelivery creates none, a bad signature is 401 and an unknown spawner 404.
 #   C) scale (opt-in, LOAD=<N>): drive N Agents through one Station and assert they all
 #      reach Succeeded while the controller stays Ready — exercises the informer-cache
 #      reconcile loop at hundreds of Agents. Off unless LOAD is set; needs pod capacity.
@@ -294,6 +297,91 @@ session="$(k -n ai-agents get agent "$agent" -o jsonpath='{.status.sessionId}')"
 [ "$session" = "mock-thread" ] || fail "final status.sessionId '$session', expected mock-thread"
 [ "$(post prompt "$api_token" '{"prompt":"late"}')" = "409" ] || fail "a finished session was not refused (409)"
 echo "  PASS  close ends the session Succeeded with its sessionId; a finished session is refused (409)"
+
+echo "== Scenario G: a signed GitHub issues.labeled delivery starts exactly one run =="
+webhook_secret="itest-webhook-secret"
+delivery=itest-delivery-1
+agent="gh-spawner-${delivery}"
+k -n ai-agents patch secret agent-secrets --type=merge -p "{\"stringData\":{\"github-webhook\":\"${webhook_secret}\"}}"
+k apply -f deploy/components/webhooks/service.yaml -f deploy/components/webhooks/secret-reader-rbac.yaml
+k -n ai-agents patch deploy/agent-controller --type=strategic \
+	--patch-file deploy/components/webhooks/webhooks-enabled-patch.yaml
+k -n ai-agents rollout status deploy/agent-controller --timeout=90s
+
+k apply -f - <<'YAML'
+apiVersion: agents.re-cinq.com/v1beta1
+kind: AgentDefinition
+metadata: { name: gh-fixer, namespace: ai-agents }
+spec:
+  model: gpt-mock          # the mock echoes its prompt, so status.output shows the issue fields
+  prompt: "fix #{issue_number}: {issue_title}"
+  output: { format: stream-json, sinks: [{ type: stdout }] }
+---
+apiVersion: agents.re-cinq.com/v1beta1
+kind: Station
+metadata: { name: gh-station, namespace: ai-agents }
+spec:
+  agentDefRef: gh-fixer
+  deadlineMinutes: 5
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: agent
+          image: ai-agent:itest
+          imagePullPolicy: IfNotPresent
+---
+apiVersion: agents.re-cinq.com/v1beta1
+kind: AgentSpawner
+metadata: { name: gh-spawner, namespace: ai-agents }
+spec:
+  stationRef: gh-station
+  github: { secretRef: github-webhook, events: [issues.labeled], label: agent, repository: octo/app }
+YAML
+k apply -f - >/dev/null 2>&1 <<'YAML' && fail "a spawner with neither schedule nor github was accepted"
+apiVersion: agents.re-cinq.com/v1beta1
+kind: AgentSpawner
+metadata: { name: no-trigger, namespace: ai-agents }
+spec: { stationRef: gh-station }
+YAML
+echo "  PASS  a spawner with neither schedule nor github is rejected at admission"
+
+k -n ai-agents port-forward svc/agent-controller-webhooks 18083:8083 >/dev/null 2>&1 &
+webhook_pid=$!
+trap 'kill "$forward_pid" "$webhook_pid" 2>/dev/null; cleanup' EXIT
+
+payload='{"action":"labeled","label":{"name":"agent"},"issue":{"number":42,"title":"Crash on start","body":"It crashes.","html_url":"https://github.com/octo/app/issues/42","labels":[{"name":"agent"}]},"repository":{"full_name":"octo/app"}}'
+# deliver <delivery-id> [secret] [spawner] -> HTTP status of the signed issues delivery
+deliver() {
+	local signature
+	signature="sha256=$(printf '%s' "$payload" | openssl dgst -sha256 -hmac "${2-$webhook_secret}" | sed 's/^.* //')"
+	curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
+		-H 'X-GitHub-Event: issues' -H "X-GitHub-Delivery: $1" -H "X-Hub-Signature-256: $signature" \
+		--data-binary "$payload" "http://127.0.0.1:18083/v1/namespaces/ai-agents/agentspawners/${3-gh-spawner}/github"
+}
+
+start=$SECONDS
+until [ "$(deliver "$delivery" wrong-secret)" = "401" ]; do
+	[ $((SECONDS - start)) -ge 60 ] && fail "the webhook receiver never answered a bad signature with 401"
+	sleep 2
+done
+echo "  PASS  a delivery signed with the wrong secret is refused (401)"
+[ "$(deliver "$delivery" "$webhook_secret" no-such-spawner)" = "404" ] || fail "an unknown spawner was not 404"
+echo "  PASS  an unknown spawner is 404"
+
+[ "$(deliver "$delivery")" = "201" ] || fail "the signed delivery did not create a run (201)"
+[ "$(deliver "$delivery")" = "200" ] || fail "the redelivery was not answered 200 as already started"
+runs="$(k -n ai-agents get agents -l agents.re-cinq.com/spawner=gh-spawner -o name | wc -l)"
+[ "$runs" -eq 1 ] || fail "expected one Agent for the delivery, found $runs"
+echo "  PASS  a signed delivery creates $agent (201); its redelivery creates none (200)"
+
+phase="$(wait_terminal "$agent")"
+[ "$phase" = "Succeeded" ] || fail "webhook agent phase is '$phase', expected Succeeded"
+started="$(k -n ai-agents get agent "$agent" -o jsonpath='{.spec.parameters.issue_number} {.spec.parameters.repo} {.spec.targetRepo} {.metadata.labels.agents\.re-cinq\.com/github-delivery}')"
+[ "$started" = "42 octo/app octo/app $delivery" ] || fail "webhook agent parameters/targetRepo/label: '$started'"
+k -n ai-agents get agent "$agent" -o jsonpath='{.status.output}' | grep -q 'echo:fix #42: Crash on start' \
+	|| fail "the prompt did not render the issue fields"
+echo "  PASS  the run Succeeded with the issue parameters rendered into its prompt"
 
 # Scenario C: scale. Opt-in (LOAD=<N>), not run in CI — it needs a cluster with the
 # pod capacity to drain N run pods. Proves the watch + cache reconcile loop drives
