@@ -80,6 +80,11 @@ the npm package versions.
   and upgrading* section shows how to rewrite existing objects so they are stored at `v1beta1`.
 
 ### Fixed
+- **A Station template refused for host access now fails its Agent.** A template with
+  `hostNetwork`, `hostPID`, `hostIPC`, a `hostPath` volume or a privileged container, or one
+  missing its `agent` container (or clashing with the courier name or the realtime prompt port),
+  used to leave the Agent `Pending` while the controller retried and logged the error every tick.
+  The Agent now goes `Failed` with `status.failureReason` naming the field, and no Job is created.
 - **The release pin step no longer breaks the realtime guide's release URLs.** Its `?ref=` rewrite
   matched `v\S+`, which swallowed the closing backtick and comma after the version, so v0.13.0's
   *Realtime sessions* page rendered both component URLs as broken code spans. It now matches only

@@ -55,7 +55,7 @@ Whatever the template says, the controller builds every run pod with:
 - `automountServiceAccountToken: false`, so the run gets no Kubernetes API credentials.
 - No host access: the controller refuses to build a run pod from a template with `hostNetwork`,
   `hostPID` or `hostIPC`, a `hostPath` volume, or a privileged container. No Job is created; the
-  Agent stays `Pending` and the controller log names the offending field on every retry.
+  Agent goes `Failed` and `status.failureReason` names the offending field.
 - Egress limited by the subsystem's NetworkPolicy ([RBAC and network](../../reference/rbac-and-network/)).
 
 A RuntimeClass adds a kernel boundary on top of these; it does not replace them.

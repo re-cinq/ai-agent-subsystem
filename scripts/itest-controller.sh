@@ -11,6 +11,7 @@
 #   D) realtime: with the realtime component applied, a realtime Agent takes prompts
 #      through the controller's prompt API, records its session id, ends on close as
 #      Succeeded, and refuses a finished run (409) or a caller without the token (401).
+#   H) a Station template with host access fails its Agent with the reason, and no Job.
 #   E) API versions: a v1alpha1 Agent is accepted with a deprecation warning, reads back
 #      at both v1alpha1 and v1beta1, and the controller runs it to Succeeded.
 #   G) GitHub webhooks: with the webhooks component applied, a signed issues.labeled delivery
@@ -86,6 +87,34 @@ k -n ai-agents delete agent "$agent" --wait=true
 sleep 3
 k -n ai-agents get job "$job" >/dev/null 2>&1 && fail "Job not garbage-collected" || true
 echo "  PASS  Job garbage-collected via ownerReference"
+
+echo "== Scenario H: a Station template with host access fails its Agent, with no Job =="
+agent=host-escape-run
+k apply -f - <<'YAML'
+apiVersion: agents.re-cinq.com/v1beta1
+kind: Station
+metadata: { name: host-escape-station, namespace: ai-agents }
+spec:
+  agentDefRef: mock-writer
+  template:
+    spec:
+      hostNetwork: true
+      containers:
+        - { name: agent, image: ai-agent:itest, imagePullPolicy: IfNotPresent }
+---
+apiVersion: agents.re-cinq.com/v1beta1
+kind: Agent
+metadata: { name: host-escape-run, namespace: ai-agents }
+spec: { stationRef: host-escape-station }
+YAML
+phase="$(wait_terminal "$agent")"
+[ "$phase" = "Failed" ] || fail "host-escape agent phase is '$phase', expected Failed"
+reason="$(k -n ai-agents get agent "$agent" -o jsonpath='{.status.failureReason}')"
+[ "$reason" = "Station template must not enable hostNetwork on an agent run pod" ] || fail "failureReason '$reason'"
+k -n ai-agents get job "agent-job-$agent" >/dev/null 2>&1 && fail "a Job was created for a refused template" || true
+k -n ai-agents delete agent "$agent" --wait=true
+k -n ai-agents delete station host-escape-station
+echo "  PASS  refused template: Agent Failed with the reason, no Job"
 
 echo "== Scenario E: a v1alpha1 manifest is still served, deprecated, and runs =="
 agent=legacy-run
