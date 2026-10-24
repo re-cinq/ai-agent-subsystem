@@ -36,7 +36,7 @@ jobs:
 
       - name: Run tests and post report to Lore
         env:
-          LORE_WEBHOOK_URL: ${{ vars.LORE_WEBHOOK_URL }}
+          LORE_API_URL: ${{ secrets.LORE_INGEST_URL || vars.LORE_INGEST_URL || vars.LORE_API_URL }}
           LORE_INGEST_TOKEN: ${{ secrets.LORE_INGEST_TOKEN }}
         run: ./lore-code-trace --post || echo "::warning::Lore test ingest failed"
 
@@ -70,6 +70,6 @@ jobs:
       - name: Run tests and post report to Lore
         working-directory: .
         env:
-          LORE_WEBHOOK_URL: ${{ vars.LORE_WEBHOOK_URL }}
+          LORE_API_URL: ${{ secrets.LORE_INGEST_URL || vars.LORE_INGEST_URL || vars.LORE_API_URL }}
           LORE_INGEST_TOKEN: ${{ secrets.LORE_INGEST_TOKEN }}
         run: ./lore-code-trace --post || echo "::warning::Lore test ingest failed"
