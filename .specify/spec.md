@@ -53,8 +53,7 @@ patches status as the Job progresses. The output tail is bounded by `MAX_OUTPUT_
 
 The recipe is reusable; what belongs to a single run is given on the Agent. `Agent.spec` takes
 optional `repos`, `conversation`, `output` (`sinks`, `select`, `watch`), `secrets` and `env`.
-The controller resolves a run's effective spec from Station, then AgentDefinition, then Agent, before
-it builds the Job, and a value the Agent sets wins over the recipe's. ([validated by an Agent's repos replace the recipe's repos](packages/agentcore/source/agentcore/kube/jobspec.d#L2458))
+Before it builds the Job, the controller lays the Agent's values over its AgentDefinition's, and a value the Agent sets wins over the recipe's. ([validated by an Agent's repos replace the recipe's repos](packages/agentcore/source/agentcore/kube/jobspec.d#L2458))
 An Agent's `repos`, `output.sinks` and `output.select` replace the recipe's; its `conversation`
 replaces each field it sets; its `secrets`, `env` and `output.watch` replace the recipe's entry of the
 same name (`event` for a watch) and add the rest. ([validated by an Agent's secrets and env replace the recipe's entries of the same name and add the others](packages/agentcore/source/agentcore/kube/jobspec.d#L2516))

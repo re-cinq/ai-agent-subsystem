@@ -27,9 +27,8 @@ One run. It has a `spec` (your desired run) and a `status` (owned by the control
 | `env` | [] object | Optional. `{name, value}` entries; an entry replaces the definition's `resources.env` entry of the same `name`, others are added. |
 
 The AgentDefinition is the reusable recipe; `repos`, `conversation`, `output`, `secrets` and `env` let
-an Agent carry what belongs to its own run, so many Agents can share one definition. The controller
-resolves the effective spec from Station, then AgentDefinition, then Agent before it builds the Job,
-and an Agent that sets none of them runs the recipe as it is.
+an Agent carry what belongs to its own run, so many Agents can share one definition. Before it builds
+the Job, the controller lays the Agent's values over its AgentDefinition's, and an Agent that sets none of them runs the recipe as it is.
 
 ### `spec.files`
 

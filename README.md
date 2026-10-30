@@ -142,9 +142,9 @@ flowchart LR
 
 **Recipe vs run.** An AgentDefinition is reusable by any number of Agents, so what is specific to one
 run goes on the Agent: `spec.repos`, `spec.conversation`, `spec.output` (`sinks`, `select`, `watch`),
-`spec.secrets` and `spec.env`, next to `model`, `parameters` and `files`. The controller resolves a
-run's effective spec from Station → AgentDefinition → Agent, in that order, before it builds the Job,
-and a value the Agent sets wins over the recipe's, which is the default:
+`spec.secrets` and `spec.env`, next to `model`, `parameters` and `files`. Before it builds the Job,
+the controller lays the Agent's values over its AgentDefinition's: a value the Agent sets wins, and
+the recipe's is the default:
 
 | Agent field | Combines with the recipe's value by |
 | --- | --- |
