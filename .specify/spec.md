@@ -27,7 +27,7 @@ It has no runtime dependencies beyond a Kubernetes cluster.
 
 ## Core Data Model
 
-Three Custom Resources form a reference chain:
+Three Custom Resources form a reference chain: ([validated by TestEveryExampleManifestDecodesStrictly](packages/agent-contracts-go/types_test.go#L17))
 
 ```
 AgentDefinition  →  Station  →  Agent  →  Job → Pod
