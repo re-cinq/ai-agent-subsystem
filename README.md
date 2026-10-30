@@ -157,6 +157,13 @@ the recipe's `prompt` and the Agent's `parameters`, when the Job is created, and
 running Job. [`examples/shared-recipe.yaml`](examples/shared-recipe.yaml) has two Agents sharing one
 AgentDefinition.
 
+Before it acts on a Pending Agent, the controller labels it with its Station and AgentDefinition, so
+the runs still using a recipe are listed before you delete it:
+
+```sh
+kubectl get agents -n ai-agents -l agents.re-cinq.com/agent-definition=<name>
+```
+
 The controller watches Agents, builds a Job per run, supervises it, patches the Agent's status, and
 prunes old runs. The agent toolchain is *injected* into the run Pod, so Stations only need a
 glibc-based base image. A recipe with `execution: batch` skips the Pod: the controller sends the

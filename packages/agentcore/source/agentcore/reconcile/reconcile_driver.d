@@ -6,8 +6,8 @@ import agentcore.crds.mcp_server : mcpViolation;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec, batchViolation, realtimeViolation;
 import agentcore.crds.station : Station;
 import agentcore.reconcile.concurrency : effectiveMaxRuns, oldestRunningRun, stationAtCapacity;
-import agentcore.kube.jobs : jobNameFor;
-import agentcore.kube.jobspec : buildJob, runRecipe, templateViolation;
+import agentcore.kube.jobs : jobNameFor, safeName;
+import agentcore.kube.jobspec : buildJob, labelAgentDefinition, labelStation, runRecipe, templateViolation;
 import agentcore.batch.provider : batchCleanupFinalizer, batchSettleMinutes, maxBatchCleanupAttempts, BatchNotSettled,
 	BatchPoll, BatchProvider, BatchProviderFor, BatchRequest, BatchState, batchModel, batchVendor;
 import agentcore.batch.translate : batchCliEvents;
@@ -24,7 +24,8 @@ import agentcore.core.vendor : vendorOf;
 import agentcore.crds.enums : BatchTimeoutAction, Execution;
 import agentcore.crds.secret_ref : SecretRef;
 import agentcore.kube.jobspec : agentSecretName;
-import agentcore.kube.jsonbody : batchCleanupAttemptsPatch, addFinalizerPatch, batchSubmittedPatch, removeFinalizerPatch, statusPatch;
+import agentcore.kube.jsonbody : batchCleanupAttemptsPatch, addFinalizerPatch, batchSubmittedPatch, labelsPatch, removeFinalizerPatch,
+	statusPatch;
 import agentcore.kube.kubeclient : KubeClient, NotFound, PodResult;
 import agentcore.reconcile.prune : agentsToPrune;
 import agentcore.reconcile.reconcile : ActionKind, BatchRun, batchPolled, batchTimedOut, cancelsBatch,
@@ -100,6 +101,10 @@ ReconcileEffect reconcileAgent(KubeClient client, string ns, Agent agent, string
 	const awaitingFallbackJob = agent.status.batchFallback && agent.status.jobName.length == 0;
 	const needsRefs = phase == Phase.pending || batchPending || awaitingFallbackJob;
 	const refsResolved = !needsRefs || resolveRefs(client, ns, agent, run.station, run.definition);
+	// Label first and act on the next reconcile, which the label patch's watch event brings:
+	// a later patch in this one would void the status patch's resourceVersion precondition.
+	if (refsResolved && phase == Phase.pending && run.labelRefs())
+		return ReconcileEffect.init;
 	const atCapacity = refsResolved && (phase == Phase.pending || awaitingFallbackJob) && run.stationFull;
 
 	if (refsResolved && batchPending && batchConfig.providers is null)
@@ -204,6 +209,18 @@ private struct AgentReconcile
 			pruneHistory(client, ns, agent.spec.stationRef, cached);
 			return ReconcileEffect(false, "", decision);
 		}
+	}
+
+	/// Label the Agent with the Station and AgentDefinition it runs, so the runs still
+	/// using a recipe can be listed before it is deleted. True when it patched; a label
+	/// already right patches nothing.
+	bool labelRefs()
+	{
+		const patch = labelsPatch(agent.metadata.labels, [labelStation: safeName(agent.spec.stationRef),
+			labelAgentDefinition: safeName(station.spec.agentDefRef)], agent.metadata.resourceVersion);
+		if (patch.length)
+			client.patchAgent(ns, agent.metadata.name, patch);
+		return patch.length > 0;
 	}
 
 	/// Whether the Station's other runs already fill its concurrent-run limit.
@@ -853,14 +870,59 @@ version (unittest)
 		return config;
 	}
 
+	/// A Pending Agent already labelled with its Station and the AgentDefinition "def", as
+	/// the label-first reconcile leaves it.
 	private Agent pendingAgent(string name, string stationRef)
 	{
 		Agent agent;
 		agent.metadata.name = name;
+		agent.metadata.labels = [labelStation: stationRef, labelAgentDefinition: "def"];
 		agent.spec.stationRef = stationRef;
 		agent.status.phase = Phase.pending;
 		return agent;
 	}
+}
+
+unittest // an unlabelled Pending Agent of Station stn is labelled stn/def and starts nothing yet
+{
+	auto client = new FakeKubeClient;
+	client.station.spec.agentDefRef = "def";
+	auto agent = pendingAgent("run-1", "stn");
+	agent.metadata.labels = null;
+	agent.metadata.resourceVersion = "41";
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null);
+
+	[client.createdJobs.length, client.statusPatches.length].should.equal([0, 0]);
+	client.agentPatches.should.equal([parseJsonString(`[
+		{"op":"test","path":"/metadata/resourceVersion","value":"41"},
+		{"op":"add","path":"/metadata/labels",
+			"value":{"agents.re-cinq.com/agent-definition":"def","agents.re-cinq.com/station":"stn"}}]`)]);
+}
+
+unittest // a Pending Agent labelled with AgentDefinition old, now running def, is relabelled def
+{
+	auto client = new FakeKubeClient;
+	client.station.spec.agentDefRef = "def";
+	auto agent = pendingAgent("run-1", "stn");
+	agent.metadata.labels[labelAgentDefinition] = "old";
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null);
+
+	client.agentPatches.should.equal([parseJsonString(
+		`[{"op":"add","path":"/metadata/labels/agents.re-cinq.com~1agent-definition","value":"def"}]`)]);
+}
+
+unittest // a Pending Agent whose Station is missing gets no labels, only its failure
+{
+	auto client = new FakeKubeClient;
+	client.stationMissing = true;
+	auto agent = pendingAgent("run-1", "stn");
+	agent.metadata.labels = null;
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null);
+
+	[client.agentPatches.length, client.statusPatches.length].should.equal([0, 1]);
 }
 
 unittest
@@ -2209,6 +2271,7 @@ version (unittest)
 		agent.spec.stationRef = "stn";
 		agent.spec.resumeSession = resumeSession;
 		agent.status.phase = Phase.pending;
+		agent.metadata.labels = [labelStation: agent.spec.stationRef, labelAgentDefinition: "def"];
 
 		reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:00:00Z", null, BatchConfig.init, realtime);
 		return client.statusPatches[0]["status"];

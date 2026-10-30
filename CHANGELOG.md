@@ -17,6 +17,10 @@ the npm package versions.
   realtime paths all see the merged values. An Agent that sets none of them behaves as before, and
   existing AgentDefinitions that set these fields keep working. The contract types in both packages are
   regenerated, and `examples/shared-recipe.yaml` shows two Agents sharing one AgentDefinition.
+- **The Agents still using an AgentDefinition can be listed.** Before it acts on a Pending Agent, the
+  controller labels it `agents.re-cinq.com/station` and `agents.re-cinq.com/agent-definition`, then acts
+  on the next reconcile; `kubectl get agents -l agents.re-cinq.com/agent-definition=<name>` lists them
+  before the recipe is deleted. Run pods carry the `agent-definition` label too.
 
 ## v0.14.0
 

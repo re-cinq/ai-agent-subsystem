@@ -30,6 +30,12 @@ The AgentDefinition is the reusable recipe; `repos`, `conversation`, `output`, `
 an Agent carry what belongs to its own run, so many Agents can share one definition. Before it builds
 the Job, the controller lays the Agent's values over its AgentDefinition's, and an Agent that sets none of them runs the recipe as it is.
 
+Before it acts on a Pending Agent, the controller labels it `agents.re-cinq.com/station` and
+`agents.re-cinq.com/agent-definition` with the names it resolved, and acts on the next reconcile. List the
+Agents that still use a definition before deleting it with
+`kubectl get agents -l agents.re-cinq.com/agent-definition=<name>`. A name longer than 63 characters is
+shortened with a hash, as in a Job name.
+
 ### `spec.files`
 
 Per-run inputs by reference. The Agent carries where each file comes from and where it goes, never

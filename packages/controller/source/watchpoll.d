@@ -628,6 +628,7 @@ version (unittest)
 {
 	import agentcore.crds.agent_definition : AgentDefinition;
 	import agentcore.crds.station : Station;
+	import agentcore.kube.jobspec : labelAgentDefinition, labelStation;
 	import agentcore.kube.jsonbody : AgentListPage;
 	import agentcore.kube.kubeclient : KubeClient, NotFound, PodResult;
 	import agentcore.reconcile.reconcile : JobOutcome;
@@ -713,10 +714,12 @@ version (unittest)
 		}
 	}
 
+	/// A Pending Agent already labelled with its Station and the AgentDefinition "def".
 	private Agent pendingRun(string name, string stationRef)
 	{
 		Agent agent;
 		agent.metadata.name = name;
+		agent.metadata.labels = [labelStation: stationRef, labelAgentDefinition: "def"];
 		agent.spec.stationRef = stationRef;
 		agent.status.phase = Phase.pending;
 		return agent;

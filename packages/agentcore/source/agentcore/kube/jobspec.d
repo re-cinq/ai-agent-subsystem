@@ -51,10 +51,14 @@ enum courierHome = "/courier";
 /// Labels stamped on every run pod. `component=job` is the selector the
 /// `agent-job-egress` NetworkPolicy matches on — without it the policy matches no
 /// pods and the untrusted agent code gets unrestricted egress. The agent/station
-/// labels make a run's pod traceable with `kubectl get pods -l`.
+/// labels make a run's pod traceable with `kubectl get pods -l`. The station and
+/// agent-definition labels are also stamped on the Agent itself, so
+/// `kubectl get agents -l agents.re-cinq.com/agent-definition=<name>` lists the runs
+/// that still use a recipe before it is deleted.
 enum labelComponent = "agents.re-cinq.com/component";
 enum labelAgent = "agents.re-cinq.com/agent";
 enum labelStation = "agents.re-cinq.com/station";
+enum labelAgentDefinition = "agents.re-cinq.com/agent-definition";
 enum componentJob = "job";
 /// Set to `realtime` on a realtime run's pod: the controller proxies prompts only to
 /// such pods, and the realtime NetworkPolicy admits the controller only to them.
@@ -380,6 +384,7 @@ private Json withRunMetadata(Json template_, Agent agent, Station station)
 	labels[labelComponent] = componentJob;
 	labels[labelAgent] = safeName(agent.metadata.name);
 	labels[labelStation] = safeName(station.metadata.name);
+	labels[labelAgentDefinition] = safeName(station.spec.agentDefRef);
 	meta["labels"] = labels;
 	Json annotations = ("annotations" in meta && meta["annotations"].type == Json.Type.object)
 		? meta["annotations"] : Json.emptyObject;
@@ -1279,6 +1284,7 @@ unittest
 	labels["agents.re-cinq.com/component"].get!string.should.equal("job");
 	labels["agents.re-cinq.com/agent"].get!string.should.equal("bug-fixer-run-1");
 	labels["agents.re-cinq.com/station"].get!string.should.equal("bug-fixer-station");
+	labels["agents.re-cinq.com/agent-definition"].get!string.should.equal(station.spec.agentDefRef);
 }
 
 unittest

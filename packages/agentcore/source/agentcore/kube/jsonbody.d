@@ -102,6 +102,30 @@ Json removeFinalizerPatch(const string[] current, string finalizer)
 	return Json([jsonPatchOp("test", path, Json(finalizer)), jsonPatchOp("remove", path)]);
 }
 
+/// The JSON patch (RFC 6902) giving an Agent holding `current` labels every `wanted`
+/// label. Each differing label is added alone, so labels other writers set survive. An
+/// Agent with no labels gets the whole map, guarded by a `test` on `resourceVersion` so
+/// the API server rejects (422) the patch instead of replacing labels added since the
+/// read. Empty when every wanted label already holds its value.
+Json labelsPatch(const string[string] current, const string[string] wanted, string resourceVersion)
+{
+	import std.algorithm.sorting : sort;
+	import std.array : replace;
+
+	if (current.length == 0)
+		return Json([jsonPatchOp("test", "/metadata/resourceVersion", Json(resourceVersion)),
+			jsonPatchOp("add", "/metadata/labels", serializeToJson(wanted))]);
+	Json[] operations;
+	foreach (key; wanted.keys.sort)
+	{
+		const held = key in current;
+		if (held is null || *held != wanted[key])
+			operations ~= jsonPatchOp("add", "/metadata/labels/" ~ key.replace("~", "~0").replace("/", "~1"),
+				Json(wanted[key]));
+	}
+	return Json(operations);
+}
+
 private Json jsonPatchOp(string op, string path, Json value = Json.undefined)
 {
 	auto operation = Json.emptyObject;
@@ -557,6 +581,28 @@ unittest // adding a finalizer to an Agent with other/keep appends it, leaving o
 {
 	addFinalizerPatch(["other/keep"], "agents.re-cinq.com/batch-cleanup").should.equal(parseJsonString(
 		`[{"op":"add","path":"/metadata/finalizers/-","value":"agents.re-cinq.com/batch-cleanup"}]`));
+}
+
+unittest // labelling an Agent without labels sets the map, guarded by its resourceVersion
+{
+	labelsPatch(null, ["agents.re-cinq.com/station": "stn"], "41").should.equal(parseJsonString(`[
+		{"op":"test","path":"/metadata/resourceVersion","value":"41"},
+		{"op":"add","path":"/metadata/labels","value":{"agents.re-cinq.com/station":"stn"}}]`));
+}
+
+unittest // labelling an Agent with team=a and a stale station adds only the differing labels
+{
+	labelsPatch(["team": "a", "agents.re-cinq.com/station": "old"],
+		["agents.re-cinq.com/station": "stn", "agents.re-cinq.com/agent-definition": "def"], "41")
+		.should.equal(parseJsonString(`[
+			{"op":"add","path":"/metadata/labels/agents.re-cinq.com~1agent-definition","value":"def"},
+			{"op":"add","path":"/metadata/labels/agents.re-cinq.com~1station","value":"stn"}]`));
+}
+
+unittest // labelling an Agent that already holds every label patches nothing
+{
+	labelsPatch(["agents.re-cinq.com/station": "stn"], ["agents.re-cinq.com/station": "stn"], "41")
+		.length.should.equal(0);
 }
 
 unittest // removing the finalizer at index 1 tests it is still there, then removes index 1
