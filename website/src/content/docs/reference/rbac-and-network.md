@@ -32,7 +32,7 @@ still cannot list Secrets or read any other one.
 
 ```yaml
 components:
-  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/batch?ref=v0.14.0
+  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/batch?ref=v0.15.0
 ```
 
 The grant is a tradeoff. Without it only run pods ever see provider keys; with it the controller can
@@ -51,7 +51,7 @@ the batch component. Without it the controller does nothing for the catalog.
 
 ```yaml
 components:
-  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/model-catalog?ref=v0.14.0
+  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/model-catalog?ref=v0.15.0
 ```
 
 ### Realtime component (opt-in)
@@ -74,7 +74,7 @@ port 8083. The tradeoff is the same as for the batch component: the controller c
 
 ```yaml
 components:
-  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/webhooks?ref=v0.14.0
+  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/webhooks?ref=v0.15.0
 ```
 
 The component adds no NetworkPolicy. No policy selects the controller pods, so their ingress is open
