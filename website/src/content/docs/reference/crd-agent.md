@@ -20,6 +20,21 @@ One run. It has a `spec` (your desired run) and a `status` (owned by the control
 | `branch` | string | Optional git branch. With `delivery.pullRequest`, the branch the work is pushed to; default `agent/<Agent name>`. |
 | `files` | [] object | `{path, url, headers_secret?}` — files the init downloads into the workspace before the agent starts. Only the references travel; see [below](#specfiles). |
 | `resumeSession` | string | Optional. The `status.sessionId` of an earlier run to continue. Needs a definition with `execution: realtime` and a `resources.conversation.source`, and a vendor that keeps conversation state (not opencode or `exec`). The saved conversation is restored and the definition's prompt is not sent. |
+| `repos` | [] object | Optional. Repositories to clone for this run, in the shape of the definition's `resources.repos`. When set they replace the definition's list. |
+| `conversation` | object | Optional. `{source, id, pin, headers_secret}` as in the definition's `resources.conversation`; each field set here wins over the definition's. |
+| `output` | object | Optional. `sinks` and `select` replace the definition's when set; a `watch` entry replaces the definition's watch of the same `event` (so a run can give a watch its own `upload`) and other events are added. |
+| `secrets` | [] object | Optional. `{name, ref}` entries such as per-run credentials; an entry replaces the definition's `resources.secrets` entry of the same `name`, others are added. |
+| `env` | [] object | Optional. `{name, value}` entries; an entry replaces the definition's `resources.env` entry of the same `name`, others are added. |
+
+The AgentDefinition is the reusable recipe; `repos`, `conversation`, `output`, `secrets` and `env` let
+an Agent carry what belongs to its own run, so many Agents can share one definition. Before it builds
+the Job, the controller lays the Agent's values over its AgentDefinition's, and an Agent that sets none of them runs the recipe as it is.
+
+Before it acts on a Pending Agent, the controller labels it `agents.re-cinq.com/station` and
+`agents.re-cinq.com/agent-definition` with the names it resolved, and acts on the next reconcile. List the
+Agents that still use a definition before deleting it with
+`kubectl get agents -l agents.re-cinq.com/agent-definition=<name>`. A name longer than 63 characters is
+shortened with a hash, as in a Job name.
 
 ### `spec.files`
 

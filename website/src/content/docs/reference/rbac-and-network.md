@@ -134,8 +134,8 @@ supervisor takes prompts. Policies add up, so every other ingress stays denied. 
 enforce NetworkPolicy, the supervisor still refuses any request without the run's own token.
 
 The policy selects run pods by the `agents.re-cinq.com/component: job` label the
-controller stamps on every run pod. It also adds `agents.re-cinq.com/agent` and
-`agents.re-cinq.com/station` labels, so a run's pod is traceable with
+controller stamps on every run pod. It also adds `agents.re-cinq.com/agent`,
+`agents.re-cinq.com/station` and `agents.re-cinq.com/agent-definition` labels, so a run's pod is traceable with
 `kubectl get pods -l agents.re-cinq.com/agent=<name>`.
 
 ```mermaid

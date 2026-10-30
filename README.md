@@ -138,7 +138,31 @@ flowchart LR
 
 - **AgentDefinition** — the recipe: prompt template, model, allowed tools, permissions, output sinks.
 - **Station** — the runtime: a Pod template plus a recipe reference and run-history limits.
-- **Agent** — one run: a Station reference, parameters, and a lifecycle `status`.
+- **Agent** — one run: a Station reference, parameters, the run's own wiring, and a lifecycle `status`.
+
+**Recipe vs run.** An AgentDefinition is reusable by any number of Agents, so what is specific to one
+run goes on the Agent: `spec.repos`, `spec.conversation`, `spec.output` (`sinks`, `select`, `watch`),
+`spec.secrets` and `spec.env`, next to `model`, `parameters` and `files`. Before it builds the Job,
+the controller lays the Agent's values over its AgentDefinition's: a value the Agent sets wins, and
+the recipe's is the default:
+
+| Agent field | Combines with the recipe's value by |
+| --- | --- |
+| `model`, `repos`, `output.sinks`, `output.select` | replacing it when the Agent sets one |
+| `conversation` | replacing each of `source`, `id`, `pin` and `headers_secret` the Agent sets |
+| `secrets`, `env`, `output.watch` | replacing the entry with the same `name` (`event` for a watch), keeping and adding the rest |
+
+An Agent that sets none of these runs the recipe unchanged. The prompt is still rendered once, from
+the recipe's `prompt` and the Agent's `parameters`, when the Job is created, and nothing changes in a
+running Job. [`examples/shared-recipe.yaml`](examples/shared-recipe.yaml) has two Agents sharing one
+AgentDefinition.
+
+Before it acts on a Pending Agent, the controller labels it with its Station and AgentDefinition, so
+the runs still using a recipe are listed before you delete it:
+
+```sh
+kubectl get agents -n ai-agents -l agents.re-cinq.com/agent-definition=<name>
+```
 
 The controller watches Agents, builds a Job per run, supervises it, patches the Agent's status, and
 prunes old runs. The agent toolchain is *injected* into the run Pod, so Stations only need a

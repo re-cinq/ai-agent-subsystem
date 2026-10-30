@@ -6,6 +6,22 @@ the npm package versions.
 
 ## Unreleased
 
+### Added
+- **An Agent carries its run's wiring, so one AgentDefinition serves many runs.** `Agent.spec` gains
+  optional `repos`, `conversation`, `output` (`sinks`, `select`, `watch`), `secrets` and `env`, for the
+  values that belong to a single run rather than to the recipe. Before it builds the Job, the
+  controller lays the Agent's values over its AgentDefinition's: an Agent's
+  `repos`, `output.sinks` and `output.select` replace the recipe's, its `conversation` replaces the
+  recipe's fields it sets, and its `secrets`, `env` and `output.watch` replace the recipe's entry of
+  the same `name` (`event` for a watch) and add the rest. The initializer, supervisor, batch and
+  realtime paths all see the merged values. An Agent that sets none of them behaves as before, and
+  existing AgentDefinitions that set these fields keep working. The contract types in both packages are
+  regenerated, and `examples/shared-recipe.yaml` shows two Agents sharing one AgentDefinition.
+- **The Agents still using an AgentDefinition can be listed.** Before it acts on a Pending Agent, the
+  controller labels it `agents.re-cinq.com/station` and `agents.re-cinq.com/agent-definition`, then acts
+  on the next reconcile; `kubectl get agents -l agents.re-cinq.com/agent-definition=<name>` lists them
+  before the recipe is deleted. Run pods carry the `agent-definition` label too.
+
 ## v0.14.0
 
 ### Added

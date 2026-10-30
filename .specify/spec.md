@@ -46,10 +46,22 @@ and run-history retention limits. ([validated by TestEveryExampleManifestDecodes
 
 ### Agent
 
-One run. Holds: a reference to a Station, per-run parameter overrides (prompt variables), and a
+One run. Holds: a reference to a Station, per-run parameter overrides (prompt variables), the run's own wiring, and a
 lifecycle `status` (phase, start/end time, output tail). ([validated by TestDeepCopyLeavesTheOriginalUntouched](packages/agent-contracts-go/types_test.go#L63)) The controller creates a Job per Agent and
 patches status as the Job progresses. The output tail is bounded by `MAX_OUTPUT_BYTES` (default
 256 KiB) to stay under etcd's per-object limit.
+
+The recipe is reusable; what belongs to a single run is given on the Agent. `Agent.spec` takes
+optional `repos`, `conversation`, `output` (`sinks`, `select`, `watch`), `secrets` and `env`.
+Before it builds the Job, the controller lays the Agent's values over its AgentDefinition's, and a value the Agent sets wins over the recipe's. ([validated by an Agent's repos replace the recipe's repos](packages/agentcore/source/agentcore/kube/jobspec.d#L2464))
+An Agent's `repos`, `output.sinks` and `output.select` replace the recipe's; its `conversation`
+replaces each field it sets; its `secrets`, `env` and `output.watch` replace the recipe's entry of the
+same name (`event` for a watch) and add the rest. ([validated by an Agent's secrets and env replace the recipe's entries of the same name and add the others](packages/agentcore/source/agentcore/kube/jobspec.d#L2522))
+An Agent that sets none of these runs the recipe unchanged, ([validated by an Agent that sets none of the per-run fields runs the recipe unchanged](packages/agentcore/source/agentcore/kube/jobspec.d#L2452))
+and two Agents sharing one AgentDefinition get Jobs with their own values. ([validated by two Agents sharing one AgentDefinition get Jobs with their own repos, conversation, output, secrets and env](packages/agentcore/source/agentcore/kube/jobspec.d#L2554))
+Before it acts on a Pending Agent, the controller labels it with its Station
+(`agents.re-cinq.com/station`) and AgentDefinition (`agents.re-cinq.com/agent-definition`) and acts on the
+next reconcile, so the Agents still using a recipe can be listed before it is deleted. ([validated by an unlabelled Pending Agent of Station stn is labelled stn/def and starts nothing yet](packages/agentcore/source/agentcore/reconcile/reconcile_driver.d#L886))
 
 ## Component Architecture
 
