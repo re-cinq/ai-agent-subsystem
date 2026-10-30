@@ -6,6 +6,18 @@ the npm package versions.
 
 ## Unreleased
 
+### Added
+- **An Agent carries its run's wiring, so one AgentDefinition serves many runs.** `Agent.spec` gains
+  optional `repos`, `conversation`, `output` (`sinks`, `select`, `watch`), `secrets` and `env`, for the
+  values that belong to a single run rather than to the recipe. The controller resolves a run's
+  effective spec from Station, then AgentDefinition, then Agent, before it builds the Job: an Agent's
+  `repos`, `output.sinks` and `output.select` replace the recipe's, its `conversation` replaces the
+  recipe's fields it sets, and its `secrets`, `env` and `output.watch` replace the recipe's entry of
+  the same `name` (`event` for a watch) and add the rest. The initializer, supervisor, batch and
+  realtime paths all see the merged values. An Agent that sets none of them behaves as before, and
+  existing AgentDefinitions that set these fields keep working. The contract types in both packages are
+  regenerated, and `examples/shared-recipe.yaml` shows two Agents sharing one AgentDefinition.
+
 ## v0.14.0
 
 ### Added

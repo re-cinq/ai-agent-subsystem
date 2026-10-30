@@ -1,7 +1,7 @@
 module agentcore.kube.jobspec;
 
 import std.algorithm.iteration : filter;
-import std.algorithm.searching : canFind, find;
+import std.algorithm.searching : canFind, countUntil, find;
 import std.algorithm.sorting : sort;
 import std.array : array;
 import std.conv : to;
@@ -88,13 +88,56 @@ enum agentGid = 1000;
 /// start, so the controller needs no Secret read permission.
 enum agentSecretName = "agent-secrets";
 
-/// The recipe a run executes: the definition's spec with the run's own model winning over
-/// the recipe's, so the vendor choice, the request or CLI model and the init's env agree.
+/// The recipe a run executes: the definition's spec with the Agent's own values winning over
+/// the recipe's, so the vendor choice, the request or CLI model, the init's env and the
+/// run's wiring (repos, conversation, output, secrets, env) all agree. A run that sets none
+/// of them gets the recipe as it is. Merging a run into its own result changes nothing.
 AgentDefinitionSpec runRecipe(const Agent agent, AgentDefinitionSpec recipe) @safe pure nothrow
 {
-	if (agent.spec.model.length)
-		recipe.model = agent.spec.model;
+	const run = agent.spec;
+	if (run.model.length)
+		recipe.model = run.model;
+	if (run.repos.length)
+		recipe.resources.repos = run.repos.dup;
+	recipe.resources.conversation = withRunConversation(recipe.resources.conversation, run.conversation);
+	recipe.resources.secrets = mergedByKey!(secret => secret.name)(recipe.resources.secrets, run.secrets);
+	recipe.resources.env = mergedByKey!(variable => variable.name)(recipe.resources.env, run.env);
+	if (run.output.sinks.length)
+		recipe.output.sinks = run.output.sinks.dup;
+	if (run.output.select.length)
+		recipe.output.select = run.output.select.dup;
+	recipe.output.watch = mergedByKey!(watch => watch.event)(recipe.output.watch, run.output.watch);
 	return recipe;
+}
+
+/// `recipe` with each field the run sets taken from `run`.
+private ConversationRef withRunConversation(ConversationRef recipe, const ConversationRef run) @safe pure nothrow
+{
+	if (run.source.length)
+		recipe.source = run.source;
+	if (run.id.length)
+		recipe.id = run.id;
+	if (run.pin.length)
+		recipe.pin = run.pin;
+	if (run.headersSecret.length)
+		recipe.headersSecret = run.headersSecret;
+	return recipe;
+}
+
+/// `recipe` with every entry of `run` in it: an entry replaces the recipe's entry of the
+/// same key where there is one, and is added after the recipe's otherwise.
+private T[] mergedByKey(alias keyOf, T)(const T[] recipe, const T[] run) @safe pure nothrow
+{
+	T[] merged = recipe.dup;
+	foreach (entry; run)
+	{
+		const position = merged.countUntil!(existing => keyOf(existing) == keyOf(entry));
+		if (position < 0)
+			merged ~= entry;
+		else
+			merged[position] = entry;
+	}
+	return merged;
 }
 
 /**
@@ -994,6 +1037,7 @@ version (unittest)
 	import agentcore.crds.output_selector : OutputSelector;
 	import agentcore.crds.output_watch : OutputWatch;
 	import agentcore.crds.secret_ref : SecretRef;
+	import agentcore.crds.watch_upload : WatchUpload;
 	import agentcore.output.output : parseSinks;
 	import agentcore.output.selectmatcher : parseSelectors;
 
@@ -2397,4 +2441,155 @@ unittest // a Station container named courier cannot take the courier's place
 
 	collectExceptionMsg(buildJob(agent, station, definition, "img")).should.equal(
 		"Station template already has a container named 'courier', which a pull request delivery runs as");
+}
+
+unittest // an Agent that sets none of the per-run fields runs the recipe unchanged
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.resources.repos = [RepoRef("app", "https://git.example/app.git")];
+	definition.spec.resources.conversation = ConversationRef("https://conv.example", "c1", "p1", "conv-auth");
+
+	runRecipe(agent, definition.spec).should.equal(definition.spec);
+}
+
+unittest // an Agent's repos replace the recipe's repos
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.resources.repos = [RepoRef("default", "https://git.example/default.git")];
+	agent.spec.repos = [RepoRef("app", "https://git.example/app.git", "main")];
+
+	runRecipe(agent, definition.spec).resources.repos.should.equal([RepoRef("app", "https://git.example/app.git", "main")]);
+}
+
+unittest // an Agent's conversation id and pin win while the recipe's source and credential stay
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.resources.conversation = ConversationRef("https://conv.example", "old", "", "conv-auth");
+	agent.spec.conversation = ConversationRef("", "c7", "p7");
+
+	runRecipe(agent, definition.spec).resources.conversation.should.equal(
+		ConversationRef("https://conv.example", "c7", "p7", "conv-auth"));
+}
+
+unittest // an Agent's sinks and selectors replace the recipe's, and unset fields leave the recipe's alone
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	agent.spec.output.sinks = [OutputSink(SinkType.http, "http://run-collector", "run-auth")];
+
+	const merged = runRecipe(agent, definition.spec);
+
+	merged.output.sinks.should.equal([OutputSink(SinkType.http, "http://run-collector", "run-auth")]);
+	merged.output.select.should.equal([OutputSelector(SelectEvent.result)]);
+}
+
+unittest // an Agent's watch replaces the recipe's watch of the same event and adds the others
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.output.watch = [OutputWatch("report", "report.md"), OutputWatch("log", "run.log")];
+	agent.spec.output.watch = [
+		OutputWatch("report", "report.md", WatchUpload("http://store/{agent}/{event}", "store-auth")),
+		OutputWatch("summary", "summary.md"),
+	];
+
+	runRecipe(agent, definition.spec).output.watch.should.equal([
+		OutputWatch("report", "report.md", WatchUpload("http://store/{agent}/{event}", "store-auth")),
+		OutputWatch("log", "run.log"),
+		OutputWatch("summary", "summary.md"),
+	]);
+}
+
+unittest // an Agent's secrets and env replace the recipe's entries of the same name and add the others
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	agent.spec.secrets = [SecretRef("REPO_TOKEN", "run-42-token"), SecretRef("ANTHROPIC_API_KEY", "other-key")];
+	agent.spec.env = [EnvVar("LOG_LEVEL", "trace"), EnvVar("TICKET", "ENG-1")];
+
+	const merged = runRecipe(agent, definition.spec);
+
+	merged.resources.secrets.should.equal([SecretRef("ANTHROPIC_API_KEY", "other-key"), SecretRef("REPO_TOKEN", "run-42-token")]);
+	merged.resources.env.should.equal([EnvVar("LOG_LEVEL", "trace"), EnvVar("TICKET", "ENG-1")]);
+}
+
+unittest // merging an Agent's wiring into a recipe twice gives the same recipe as once
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	agent.spec.repos = [RepoRef("app", "https://git.example/app.git")];
+	agent.spec.conversation = ConversationRef("", "c7");
+	agent.spec.output.watch = [OutputWatch("report", "report.md")];
+	agent.spec.secrets = [SecretRef("REPO_TOKEN", "run-42-token")];
+	agent.spec.env = [EnvVar("TICKET", "ENG-1")];
+
+	auto once = runRecipe(agent, definition.spec);
+
+	runRecipe(agent, once).should.equal(once);
+}
+
+unittest // two Agents sharing one AgentDefinition get Jobs with their own repos, conversation, output, secrets and env
+{
+	Agent first;
+	Agent second;
+	Station station;
+	AgentDefinition definition;
+	fixtures(first, station, definition);
+	second = first;
+	definition.spec.output.sinks = [];
+	definition.spec.resources.conversation = ConversationRef("https://conv.example", "", "", "conv-auth");
+	first.metadata.name = "run-1";
+	first.spec.repos = [RepoRef("app", "https://git.example/one.git", "main", "", "token-1")];
+	first.spec.conversation = ConversationRef("", "c1", "p1");
+	first.spec.output.sinks = [OutputSink(SinkType.http, "http://collector/1", "sink-auth-1")];
+	first.spec.secrets = [SecretRef("REPO_TOKEN", "token-1")];
+	first.spec.env = [EnvVar("TICKET", "ENG-1")];
+	second.metadata.name = "run-2";
+	second.spec.repos = [RepoRef("app", "https://git.example/two.git", "dev", "", "token-2")];
+	second.spec.conversation = ConversationRef("", "c2", "p2");
+	second.spec.output.sinks = [OutputSink(SinkType.http, "http://collector/2", "sink-auth-2")];
+	second.spec.secrets = [SecretRef("REPO_TOKEN", "token-2")];
+	second.spec.env = [EnvVar("TICKET", "ENG-2")];
+
+	auto firstPod = agentContainer(buildJob(first, station, definition, "img"));
+	auto secondPod = agentContainer(buildJob(second, station, definition, "img"));
+
+	string[][] seen(Json pod)
+	{
+		return [
+			[envValue(pod, "AGENT_REPOS")],
+			[envValue(pod, "AGENT_CONVERSATION_SOURCE"), envValue(pod, "AGENT_CONVERSATION_ID"),
+				envValue(pod, "AGENT_CONVERSATION_PIN"), envValue(pod, "AGENT_CONVERSATION_AUTH")],
+			[envValue(pod, "AGENT_SINKS")],
+			[envSecretKey(pod, "REPO_TOKEN"), envSecretKey(pod, "sink-auth-1"), envSecretKey(pod, "sink-auth-2")],
+			[envValue(pod, "TICKET")],
+		];
+	}
+
+	seen(firstPod)[1].should.equal(["https://conv.example", "c1", "p1", "conv-auth"]);
+	seen(secondPod)[1].should.equal(["https://conv.example", "c2", "p2", "conv-auth"]);
+	seen(firstPod)[3].should.equal(["token-1", "sink-auth-1", ""]);
+	seen(secondPod)[3].should.equal(["token-2", "", "sink-auth-2"]);
+	[seen(firstPod)[4], seen(secondPod)[4]].should.equal([["ENG-1"], ["ENG-2"]]);
+	seen(firstPod)[0][0].should.contain("one.git");
+	seen(secondPod)[0][0].should.contain("two.git");
+	seen(firstPod)[2][0].should.contain("collector/1");
+	seen(secondPod)[2][0].should.contain("collector/2");
 }

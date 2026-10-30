@@ -273,6 +273,12 @@ version (unittest)
 		SelectEvent, SinkType;
 	import agentcore.crds.env_var : EnvVar;
 	import agentcore.crds.secret_ref : SecretRef;
+	import agentcore.crds.repo_ref : RepoRef;
+	import agentcore.crds.conversation_ref : ConversationRef;
+	import agentcore.crds.output_sink : OutputSink;
+	import agentcore.crds.output_selector : OutputSelector;
+	import agentcore.crds.output_watch : OutputWatch;
+	import agentcore.crds.watch_upload : WatchUpload;
 	import agentcore.crds.agent_definition_spec : BatchSpec;
 }
 
@@ -437,6 +443,27 @@ unittest
 	definition.spec.resources.repos[0].url.should.equal("o/app");
 	definition.spec.output.sinks.length.should.equal(1);
 	definition.spec.output.sinks[0].type.should.equal(SinkType.http);
+}
+
+unittest // every per-run wiring field of an Agent survives parsing into the typed Agent
+{
+	auto agent = parseAgent(parseJsonString(`{
+		"metadata":{"name":"run-1"},
+		"spec":{"stationRef":"stn",
+			"repos":[{"name":"app","url":"o/app","ref":"main","token_secret":"RUN_TOKEN"}],
+			"conversation":{"id":"c1","pin":"p1"},
+			"output":{"sinks":[{"type":"http","url":"http://c","headers_secret":"SINK_HEADERS"}],
+				"select":[{"event":"result"}],
+				"watch":[{"event":"report","path":"r.md","upload":{"url":"http://u","headers_secret":"UP"}}]},
+			"secrets":[{"name":"RUN_TOKEN","ref":"run-1-token"}],
+			"env":[{"name":"TICKET","value":"E-1"}]}}`));
+	agent.spec.repos.should.equal([RepoRef("app", "o/app", "main", "", "RUN_TOKEN")]);
+	agent.spec.conversation.should.equal(ConversationRef("", "c1", "p1"));
+	agent.spec.output.sinks.should.equal([OutputSink(SinkType.http, "http://c", "SINK_HEADERS")]);
+	agent.spec.output.select.should.equal([OutputSelector(SelectEvent.result)]);
+	agent.spec.output.watch.should.equal([OutputWatch("report", "r.md", WatchUpload("http://u", "UP"))]);
+	agent.spec.secrets.should.equal([SecretRef("RUN_TOKEN", "run-1-token")]);
+	agent.spec.env.should.equal([EnvVar("TICKET", "E-1")]);
 }
 
 unittest

@@ -1989,6 +1989,32 @@ unittest // succeeded batch poll posts each translated claude line to the http s
 		.map!(line => "http://floor/events " ~ wrapEvent(source, line)).array);
 }
 
+unittest // succeeded batch poll posts to the Agent's own http sink, not the recipe's
+{
+	import agentcore.batch.anthropic : toCliEvents;
+	import agentcore.crds.enums : SinkType;
+	import agentcore.crds.output_sink : OutputSink;
+	import agentcore.output.event : EventSource, wrapEvent;
+	import std.algorithm : map;
+	import std.array : array;
+
+	auto client = batchClient("claude-sonnet-4-6");
+	client.definition.spec.output.sinks = [OutputSink(SinkType.http, "http://recipe/events")];
+	auto providers = FakeBatchProviders(new FakeBatchProvider);
+	providers.provider.pollResult = succeededPoll();
+	FakeSinkPoster poster;
+	auto agent = runningBatchAgent("run-b");
+	agent.spec.taskId = "T-1";
+	agent.spec.output.sinks = [OutputSink(SinkType.http, "http://run-b/events")];
+
+	reconcileAgent(client, "ai-agents", agent, "img", "2026-06-22T12:05:00Z", null, sinkConfig(providers, poster));
+
+	const source = EventSource("run-b", "stn", "T-1", "", "ai-agents");
+	poster.posts.should.equal((toCliEvents(succeededPoll(), "uid-7")
+		~ `{"kind":"lifecycle","phase":"agent","status":"succeeded","exitCode":0}`)
+		.map!(line => "http://run-b/events " ~ wrapEvent(source, line)).array);
+}
+
 unittest // succeeded batch poll with output.select on result posts only the result line and the lifecycle event
 {
 	import agentcore.batch.anthropic : toCliEvents;

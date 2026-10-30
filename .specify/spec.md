@@ -46,10 +46,20 @@ and run-history retention limits. ([validated by TestEveryExampleManifestDecodes
 
 ### Agent
 
-One run. Holds: a reference to a Station, per-run parameter overrides (prompt variables), and a
+One run. Holds: a reference to a Station, per-run parameter overrides (prompt variables), the run's own wiring, and a
 lifecycle `status` (phase, start/end time, output tail). ([validated by TestDeepCopyLeavesTheOriginalUntouched](packages/agent-contracts-go/types_test.go#L63)) The controller creates a Job per Agent and
 patches status as the Job progresses. The output tail is bounded by `MAX_OUTPUT_BYTES` (default
 256 KiB) to stay under etcd's per-object limit.
+
+The recipe is reusable; what belongs to a single run is given on the Agent. `Agent.spec` takes
+optional `repos`, `conversation`, `output` (`sinks`, `select`, `watch`), `secrets` and `env`.
+The controller resolves a run's effective spec from Station, then AgentDefinition, then Agent, before
+it builds the Job, and a value the Agent sets wins over the recipe's. ([validated by an Agent's repos replace the recipe's repos](packages/agentcore/source/agentcore/kube/jobspec.d#L2458))
+An Agent's `repos`, `output.sinks` and `output.select` replace the recipe's; its `conversation`
+replaces each field it sets; its `secrets`, `env` and `output.watch` replace the recipe's entry of the
+same name (`event` for a watch) and add the rest. ([validated by an Agent's secrets and env replace the recipe's entries of the same name and add the others](packages/agentcore/source/agentcore/kube/jobspec.d#L2516))
+An Agent that sets none of these runs the recipe unchanged, ([validated by an Agent that sets none of the per-run fields runs the recipe unchanged](packages/agentcore/source/agentcore/kube/jobspec.d#L2446))
+and two Agents sharing one AgentDefinition get Jobs with their own values. ([validated by two Agents sharing one AgentDefinition get Jobs with their own repos, conversation, output, secrets and env](packages/agentcore/source/agentcore/kube/jobspec.d#L2548))
 
 ## Component Architecture
 
