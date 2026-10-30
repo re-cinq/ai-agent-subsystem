@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.15.0
+
 ### Added
 - **An Agent carries its run's wiring, so one AgentDefinition serves many runs.** `Agent.spec` gains
   optional `repos`, `conversation`, `output` (`sinks`, `select`, `watch`), `secrets` and `env`, for the
