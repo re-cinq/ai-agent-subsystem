@@ -94,7 +94,7 @@ the platforms your nodes run, tag for **your** registry, and push:
 
 ```sh
 REGISTRY=your-registry.example.com/your-project   # a registry your cluster can pull from
-TAG=v0.14.0
+TAG=v0.15.0
 
 docker buildx build --platform linux/amd64,linux/arm64 --push \
   -f deploy/Dockerfile.controller       -t "$REGISTRY/ai-agent-controller:$TAG" .
