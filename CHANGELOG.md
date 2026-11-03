@@ -6,6 +6,13 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.16.1
+
+### Fixed
+- **The Python contracts publish to PyPI.** The v0.16.0 publish job pinned a PyPI publish action
+  commit that does not exist, so `re-cinq-agent-contracts` was never uploaded. 0.16.1 is its first
+  release; the other contract packages are unchanged from 0.16.0.
+
 ## v0.16.0
 
 ### Added
