@@ -81,6 +81,7 @@ when a controller returns an `Agent` as JSON.
 ```java
 Agent run = new Agent();
 run.setMetadata(new ObjectMetaBuilder().withGenerateName("fix-bug-").build());
+
 AgentSpec spec = new AgentSpec();
 spec.setStationRef("bug-fixer");
 spec.setTargetRepo("re-cinq/ai-agent-subsystem");
@@ -89,6 +90,7 @@ run.setSpec(spec);
 
 Agent started = agents.createAgent(run);
 Agent finished = agents.waitForAgent(started.getMetadata().getName(), Duration.ofMinutes(30));
+
 System.out.println(finished.getStatus().getPhase() + " " + finished.getStatus().getPrUrl());
 ```
 
@@ -101,10 +103,12 @@ request handler run it on an executor or a virtual thread.
 ```java
 AgentDefinition definition = new AgentDefinition();
 definition.setMetadata(new ObjectMetaBuilder().withName("bug-fixer").build());
+
 AgentDefinitionSpec recipe = new AgentDefinitionSpec();
 recipe.setModel("claude-sonnet-5-5");
 recipe.setPrompt("Fix the bug described in issue {issue}.");
 definition.setSpec(recipe);
+
 agents.applyAgentDefinition(definition);
 ```
 

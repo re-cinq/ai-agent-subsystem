@@ -33,10 +33,12 @@ scheme := runtime.NewScheme()
 if err := agentcontracts.AddToScheme(scheme); err != nil {
 	return err
 }
+
 kube, err := client.New(config.GetConfigOrDie(), client.Options{Scheme: scheme})
 if err != nil {
 	return err
 }
+
 agents := agentcontracts.NewClient(kube, "") // "" means the ai-agents namespace
 ```
 
@@ -55,16 +57,19 @@ run := &agentcontracts.Agent{
 		Parameters: map[string]string{"issue": "123"},
 	},
 }
+
 if err := agents.CreateAgent(ctx, run); err != nil {
 	return err
 }
 
 ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 defer cancel()
+
 finished, err := agents.WaitForAgent(ctx, run.Name, 5*time.Second)
 if err != nil {
 	return err
 }
+
 fmt.Println(finished.Status.Phase, finished.Status.PrURL)
 ```
 
@@ -81,6 +86,7 @@ definition := &agentcontracts.AgentDefinition{
 		Prompt: "Fix the bug described in issue {issue}.",
 	},
 }
+
 if err := agents.ApplyAgentDefinition(ctx, definition); err != nil {
 	return err
 }

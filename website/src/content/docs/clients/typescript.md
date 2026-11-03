@@ -33,6 +33,7 @@ const transport: KubeTransport = {
     for (const [key, value] of Object.entries(query ?? {})) {
       url.searchParams.set(key, value);
     }
+
     const response = await fetch(url, {
       method,
       headers: {
@@ -41,6 +42,7 @@ const transport: KubeTransport = {
       },
       body: body ? JSON.stringify(body) : undefined,
     });
+
     return { status: response.status, body: await response.json() };
   },
 };
@@ -67,6 +69,7 @@ const run = await client.createAgent({
 });
 
 const finished = await waitForAgent(client, run.metadata!.name!, { intervalMs: 5000, attempts: 360 });
+
 console.log(finished.status?.phase, finished.status?.prUrl);
 ```
 
@@ -81,6 +84,7 @@ await client.applyAgentDefinition({
   metadata: { name: "bug-fixer" },
   spec: { model: "claude-sonnet-5-5", prompt: "Fix the bug described in issue {issue}." },
 });
+
 await client.applyStation({ metadata: { name: "bug-fixer" }, spec: { agentDefRef: "bug-fixer" } });
 ```
 
