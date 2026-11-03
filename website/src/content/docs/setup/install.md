@@ -27,7 +27,7 @@ That is the entire install. To pin a specific release instead of tracking the la
 tag from the [releases page](https://github.com/re-cinq/ai-agent-subsystem/releases):
 
 ```sh
-kubectl apply -f https://github.com/re-cinq/ai-agent-subsystem/releases/download/v0.14.0/install.yaml
+kubectl apply -f https://github.com/re-cinq/ai-agent-subsystem/releases/download/v0.15.0/install.yaml
 ```
 
 Then [verify the deployment](#verify-the-deployment). One thing `install.yaml` cannot ship for you is
@@ -46,7 +46,7 @@ platforms your nodes run:
 
 ```sh
 REGISTRY=your-registry.example.com/your-project
-TAG=v0.14.0
+TAG=v0.15.0
 
 docker buildx build --platform linux/amd64,linux/arm64 --push \
   -f deploy/Dockerfile.controller       -t "$REGISTRY/ai-agent-controller:$TAG" .
@@ -90,7 +90,7 @@ Each release also publishes a Helm chart to `oci://ghcr.io/re-cinq/charts`. It i
 objects as `install.yaml` for the same release. Helm 3.8 or later is needed for OCI charts.
 
 ```sh
-helm install ai-agent-subsystem oci://ghcr.io/re-cinq/charts/ai-agent-subsystem --version 0.14.0 \
+helm install ai-agent-subsystem oci://ghcr.io/re-cinq/charts/ai-agent-subsystem --version 0.15.0 \
   --namespace default
 ```
 
@@ -118,14 +118,14 @@ that release's CRDs yourself (this uses [yq](https://github.com/mikefarah/yq) to
 `install.yaml`):
 
 ```sh
-curl -sL https://github.com/re-cinq/ai-agent-subsystem/releases/download/v0.14.0/install.yaml \
+curl -sL https://github.com/re-cinq/ai-agent-subsystem/releases/download/v0.15.0/install.yaml \
   | yq 'select(.kind == "CustomResourceDefinition")' | kubectl apply -f -
 ```
 
 The chart is signed with cosign the same way as the images:
 
 ```sh
-cosign verify ghcr.io/re-cinq/charts/ai-agent-subsystem:0.14.0 \
+cosign verify ghcr.io/re-cinq/charts/ai-agent-subsystem:0.15.0 \
   --certificate-identity-regexp '^https://github.com/re-cinq/ai-agent-subsystem/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
@@ -143,9 +143,9 @@ adds the `components/batch` component:
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - https://github.com/re-cinq/ai-agent-subsystem//deploy?ref=v0.14.0
+  - https://github.com/re-cinq/ai-agent-subsystem//deploy?ref=v0.15.0
 components:
-  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/batch?ref=v0.14.0
+  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/batch?ref=v0.15.0
 ```
 
 ```sh
@@ -172,9 +172,9 @@ sets `WEBHOOKS_ENABLED=true` and adds the `agent-controller-webhooks` Service on
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - https://github.com/re-cinq/ai-agent-subsystem//deploy?ref=v0.14.0
+  - https://github.com/re-cinq/ai-agent-subsystem//deploy?ref=v0.15.0
 components:
-  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/webhooks?ref=v0.14.0
+  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/webhooks?ref=v0.15.0
 ```
 
 Then store the webhook's HMAC key in `agent-secrets`, expose the Service to GitHub and add the
@@ -193,9 +193,9 @@ component, which grants the controller `get` on the `agent-secrets` Secret and s
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - https://github.com/re-cinq/ai-agent-subsystem//deploy?ref=v0.14.0
+  - https://github.com/re-cinq/ai-agent-subsystem//deploy?ref=v0.15.0
 components:
-  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/model-catalog?ref=v0.14.0
+  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/model-catalog?ref=v0.15.0
 ```
 
 List both components to enable batch runs and the catalog together. From a source checkout, use
@@ -221,7 +221,7 @@ The controller image `install.yaml` pins is signed in CI with [cosign](https://d
 (keyless, via the GitHub OIDC token). Confirm the signature before trusting a release:
 
 ```sh
-cosign verify ghcr.io/re-cinq/ai-agent-controller@sha256:c1abb59da048e98329caf04ffc1c2bde41736e10a140307b83e848fefabb92c4 \
+cosign verify ghcr.io/re-cinq/ai-agent-controller@sha256:6e8bdeff84ca98c2199d5563a732df99f44f359b7604bb3d8d42a920d4e3a5dd \
   --certificate-identity-regexp '^https://github.com/re-cinq/ai-agent-subsystem/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```

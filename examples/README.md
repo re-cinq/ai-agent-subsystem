@@ -8,6 +8,7 @@ Ready-to-apply examples you can try against a running cluster. Each is a recipe
 |------|---------------|
 | [`story-writer.yaml`](story-writer.yaml) | Pure text — prompt in, prose out. No repo, no tools. **Start here.** |
 | [`bug-fixer.yaml`](bug-fixer.yaml) | Code editing — reads/edits/tests with a scoped tool allowlist. |
+| [`shared-recipe.yaml`](shared-recipe.yaml) | One AgentDefinition and Station shared by two Agents, each with its own repos, conversation, output and env. |
 | [`nightly-story.yaml`](nightly-story.yaml) | An AgentSpawner that runs `story-writer` every night at 03:00 UTC. |
 | [`run-agent.sh`](run-agent.sh) | Launch one run against a Station with `key=value` parameters. |
 | [`notify-listener.mjs`](notify-listener.mjs) | A zero-dependency listener for the `http` output sink. |
@@ -59,7 +60,7 @@ kubectl -n ai-agents get "$agent" -o jsonpath='{.status.output}{"\n"}'
 ## Try the code-editing example
 
 ```sh
-kubectl apply -f examples/bug-fixer.yaml
+kubectl apply -f examples/bug-fixer.yaml -f examples/shared-recipe.yaml
 examples/run-agent.sh node-fixer ticket=ENG-417 repo=re-cinq/ai-agent-subsystem branch=fix/eng-417
 kubectl -n ai-agents get agents -w
 ```
@@ -67,6 +68,17 @@ kubectl -n ai-agents get agents -w
 The `key=value` arguments fill the recipe's `{ticket}`, `{repo}`, `{branch}` placeholders. To make
 the agent actually clone and push, add `resources.repos` (with a `token_secret`) to the recipe and
 set the Agent's `targetRepo`/`branch`.
+
+## Share one recipe between many runs
+
+```sh
+kubectl apply -f examples/shared-recipe.yaml
+```
+
+`repo-reviewer-run-1` and `repo-reviewer-run-2` reference the same Station and AgentDefinition and
+run as two independent Jobs, each with the repository, conversation, sink and env its own Agent
+sets. This example is schema-checked only; the placeholder hosts and secret keys need replacing
+before the runs can succeed.
 
 ## Run it on a schedule
 

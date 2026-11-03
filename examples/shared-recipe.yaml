@@ -1,0 +1,107 @@
+# Shared recipe — one AgentDefinition and one Station serving many runs. The recipe holds
+# what stays the same (prompt, model, tools, the API key); each Agent carries what changes
+# from run to run (repository, conversation, where output goes, per-run secrets and env).
+# Where an Agent sets a field, its value wins over the recipe's.
+#
+#   kubectl apply -f examples/shared-recipe.yaml
+#   kubectl -n ai-agents get agents -w
+#
+# Needs an `agent-secrets` Secret with ANTHROPIC_API_KEY and, for the per-run values below,
+# the keys `RUN_1_TOKEN`, `RUN_2_TOKEN`, `RUN_1_SINK_AUTH` and `RUN_2_SINK_AUTH` (see
+# examples/README.md). The sinks and conversation registry are placeholders; point them at
+# your own services. This file is schema-checked only: no run line, so `make itest-examples`
+# does not start the two Agents.
+---
+apiVersion: agents.re-cinq.com/v1beta1
+kind: AgentDefinition
+metadata:
+  name: repo-reviewer
+  namespace: ai-agents
+spec:
+  description: Reviews the checked-out repository for the ticket named in TICKET.
+  model: claude-sonnet-4-6
+  prompt: |
+    Review the repository in your workspace for ticket {ticket}. Report what you find.
+  allowed_tools:
+    - Read
+    - Bash(git log:*)
+  resources:
+    secrets:
+      - name: ANTHROPIC_API_KEY
+        ref: ANTHROPIC_API_KEY
+    # The registry every run fetches and saves its conversation from; each Agent names its own id.
+    conversation:
+      source: https://conversations.example.com/v1
+  output:
+    format: stream-json
+    sinks:
+      - type: stdout
+---
+apiVersion: agents.re-cinq.com/v1beta1
+kind: Station
+metadata:
+  name: repo-reviewer
+  namespace: ai-agents
+spec:
+  agentDefRef: repo-reviewer
+  deadlineMinutes: 15
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: agent
+          image: node:22-bookworm
+---
+# Run 1: its own repository, conversation, sink and credentials.
+apiVersion: agents.re-cinq.com/v1beta1
+kind: Agent
+metadata:
+  name: repo-reviewer-run-1
+  namespace: ai-agents
+spec:
+  stationRef: repo-reviewer
+  parameters:
+    ticket: ENG-101
+  repos:
+    - name: app
+      url: https://github.com/example/app
+      ref: main
+      token_secret: RUN_1_TOKEN
+  conversation:
+    id: eng-101
+    pin: eng-101
+  output:
+    sinks:
+      - type: http
+        url: https://collector.example.com/runs/eng-101
+        headers_secret: RUN_1_SINK_AUTH
+  env:
+    - name: TICKET
+      value: ENG-101
+---
+# Run 2: the same recipe on another repository, with its own values.
+apiVersion: agents.re-cinq.com/v1beta1
+kind: Agent
+metadata:
+  name: repo-reviewer-run-2
+  namespace: ai-agents
+spec:
+  stationRef: repo-reviewer
+  parameters:
+    ticket: ENG-202
+  repos:
+    - name: service
+      url: https://github.com/example/service
+      ref: develop
+      token_secret: RUN_2_TOKEN
+  conversation:
+    id: eng-202
+    pin: eng-202
+  output:
+    sinks:
+      - type: http
+        url: https://collector.example.com/runs/eng-202
+        headers_secret: RUN_2_SINK_AUTH
+  env:
+    - name: TICKET
+      value: ENG-202

@@ -82,6 +82,22 @@ const finished = await waitForAgent(client, run.metadata!.name!);
 console.log(finished.status?.phase, finished.status?.prUrl);
 ```
 
+An AgentDefinition is a reusable recipe, so a run's own repositories, conversation, output, secrets and
+env go on `spec` of the Agent (`repos`, `conversation`, `output`, `secrets`, `env`) and win over the
+recipe's value when set:
+
+```ts
+await client.createAgent({
+  metadata: { generateName: "review-" },
+  spec: {
+    stationRef: "repo-reviewer",
+    repos: [{ name: "app", url: "https://github.com/example/app", token_secret: "RUN_1_TOKEN" }],
+    conversation: { id: "eng-101", pin: "eng-101" },
+    output: { sinks: [{ type: "http", url: "https://collector.example.com/runs/eng-101" }] },
+  },
+});
+```
+
 `status.prUrl` is set when the Station's AgentDefinition has `spec.delivery.pullRequest`
 (`DeliverySpec`, `PullRequestDelivery`): the run's commits are pushed and opened as a pull request.
 

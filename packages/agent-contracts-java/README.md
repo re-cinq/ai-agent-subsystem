@@ -25,11 +25,11 @@ The jar is published to GitHub Packages on every release. Add the repository and
 <dependency>
   <groupId>com.re-cinq</groupId>
   <artifactId>agent-contracts</artifactId>
-  <version>0.14.0</version>
+  <version>0.15.0</version>
 </dependency>
 ```
 
-Versions follow the subsystem's releases: `0.14.0` is cut from the same commit as `v0.14.0`.
+Versions follow the subsystem's releases: `0.15.0` is cut from the same commit as `v0.15.0`.
 Requires Java 17+ and brings `io.fabric8:kubernetes-client` 7.x (the major Spring Cloud Kubernetes uses).
 
 ## Types

@@ -494,6 +494,54 @@ func (in *OutputSpec) DeepCopy() *OutputSpec {
 	return out
 }
 
+// Where one run's output goes; sinks and select replace the AgentDefinition's when set, watch merges by event.
+type RunOutput struct {
+	// Sinks for this run; when set they replace the recipe's sinks.
+	Sinks []OutputSink `json:"sinks,omitempty"`
+
+	// Which events reach the sinks; when set it replaces the recipe's selectors.
+	Select []OutputSelector `json:"select,omitempty"`
+
+	// Files this run produces. An entry replaces the recipe's watch of the same event (so a run can give a recipe's watch its own upload); other events are added.
+	Watch []OutputWatch `json:"watch,omitempty"`
+}
+
+// DeepCopyInto copies the receiver into out. in must be non-nil.
+func (in *RunOutput) DeepCopyInto(out *RunOutput) {
+	*out = *in
+	if in.Sinks != nil {
+		in, out := &in.Sinks, &out.Sinks
+		*out = make([]OutputSink, len(*in))
+		for index := range *in {
+			(*in)[index].DeepCopyInto(&(*out)[index])
+		}
+	}
+	if in.Select != nil {
+		in, out := &in.Select, &out.Select
+		*out = make([]OutputSelector, len(*in))
+		for index := range *in {
+			(*in)[index].DeepCopyInto(&(*out)[index])
+		}
+	}
+	if in.Watch != nil {
+		in, out := &in.Watch, &out.Watch
+		*out = make([]OutputWatch, len(*in))
+		for index := range *in {
+			(*in)[index].DeepCopyInto(&(*out)[index])
+		}
+	}
+}
+
+// DeepCopy returns a deep copy of the receiver.
+func (in *RunOutput) DeepCopy() *RunOutput {
+	if in == nil {
+		return nil
+	}
+	out := new(RunOutput)
+	in.DeepCopyInto(out)
+	return out
+}
+
 // Open a pull request from the run's work branch; the push happens outside the agent container.
 type PullRequestDelivery struct {
 	// Branch the pull request merges into.
@@ -889,7 +937,7 @@ func (in *InputFile) DeepCopy() *InputFile {
 	return out
 }
 
-// One run of a recipe in a Station.
+// One run of a recipe in a Station. The AgentDefinition is the reusable recipe; what belongs to a single run (repos, conversation, output, secrets, env) can be given here and wins over the recipe's value when set, so one AgentDefinition serves many Agents.
 type AgentSpec struct {
 	// The Station to run in (which selects the recipe).
 	StationRef string `json:"stationRef"`
@@ -913,6 +961,21 @@ type AgentSpec struct {
 
 	// Session id of an earlier realtime run to continue: its saved conversation is restored and the definition's prompt is not sent.
 	ResumeSession string `json:"resumeSession,omitempty"`
+
+	// Repositories to clone for this run; when set they replace the AgentDefinition's resources.repos.
+	Repos []RepoRef `json:"repos,omitempty"`
+
+	// Conversation to continue and the id to save under; each field set here wins over the same field of the AgentDefinition's resources.conversation.
+	Conversation ConversationRef `json:"conversation,omitzero"`
+
+	// Where this run's output goes; see RunOutput for how each field combines with the AgentDefinition's output.
+	Output RunOutput `json:"output,omitzero"`
+
+	// Secrets exposed to this run, such as per-run credentials; an entry replaces the AgentDefinition's resources.secrets entry of the same name, others are added.
+	Secrets []SecretRef `json:"secrets,omitempty"`
+
+	// Environment values for this run, such as ones derived from its inputs; an entry replaces the AgentDefinition's resources.env entry of the same name, others are added.
+	Env []EnvVar `json:"env,omitempty"`
 }
 
 // DeepCopyInto copies the receiver into out. in must be non-nil.
@@ -928,6 +991,29 @@ func (in *AgentSpec) DeepCopyInto(out *AgentSpec) {
 	if in.Files != nil {
 		in, out := &in.Files, &out.Files
 		*out = make([]InputFile, len(*in))
+		for index := range *in {
+			(*in)[index].DeepCopyInto(&(*out)[index])
+		}
+	}
+	if in.Repos != nil {
+		in, out := &in.Repos, &out.Repos
+		*out = make([]RepoRef, len(*in))
+		for index := range *in {
+			(*in)[index].DeepCopyInto(&(*out)[index])
+		}
+	}
+	in.Conversation.DeepCopyInto(&out.Conversation)
+	in.Output.DeepCopyInto(&out.Output)
+	if in.Secrets != nil {
+		in, out := &in.Secrets, &out.Secrets
+		*out = make([]SecretRef, len(*in))
+		for index := range *in {
+			(*in)[index].DeepCopyInto(&(*out)[index])
+		}
+	}
+	if in.Env != nil {
+		in, out := &in.Env, &out.Env
+		*out = make([]EnvVar, len(*in))
 		for index := range *in {
 			(*in)[index].DeepCopyInto(&(*out)[index])
 		}

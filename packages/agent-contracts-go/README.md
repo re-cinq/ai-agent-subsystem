@@ -53,6 +53,10 @@ if err := agents.CreateAgent(ctx, run); err != nil {
 finished, err := agents.WaitForAgent(ctx, run.Name, 2*time.Second)
 ```
 
+An AgentDefinition is a reusable recipe, so what belongs to one run goes on `AgentSpec`: `Repos`,
+`Conversation`, `Output` (a `RunOutput`), `Secrets` and `Env`. Where an Agent sets one it wins over the
+recipe's value, and the recipe's is the default.
+
 | Method | Does |
 | --- | --- |
 | `CreateAgent` | Start one run. |

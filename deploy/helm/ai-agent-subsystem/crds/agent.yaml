@@ -33,7 +33,7 @@ spec:
       schema:
         openAPIV3Schema:
           type: object
-          description: "One run of a recipe in a Station."
+          description: "One run of a recipe in a Station. The AgentDefinition is the reusable recipe; what belongs to a single run (repos, conversation, output, secrets, env) can be given here and wins over the recipe's value when set, so one AgentDefinition serves many Agents."
           required:
             - spec
           properties:
@@ -85,6 +85,145 @@ spec:
                 resumeSession:
                   type: string
                   description: "Session id of an earlier realtime run to continue: its saved conversation is restored and the definition's prompt is not sent."
+                repos:
+                  type: array
+                  description: "Repositories to clone for this run; when set they replace the AgentDefinition's resources.repos."
+                  items:
+                    type: object
+                    required:
+                      - name
+                      - url
+                    properties:
+                      name:
+                        type: string
+                      url:
+                        type: string
+                      ref:
+                        type: string
+                      path:
+                        type: string
+                      token_secret:
+                        type: string
+                conversation:
+                  type: object
+                  description: "Conversation to continue and the id to save under; each field set here wins over the same field of the AgentDefinition's resources.conversation."
+                  properties:
+                    source:
+                      type: string
+                      description: "Base URL the prior conversation state is fetched from."
+                    id:
+                      type: string
+                      description: "Conversation to continue; empty starts a fresh one."
+                    pin:
+                      type: string
+                      description: "Id this run's state is saved as; empty means it is not saved."
+                    headers_secret:
+                      type: string
+                      description: "Secret holding the Authorization header for the fetch."
+                output:
+                  type: object
+                  description: "Where this run's output goes; see RunOutput for how each field combines with the AgentDefinition's output."
+                  properties:
+                    sinks:
+                      type: array
+                      description: "Sinks for this run; when set they replace the recipe's sinks."
+                      items:
+                        type: object
+                        required:
+                          - type
+                        properties:
+                          type:
+                            type: string
+                            enum:
+                              - "stdout"
+                              - "http"
+                              - "file"
+                          url:
+                            type: string
+                          headers_secret:
+                            type: string
+                          path:
+                            type: string
+                    select:
+                      type: array
+                      description: "Which events reach the sinks; when set it replaces the recipe's selectors."
+                      items:
+                        type: object
+                        required:
+                          - event
+                        properties:
+                          event:
+                            type: string
+                            enum:
+                              - "tool_call"
+                              - "message"
+                              - "tool_result"
+                              - "result"
+                              - "usage"
+                          tool:
+                            type: string
+                          role:
+                            type: string
+                            enum:
+                              - "assistant"
+                              - "user"
+                          contains:
+                            type: string
+                    watch:
+                      type: array
+                      description: "Files this run produces. An entry replaces the recipe's watch of the same event (so a run can give a recipe's watch its own upload); other events are added."
+                      items:
+                        type: object
+                        required:
+                          - event
+                          - path
+                        properties:
+                          event:
+                            type: string
+                            description: "Event name raised when the file is produced."
+                          path:
+                            type: string
+                            description: "File to read; relative paths resolve against WORKSPACE_DIR."
+                          upload:
+                            type: object
+                            description: "Upload the file to a URL instead of inlining its content."
+                            required:
+                              - url
+                            properties:
+                              url:
+                                type: string
+                                description: "URL the file is POSTed to; {agent} and {event} are expanded per run."
+                              headers_secret:
+                                type: string
+                                description: "Secret key holding the header block sent with the upload."
+                secrets:
+                  type: array
+                  description: "Secrets exposed to this run, such as per-run credentials; an entry replaces the AgentDefinition's resources.secrets entry of the same name, others are added."
+                  items:
+                    type: object
+                    required:
+                      - name
+                      - ref
+                    properties:
+                      name:
+                        type: string
+                        description: "Environment variable name to expose the secret as."
+                      ref:
+                        type: string
+                        description: "Allowlisted secret-store key."
+                env:
+                  type: array
+                  description: "Environment values for this run, such as ones derived from its inputs; an entry replaces the AgentDefinition's resources.env entry of the same name, others are added."
+                  items:
+                    type: object
+                    required:
+                      - name
+                      - value
+                    properties:
+                      name:
+                        type: string
+                      value:
+                        type: string
             status:
               type: object
               properties:
@@ -152,7 +291,7 @@ spec:
       schema:
         openAPIV3Schema:
           type: object
-          description: "One run of a recipe in a Station."
+          description: "One run of a recipe in a Station. The AgentDefinition is the reusable recipe; what belongs to a single run (repos, conversation, output, secrets, env) can be given here and wins over the recipe's value when set, so one AgentDefinition serves many Agents."
           required:
             - spec
           properties:
@@ -204,6 +343,145 @@ spec:
                 resumeSession:
                   type: string
                   description: "Session id of an earlier realtime run to continue: its saved conversation is restored and the definition's prompt is not sent."
+                repos:
+                  type: array
+                  description: "Repositories to clone for this run; when set they replace the AgentDefinition's resources.repos."
+                  items:
+                    type: object
+                    required:
+                      - name
+                      - url
+                    properties:
+                      name:
+                        type: string
+                      url:
+                        type: string
+                      ref:
+                        type: string
+                      path:
+                        type: string
+                      token_secret:
+                        type: string
+                conversation:
+                  type: object
+                  description: "Conversation to continue and the id to save under; each field set here wins over the same field of the AgentDefinition's resources.conversation."
+                  properties:
+                    source:
+                      type: string
+                      description: "Base URL the prior conversation state is fetched from."
+                    id:
+                      type: string
+                      description: "Conversation to continue; empty starts a fresh one."
+                    pin:
+                      type: string
+                      description: "Id this run's state is saved as; empty means it is not saved."
+                    headers_secret:
+                      type: string
+                      description: "Secret holding the Authorization header for the fetch."
+                output:
+                  type: object
+                  description: "Where this run's output goes; see RunOutput for how each field combines with the AgentDefinition's output."
+                  properties:
+                    sinks:
+                      type: array
+                      description: "Sinks for this run; when set they replace the recipe's sinks."
+                      items:
+                        type: object
+                        required:
+                          - type
+                        properties:
+                          type:
+                            type: string
+                            enum:
+                              - "stdout"
+                              - "http"
+                              - "file"
+                          url:
+                            type: string
+                          headers_secret:
+                            type: string
+                          path:
+                            type: string
+                    select:
+                      type: array
+                      description: "Which events reach the sinks; when set it replaces the recipe's selectors."
+                      items:
+                        type: object
+                        required:
+                          - event
+                        properties:
+                          event:
+                            type: string
+                            enum:
+                              - "tool_call"
+                              - "message"
+                              - "tool_result"
+                              - "result"
+                              - "usage"
+                          tool:
+                            type: string
+                          role:
+                            type: string
+                            enum:
+                              - "assistant"
+                              - "user"
+                          contains:
+                            type: string
+                    watch:
+                      type: array
+                      description: "Files this run produces. An entry replaces the recipe's watch of the same event (so a run can give a recipe's watch its own upload); other events are added."
+                      items:
+                        type: object
+                        required:
+                          - event
+                          - path
+                        properties:
+                          event:
+                            type: string
+                            description: "Event name raised when the file is produced."
+                          path:
+                            type: string
+                            description: "File to read; relative paths resolve against WORKSPACE_DIR."
+                          upload:
+                            type: object
+                            description: "Upload the file to a URL instead of inlining its content."
+                            required:
+                              - url
+                            properties:
+                              url:
+                                type: string
+                                description: "URL the file is POSTed to; {agent} and {event} are expanded per run."
+                              headers_secret:
+                                type: string
+                                description: "Secret key holding the header block sent with the upload."
+                secrets:
+                  type: array
+                  description: "Secrets exposed to this run, such as per-run credentials; an entry replaces the AgentDefinition's resources.secrets entry of the same name, others are added."
+                  items:
+                    type: object
+                    required:
+                      - name
+                      - ref
+                    properties:
+                      name:
+                        type: string
+                        description: "Environment variable name to expose the secret as."
+                      ref:
+                        type: string
+                        description: "Allowlisted secret-store key."
+                env:
+                  type: array
+                  description: "Environment values for this run, such as ones derived from its inputs; an entry replaces the AgentDefinition's resources.env entry of the same name, others are added."
+                  items:
+                    type: object
+                    required:
+                      - name
+                      - value
+                    properties:
+                      name:
+                        type: string
+                      value:
+                        type: string
             status:
               type: object
               properties:

@@ -130,6 +130,16 @@ export interface OutputSpec {
   watch?: OutputWatch[];
 }
 
+/** Where one run's output goes; sinks and select replace the AgentDefinition's when set, watch merges by event. */
+export interface RunOutput {
+  /** Sinks for this run; when set they replace the recipe's sinks. */
+  sinks?: OutputSink[];
+  /** Which events reach the sinks; when set it replaces the recipe's selectors. */
+  select?: OutputSelector[];
+  /** Files this run produces. An entry replaces the recipe's watch of the same event (so a run can give a recipe's watch its own upload); other events are added. */
+  watch?: OutputWatch[];
+}
+
 /** Open a pull request from the run's work branch; the push happens outside the agent container. */
 export interface PullRequestDelivery {
   /** Branch the pull request merges into. */
@@ -222,7 +232,7 @@ export interface InputFile {
   headers_secret?: string;
 }
 
-/** One run of a recipe in a Station. */
+/** One run of a recipe in a Station. The AgentDefinition is the reusable recipe; what belongs to a single run (repos, conversation, output, secrets, env) can be given here and wins over the recipe's value when set, so one AgentDefinition serves many Agents. */
 export interface AgentSpec {
   /** The Station to run in (which selects the recipe). */
   stationRef: string;
@@ -239,6 +249,16 @@ export interface AgentSpec {
   files?: InputFile[];
   /** Session id of an earlier realtime run to continue: its saved conversation is restored and the definition's prompt is not sent. */
   resumeSession?: string;
+  /** Repositories to clone for this run; when set they replace the AgentDefinition's resources.repos. */
+  repos?: RepoRef[];
+  /** Conversation to continue and the id to save under; each field set here wins over the same field of the AgentDefinition's resources.conversation. */
+  conversation?: ConversationRef;
+  /** Where this run's output goes; see RunOutput for how each field combines with the AgentDefinition's output. */
+  output?: RunOutput;
+  /** Secrets exposed to this run, such as per-run credentials; an entry replaces the AgentDefinition's resources.secrets entry of the same name, others are added. */
+  secrets?: SecretRef[];
+  /** Environment values for this run, such as ones derived from its inputs; an entry replaces the AgentDefinition's resources.env entry of the same name, others are added. */
+  env?: EnvVar[];
 }
 
 export interface AgentStatus {

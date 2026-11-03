@@ -10,7 +10,7 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * One run of a recipe in a Station.
+ * One run of a recipe in a Station. The AgentDefinition is the reusable recipe; what belongs to a single run (repos, conversation, output, secrets, env) can be given here and wins over the recipe's value when set, so one AgentDefinition serves many Agents.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class AgentSpec {
@@ -58,6 +58,36 @@ public class AgentSpec {
      */
     @JsonProperty("resumeSession")
     private String resumeSession;
+
+    /**
+     * Repositories to clone for this run; when set they replace the AgentDefinition's resources.repos.
+     */
+    @JsonProperty("repos")
+    private List<RepoRef> repos;
+
+    /**
+     * Conversation to continue and the id to save under; each field set here wins over the same field of the AgentDefinition's resources.conversation.
+     */
+    @JsonProperty("conversation")
+    private ConversationRef conversation;
+
+    /**
+     * Where this run's output goes; see RunOutput for how each field combines with the AgentDefinition's output.
+     */
+    @JsonProperty("output")
+    private RunOutput output;
+
+    /**
+     * Secrets exposed to this run, such as per-run credentials; an entry replaces the AgentDefinition's resources.secrets entry of the same name, others are added.
+     */
+    @JsonProperty("secrets")
+    private List<SecretRef> secrets;
+
+    /**
+     * Environment values for this run, such as ones derived from its inputs; an entry replaces the AgentDefinition's resources.env entry of the same name, others are added.
+     */
+    @JsonProperty("env")
+    private List<EnvVar> env;
 
     public String getStationRef() {
         return stationRef;
@@ -123,6 +153,46 @@ public class AgentSpec {
         this.resumeSession = resumeSession;
     }
 
+    public List<RepoRef> getRepos() {
+        return repos;
+    }
+
+    public void setRepos(List<RepoRef> repos) {
+        this.repos = repos;
+    }
+
+    public ConversationRef getConversation() {
+        return conversation;
+    }
+
+    public void setConversation(ConversationRef conversation) {
+        this.conversation = conversation;
+    }
+
+    public RunOutput getOutput() {
+        return output;
+    }
+
+    public void setOutput(RunOutput output) {
+        this.output = output;
+    }
+
+    public List<SecretRef> getSecrets() {
+        return secrets;
+    }
+
+    public void setSecrets(List<SecretRef> secrets) {
+        this.secrets = secrets;
+    }
+
+    public List<EnvVar> getEnv() {
+        return env;
+    }
+
+    public void setEnv(List<EnvVar> env) {
+        this.env = env;
+    }
+
     @Override
     public boolean equals(Object other) {
         return other instanceof AgentSpec that
@@ -133,12 +203,17 @@ public class AgentSpec {
             && Objects.equals(branch, that.branch)
             && Objects.equals(parameters, that.parameters)
             && Objects.equals(files, that.files)
-            && Objects.equals(resumeSession, that.resumeSession);
+            && Objects.equals(resumeSession, that.resumeSession)
+            && Objects.equals(repos, that.repos)
+            && Objects.equals(conversation, that.conversation)
+            && Objects.equals(output, that.output)
+            && Objects.equals(secrets, that.secrets)
+            && Objects.equals(env, that.env);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(stationRef, taskId, model, targetRepo, branch, parameters, files, resumeSession);
+        return Objects.hash(stationRef, taskId, model, targetRepo, branch, parameters, files, resumeSession, repos, conversation, output, secrets, env);
     }
 
     @Override
@@ -151,7 +226,12 @@ public class AgentSpec {
             + "branch=" + branch + ", "
             + "parameters=" + parameters + ", "
             + "files=" + files + ", "
-            + "resumeSession=" + resumeSession
+            + "resumeSession=" + resumeSession + ", "
+            + "repos=" + repos + ", "
+            + "conversation=" + conversation + ", "
+            + "output=" + output + ", "
+            + "secrets=" + secrets + ", "
+            + "env=" + env
             + "}";
     }
 }
