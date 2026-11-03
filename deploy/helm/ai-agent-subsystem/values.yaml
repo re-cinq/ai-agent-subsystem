@@ -2,10 +2,10 @@
 controller:
   image:
     repository: ghcr.io/re-cinq/ai-agent-controller
-    digest: sha256:6e8bdeff84ca98c2199d5563a732df99f44f359b7604bb3d8d42a920d4e3a5dd
+    digest: sha256:68bfb59f2b95773a6f0223141d41db7d464293c09db9c36227ab820ad4d2e269
 
 # Injected into each run pod as the init container that provides the agent runtime.
-agentImage: ghcr.io/re-cinq/ai-agent@sha256:0a851a031773a94547e818e82f5948bf10fce0fc5806f519ebd9820088ebbc26
+agentImage: ghcr.io/re-cinq/ai-agent@sha256:9d4bb3c003111beb525d6b55a50bb6d7410c93b38eb82b8562f79a5268d807c9
 
 # Each toggle reproduces the deploy/components/<name> kustomize component.
 batch:
