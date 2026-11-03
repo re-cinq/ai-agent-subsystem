@@ -76,6 +76,9 @@ export default defineConfig({
 						{ label: 'TypeScript', slug: 'clients/typescript' },
 						{ label: 'Go', slug: 'clients/go' },
 						{ label: 'Java', slug: 'clients/java' },
+						{ label: 'Python', slug: 'clients/python' },
+						{ label: 'Rust', slug: 'clients/rust' },
+						{ label: 'C#', slug: 'clients/csharp' },
 					],
 				},
 				{
@@ -97,6 +100,7 @@ export default defineConfig({
 					items: [
 						{ label: 'Repository layout', slug: 'contribute/repo-layout' },
 						{ label: 'Building', slug: 'contribute/building' },
+						{ label: 'Releasing', slug: 'contribute/releasing' },
 						{ label: 'Roadmap', slug: 'contribute/roadmap' },
 					],
 				},

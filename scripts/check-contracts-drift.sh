@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 # Fail if the generated contracts have drifted from the agentcore D model.
 #
-# packages/agent-contracts/src/types.generated.ts (TypeScript),
-# packages/agent-contracts-go/types.generated.go (Go) and the Java types directory
-# packages/agent-contracts-java/src/main/java/com/recinq/agentcontracts/types are generated
-# from the annotated structs in packages/agentcore/source/agentcore/crds (the same source
-# crdgen reads). Regenerate all three with: make regen
+# Every contract package's types (TypeScript, Go, Java, Python, Rust, C#) are generated from
+# the annotated structs in packages/agentcore/source/agentcore/crds (the same source crdgen
+# reads). Regenerate all of them with: make regen
 set -euo pipefail
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
@@ -38,5 +36,8 @@ checkDir() { # checkDir <committed-dir>
 check emit packages/agent-contracts/src/types.generated.ts
 check emit-go packages/agent-contracts-go/types.generated.go
 checkDir packages/agent-contracts-java/src/main/java/com/recinq/agentcontracts/types
+check emit-python packages/agent-contracts-python/src/agent_contracts/types_generated.py
+check emit-rust packages/agent-contracts-rust/src/types.rs
+check emit-csharp packages/agent-contracts-dotnet/src/ReCinq.AgentContracts/Types.g.cs
 
 [ "$drifted" = 0 ] || { echo "Regenerate: make regen" >&2; exit 1; }

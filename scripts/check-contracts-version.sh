@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Fail if packages/agent-contracts/package.json or packages/agent-contracts-java/pom.xml does
-# not carry the release tag's version.
+# Fail if any contract package (npm, Java, Python, Rust, .NET) does not carry the release
+# tag's version.
 #
 # The npm version is committed rather than derived at publish time (the CHANGELOG
 # records it alongside the release), so a release PR that forgets the bump used to
@@ -22,27 +22,30 @@ fi
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo"
 
-pkg="$(node -p "require('./packages/agent-contracts/package.json').version")"
-# The project's own <version> is the first one in the pom; dependency versions come later.
-pom="$(sed -n 's#^  <version>\(.*\)</version>#\1#p' packages/agent-contracts-java/pom.xml | head -1)"
+# The version each package publishes, as `<file> <version>` lines. Each read takes the
+# project's own version: the first match, before any dependency versions.
+versions() {
+	echo "packages/agent-contracts/package.json $(node -p "require('./packages/agent-contracts/package.json').version")"
+	echo "packages/agent-contracts-java/pom.xml $(sed -n 's#^  <version>\(.*\)</version>#\1#p' packages/agent-contracts-java/pom.xml | head -1)"
+	echo "packages/agent-contracts-python/pyproject.toml $(sed -n 's#^version = "\(.*\)"#\1#p' packages/agent-contracts-python/pyproject.toml | head -1)"
+	echo "packages/agent-contracts-rust/Cargo.toml $(sed -n 's#^version = "\(.*\)"#\1#p' packages/agent-contracts-rust/Cargo.toml | head -1)"
+	csproj=packages/agent-contracts-dotnet/src/ReCinq.AgentContracts/ReCinq.AgentContracts.csproj
+	echo "$csproj $(sed -n 's#.*<Version>\(.*\)</Version>.*#\1#p' "$csproj" | head -1)"
+}
 
 mismatch=0
-if [ "v$pkg" = "$tag" ]; then
-	echo "agent-contracts $pkg matches the release tag $tag."
-else
+while read -r file version; do
+	if [ "v$version" = "$tag" ]; then
+		echo "$file is $version, matching the release tag $tag."
+	else
+		echo "ERROR: tag is $tag but $file is $version." >&2
+		mismatch=1
+	fi
+done < <(versions)
+
+if [ "$mismatch" = 1 ]; then
 	echo >&2
-	echo "ERROR: tag is $tag but packages/agent-contracts/package.json is $pkg." >&2
-	echo "Bump it in the release PR, then re-tag:" >&2
-	echo "  (cd packages/agent-contracts && npm version ${tag#v} --no-git-tag-version)" >&2
-	mismatch=1
-fi
-if [ "v$pom" = "$tag" ]; then
-	echo "agent-contracts-java $pom matches the release tag $tag."
-else
-	echo >&2
-	echo "ERROR: tag is $tag but packages/agent-contracts-java/pom.xml is $pom." >&2
-	echo "Bump it in the release PR, then re-tag:" >&2
-	echo "  (cd packages/agent-contracts-java && mvn -B -q versions:set -DnewVersion=${tag#v} -DgenerateBackupPoms=false)" >&2
-	mismatch=1
+	echo "Bump every contract package in the release PR, then re-tag:" >&2
+	echo "  scripts/bump-contracts-version.sh ${tag#v}" >&2
 fi
 exit "$mismatch"

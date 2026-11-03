@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/ReCinq.AgentContracts/ReCinq.AgentContracts.csproj" />
+  <Project Path="tests/ReCinq.AgentContracts.Tests/ReCinq.AgentContracts.Tests.csproj" />
+</Solution>

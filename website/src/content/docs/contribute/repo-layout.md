@@ -29,10 +29,13 @@ ai-agent-subsystem/
 │   ├── initializer/               # binary: the in-pod init container (ai-agent-init)
 │   ├── supervisor/                # binary: the in-pod supervisor
 │   ├── crdgen/                    # dev/CI tool: generates deploy/crds from the structs
-│   ├── tsgen/                     # dev/CI tool: generates the TS, Go and Java contracts from the structs
+│   ├── tsgen/                     # dev/CI tool: generates every client's contract types from the structs
 │   ├── agent-contracts/           # the published @re-cinq/agent-contracts npm package
 │   ├── agent-contracts-go/        # the Go contracts module
 │   ├── agent-contracts-java/      # the com.re-cinq:agent-contracts Java library (GitHub Packages)
+│   ├── agent-contracts-python/    # the re-cinq-agent-contracts Python package (PyPI)
+│   ├── agent-contracts-rust/      # the agent-contracts Rust crate (git dependency)
+│   ├── agent-contracts-dotnet/    # the ReCinq.AgentContracts .NET package (GitHub Packages)
 │   ├── mockagent/                 # test-only: configurable mock agent (ai-agent-mock)
 │   └── itest/                     # test-only: supervisor integration suite (ai-agent-itest)
 ├── deploy/                        # CRDs (generated), RBAC, NetworkPolicy, controller manifest
@@ -56,11 +59,11 @@ real binary against the `mockagent`. `make help` lists every target; see
 | `ai-agent-init` | `packages/initializer/` | [Agent runtime](../concepts/agent-runtime.md) |
 | `ai-agent-supervisor` | `packages/supervisor/` | [Agent runtime](../concepts/agent-runtime.md) |
 | `ai-agent-crdgen` | `packages/crdgen/` | dev tool, generates `deploy/crds` |
-| `ai-agent-tsgen` | `packages/tsgen/` | dev tool, generates the TS, Go and Java contract types |
+| `ai-agent-tsgen` | `packages/tsgen/` | dev tool, generates the TS, Go, Java, Python, Rust and C# contract types |
 | CRDs / RBAC | `deploy/` | [Reference](../reference/crd-agent.md) |
 
 :::note
 The controller, initializer, and supervisor are implemented and covered by unit + integration
-tests; `crdgen`/`tsgen` generate `deploy/crds` and the TypeScript, Go and Java contracts from the
-annotated model, all gated against drift in CI. See the [roadmap](./roadmap.md) for direction.
+tests; `crdgen`/`tsgen` generate `deploy/crds` and the contract types for all six client languages
+from the annotated model, all gated against drift in CI. See the [roadmap](./roadmap.md) for direction.
 :::

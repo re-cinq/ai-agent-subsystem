@@ -79,6 +79,35 @@ jobs:
       - name: Compile, test (100% coverage gate) and package
         run: make contracts-java
 
+  agent-contracts-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.10'
+      - name: Test (100% coverage gate on the client)
+        run: make contracts-python
+
+  agent-contracts-rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: Install stable Rust with rustfmt and clippy
+        run: rustup toolchain install stable --profile minimal --component rustfmt,clippy && rustup default stable
+      - name: Format-check, lint and test
+        run: make contracts-rust
+
+  agent-contracts-dotnet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build and test (100% coverage gate on the client)
+        run: make contracts-dotnet
+
   website:
     runs-on: ubuntu-latest
     steps:
