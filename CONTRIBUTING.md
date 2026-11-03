@@ -16,6 +16,7 @@ there.
 | GNU make | any | the targets below |
 | Node.js | 22 (`.nvmrc` in `website/` and `packages/agent-contracts/`) | contracts package, docs site |
 | Go | the version in `packages/agent-contracts-go/go.mod` | `make contracts-go` only |
+| JDK + Maven | JDK 17+ (CI uses Temurin 21), Maven 3.9 | `make contracts-java` only |
 | Docker + Buildx | recent | container tests, images |
 | kubectl + kind or minikube | recent | controller integration tests (kubectl alone: `make drift`) |
 | Helm | 3.19 (pinned in CI) | `make drift` (the Helm chart check) |
@@ -38,8 +39,8 @@ Rocky 9's and debian:bullseye's 2.35, can split `.tbss` so that two thread-local
 make test    # unit tests for all six packages that have them
 make build   # all runtime + codegen binaries
 make itest   # host-level integration tests - no cluster, no docker, runs in seconds
-make drift   # fail if generated CRDs / TS and Go contracts / the Helm chart drifted from their sources
-make regen   # regenerate deploy/crds (+ the chart's copy) and the TS and Go contract types
+make drift   # fail if generated CRDs / TS, Go and Java contracts / the Helm chart drifted from their sources
+make regen   # regenerate deploy/crds (+ the chart's copy) and the TS, Go and Java contract types
 make hooks   # install the pre-push hook that runs the drift checks
 ```
 
@@ -52,7 +53,9 @@ targets with the same pinned compiler.
 
 ## Generated code
 
-`deploy/crds/` and `packages/agent-contracts/src/types.generated.ts` are both generated from the
+`deploy/crds/`, `packages/agent-contracts/src/types.generated.ts`,
+`packages/agent-contracts-go/types.generated.go` and the Java types under
+`packages/agent-contracts-java/src/main/java/com/recinq/agentcontracts/types/` are all generated from the
 annotated structs in `packages/agentcore/source/agentcore/crds/`. If you touch those structs, run
 `make regen` and commit the output; `make drift` (and CI) fails otherwise. `make hooks` installs a
 pre-push hook so you find out before CI does. Skip it once with `git push --no-verify`.
@@ -64,8 +67,10 @@ default values, with each of `batch.enabled`, `modelCatalog.enabled` and `realti
 all three, and diffs each render against `kubectl kustomize` of `deploy/` plus the matching
 `deploy/components/*`. After changing `deploy/`, make the chart render the same objects.
 
-Editing the structs usually also affects the TypeScript package's tests: `make contracts` runs its
-vitest suite, which enforces 100% coverage — the same gate CI applies.
+Editing the structs usually also affects the contract packages' tests: `make contracts` runs the
+TypeScript vitest suite (100% coverage), `make contracts-go` the Go tests and `make contracts-java`
+the Java tests (100% coverage on the hand-written client; every `examples/` manifest must decode
+strictly) — the same gates CI applies.
 
 ## Integration-test tiers
 

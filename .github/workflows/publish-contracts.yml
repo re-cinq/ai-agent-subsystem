@@ -1,8 +1,8 @@
 name: Publish agent-contracts
 
 # On a v* tag, build + test the @re-cinq/agent-contracts package and publish it to
-# npm with provenance, and tag the Go module packages/agent-contracts-go at the same
-# version. The TS types are regenerated from the D model first and the
+# npm with provenance, tag the Go module packages/agent-contracts-go at the same
+# version, and deploy the Java com.re-cinq:agent-contracts jar to GitHub Packages. The TS types are regenerated from the D model first and the
 # drift check guards that the committed output matches the structs.
 #
 # Auth is tokenless via npm Trusted Publishing (OIDC): no NPM_TOKEN secret. It needs
@@ -81,3 +81,34 @@ jobs:
         run: |
           git tag "packages/agent-contracts-go/$TAG" "$GITHUB_SHA"
           git push origin "packages/agent-contracts-go/$TAG"
+
+  # The Java jar goes to GitHub Packages with the workflow's own GITHUB_TOKEN; setup-java
+  # writes the matching settings.xml server entry (id "github", the pom's distributionManagement).
+  publish-java:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: dlang-community/setup-dlang@d7d85fcde7c4cd5f9a6618fce1bccc316e1e910b # v2
+        with:
+          compiler: dmd-2.111.0
+      - name: Contracts drift check (types match the D model)
+        run: ./scripts/check-contracts-drift.sh
+      - name: Package version matches the release tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: ./scripts/check-contracts-version.sh "$TAG"
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          server-id: github
+      - name: Test and deploy to GitHub Packages
+        working-directory: packages/agent-contracts-java
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: mvn -B -q deploy

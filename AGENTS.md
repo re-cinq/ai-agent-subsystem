@@ -16,6 +16,8 @@ Before changing code, read in this order:
 - **Language**: D (DMD 2.111 in dev/CI, LDC 1.40 for production binaries), statically linked
 - **Package manager**: [dub](https://dub.pm) (`dub.json` at root and per package)
 - **TypeScript package**: `packages/agent-contracts` — generated types + client; uses Node.js 22 and vitest
+- **Go module**: `packages/agent-contracts-go` — generated types + client; `make contracts-go`
+- **Java library**: `packages/agent-contracts-java` — generated fabric8 types + client for Spring apps; JDK 17+, Maven, JUnit 5
 - **Runtime platform**: Kubernetes (v1.27+); state lives in CRDs, not a database
 - **Docs site**: `website/` — Astro Starlight, deployed to GitHub Pages
 
@@ -28,7 +30,10 @@ packages/
   supervisor/  # runs inside Agent job pods, streams output
   initializer/ # init container: clones repos, installs agent CLI
   crdgen/      # dev tool: generates deploy/crds from D structs
-  tsgen/       # dev tool: generates packages/agent-contracts/src/types.generated.ts
+  tsgen/       # dev tool: generates the TS, Go and Java contract types (emit / emit-go / emit-java)
+  agent-contracts/      # @re-cinq/agent-contracts npm package
+  agent-contracts-go/   # Go contracts module
+  agent-contracts-java/ # com.re-cinq:agent-contracts Java library
   mockagent/   # test double for the agent process
   itest/       # integration-test harness
 deploy/        # Kubernetes manifests (CRDs, RBAC, controller Deployment, kustomization)
@@ -42,7 +47,7 @@ website/       # documentation site
 
 ```sh
 make build          # all runtime and codegen binaries (uses dub)
-make regen          # regenerate deploy/crds and packages/agent-contracts/src/types.generated.ts
+make regen          # regenerate deploy/crds and the TS, Go and Java contract types
 ```
 
 ### Test
@@ -53,6 +58,7 @@ make test           # D unit tests for all six packages (agentcore, controller, 
 make itest          # host-level integration tests (no cluster, no docker, fast)
 make contracts      # vitest 100%-coverage gate for @re-cinq/agent-contracts
 make contracts-go   # go vet + gofmt + go test for packages/agent-contracts-go
+make contracts-java # mvn verify for packages/agent-contracts-java (JUnit + 100% jacoco gate on the client)
 
 # Single package:
 dub test :agentcore
@@ -117,6 +123,7 @@ kubectl apply -k deploy
 | `deploy/helm/ai-agent-subsystem/crds/*.yaml` | `make regen` (copy of `deploy/crds`) |
 | `packages/agent-contracts/src/types.generated.ts` | `make regen` |
 | `packages/agent-contracts-go/types.generated.go` | `make regen` |
+| `packages/agent-contracts-java/src/main/java/com/recinq/agentcontracts/types/*.java` | `make regen` |
 
 ## Compliance constraints
 

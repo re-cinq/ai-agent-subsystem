@@ -6,6 +6,20 @@ the npm package versions.
 
 ## Unreleased
 
+### Added
+- **Java contracts: `com.re-cinq:agent-contracts`.** Typed Java classes for every CRD, generated from
+  the same D model as the CRDs and the TS and Go packages (new `ai-agent-tsgen emit-java`). The kinds
+  extend fabric8's `CustomResource<Spec, Status>` with `@Group`/`@Version`/`@Plural`/`@ShortNames`
+  and get a `*List` type, so they work with any fabric8 `KubernetesClient`, including the one
+  Spring Cloud Kubernetes injects; nested types are Jackson beans. An `AgentContractsClient`
+  mirrors the Go and TS clients: `createAgent`, `getAgent`, `findAgents`, `waitForAgent`,
+  `getModelCatalog`, `applyAgentDefinition`, `applyStation` and `isTerminal`. Numbers are boxed so an
+  unset field keeps the server's default, and an unknown enum value decodes to the first member like
+  the controller does. `make drift` checks the Java types, `make contracts-java` runs the tests
+  (every `examples/` manifest must decode with unknown fields rejected; 100% coverage on the client),
+  and each `v*` release deploys the jar to GitHub Packages at the version in `pom.xml`, which
+  `scripts/check-contracts-version.sh` now checks alongside `package.json`.
+
 ## v0.14.0
 
 ### Added

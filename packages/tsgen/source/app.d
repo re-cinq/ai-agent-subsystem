@@ -1,13 +1,15 @@
 /// CLI for the contract generators: `ai-agent-tsgen emit <outfile>` writes the
-/// TypeScript types and `ai-agent-tsgen emit-go <outfile>` the Go types to `<outfile>`
-/// (creating parent dirs). Backs both contract packages and their drift checks.
+/// TypeScript types, `ai-agent-tsgen emit-go <outfile>` the Go types and
+/// `ai-agent-tsgen emit-java <outdir>` one Java file per type (replacing the directory's
+/// `.java` files). Backs the three contract packages and their drift checks.
 module app;
 
-import std.file : write, mkdirRecurse;
-import std.path : dirName;
+import std.file : write, mkdirRecurse, dirEntries, SpanMode, remove;
+import std.path : dirName, buildPath, extension;
 import std.stdio : writeln, stderr;
 
 import gogen : emitGoTypes;
+import javagen : emitJavaTypes;
 import tsgen : emitTypes;
 
 version (unittest)
@@ -24,18 +26,37 @@ else
 	int main(string[] args)
 	{
 		const emitters = ["emit": &emitTypes, "emit-go": &emitGoTypes];
-		if (args.length < 3 || args[1] !in emitters)
+		if (args.length < 3 || (args[1] !in emitters && args[1] != "emit-java"))
 		{
-			stderr.writeln("usage: ai-agent-tsgen emit|emit-go <outfile>");
+			stderr.writeln("usage: ai-agent-tsgen emit|emit-go <outfile> | emit-java <outdir>");
 			return 2;
 		}
 
-		const outfile = args[2];
-		const dir = dirName(outfile);
+		const target = args[2];
+		if (args[1] == "emit-java")
+		{
+			writeJavaDirectory(target);
+			writeln("wrote ", target);
+			return 0;
+		}
+		const dir = dirName(target);
 		if (dir.length)
 			mkdirRecurse(dir);
-		write(outfile, emitters[args[1]]());
-		writeln("wrote ", outfile);
+		write(target, emitters[args[1]]());
+		writeln("wrote ", target);
 		return 0;
+	}
+
+	/// Replaces every `.java` file in `outdir` with the generated set, so a removed type disappears.
+	void writeJavaDirectory(string outdir)
+	{
+		mkdirRecurse(outdir);
+		foreach (entry; dirEntries(outdir, SpanMode.shallow))
+		{
+			if (entry.name.extension == ".java")
+				remove(entry.name);
+		}
+		foreach (fileName, content; emitJavaTypes())
+			write(buildPath(outdir, fileName), content);
 	}
 }

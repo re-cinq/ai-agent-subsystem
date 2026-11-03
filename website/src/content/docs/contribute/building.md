@@ -19,9 +19,11 @@ A `Makefile` at the repository root is the task surface, and **CI runs these sam
 | `make itest` | Host-level integration tests (no cluster, no docker). |
 | `make itest-controller` | Controller integration tests (needs kind/minikube + docker). |
 | `make ctest` | Cross-distro container tests (needs docker). |
-| `make regen` | Regenerates `deploy/crds` and the TypeScript contracts from the D model. |
-| `make drift` | Fails if either generated artifact drifted from the model. |
+| `make regen` | Regenerates `deploy/crds` and the TypeScript, Go and Java contracts from the D model. |
+| `make drift` | Fails if any generated artifact drifted from the model. |
 | `make contracts` | Tests and builds the `@re-cinq/agent-contracts` npm package. |
+| `make contracts-go` | Vets and tests the Go contracts module. |
+| `make contracts-java` | Tests and packages the `com.re-cinq:agent-contracts` Java library (needs JDK 17+ and Maven). |
 | `make docs` | Builds this documentation site. |
 | `make hooks` | Installs the git pre-push hook that runs the drift checks. |
 
@@ -37,6 +39,8 @@ underneath, and why.
 - **lld**: only for LDC release and static builds, which link with `--linker=lld`. The DMD dev
   loop does not need it.
 - **Node**: only for `make contracts` and `make docs` (the npm package and this site).
+- **Go**: only for `make contracts-go`.
+- **JDK 17+ and Maven**: only for `make contracts-java`.
 
 ## Build
 
@@ -56,15 +60,15 @@ sub-package, no separate install step.
 
 ## Generated artifacts
 
-Two artifacts are **generated from the annotated structs** in
+Four artifacts are **generated from the annotated structs** in
 `packages/agentcore/source/agentcore/crds`, not hand-written — the CRD manifests in `deploy/crds`
 (via `crdgen`, which introspects the model with `describe-d` and emits OpenAPI schemas using
-`open-api`'s vocabulary) and the TypeScript types the `@re-cinq/agent-contracts` npm package
-publishes (via `tsgen`). One model, two consumers, so a Kubernetes schema and a TypeScript caller can
-never disagree about a field.
+`open-api`'s vocabulary) and the TypeScript, Go and Java types the three contract packages publish
+(via `tsgen`'s `emit`, `emit-go` and `emit-java`). One model, four consumers, so a Kubernetes schema
+and a TypeScript, Go or Java caller can never disagree about a field.
 
 ```sh
-make regen        # both, from the D model
+make regen        # all of them, from the D model
 ```
 
 To change either, edit the struct and its attributes (`@Description`, `@wire`, `@Required`,
@@ -74,8 +78,8 @@ dir and diffs against what is committed, failing if it drifted. CI runs them, an
 installs a pre-push hook that runs them before you can push.
 
 A third check, `scripts/check-contracts-version.sh`, runs on a `v*` tag and fails it when
-`packages/agent-contracts/package.json` does not match the tag — the npm version is committed rather
-than derived, so without it a release PR that forgot the bump republishes an existing version and npm
+`packages/agent-contracts/package.json` or `packages/agent-contracts-java/pom.xml` does not match the
+tag — the published versions are committed rather than derived, so without it a release PR that forgot the bump republishes an existing version and npm
 rejects it with an error that reads like an auth failure.
 
 :::note

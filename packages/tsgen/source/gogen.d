@@ -20,7 +20,7 @@ import described : describe;
 
 import agentcore.crds.api_group : crGroup, crVersion;
 import agentcore.crds.object_meta : ObjectMeta;
-import agentcore.crds.registry : CrdEnums, CrdKinds, CrdStructs;
+import agentcore.crds.registry : CrdEnums, CrdKinds, CrdStructs, isKind;
 import agentcore.crds.schema : descriptionOf, jsonNameOf, isRequired;
 
 /// Words Go spells in capitals inside identifiers.
@@ -63,17 +63,6 @@ private string capitalized(string word)
 		return word;
 	const titled = cast(char) toUpper(word[0]) ~ word[1 .. $];
 	return titled in goInitialisms ? goInitialisms[titled] : titled;
-}
-
-/// Whether `T` is a top-level resource (it has its own CRD).
-template isKind(T)
-{
-	enum isKind = () {
-		bool found;
-		static foreach (Kind; CrdKinds)
-			found = found || is(T == Kind);
-		return found;
-	}();
 }
 
 /// The Go type expression for D type `FT`.

@@ -63,15 +63,16 @@ ctest: ## Cross-distro container tests (needs docker)
 	./scripts/ctest-init-portable.sh
 
 .PHONY: regen
-regen: ## Regenerate deploy/crds (and the Helm chart's copy) and the TypeScript and Go contracts from the D model
+regen: ## Regenerate deploy/crds (and the Helm chart's copy) and the TypeScript, Go and Java contracts from the D model
 	dub build :crdgen
 	./packages/crdgen/ai-agent-crdgen write-structures deploy/crds
 	cp deploy/crds/*.yaml deploy/helm/ai-agent-subsystem/crds/
 	dub run :tsgen -c application -q -- emit packages/agent-contracts/src/types.generated.ts
 	dub run :tsgen -c application -q -- emit-go packages/agent-contracts-go/types.generated.go
+	dub run :tsgen -c application -q -- emit-java packages/agent-contracts-java/src/main/java/com/recinq/agentcontracts/types
 
 .PHONY: drift
-drift: ## Fail if generated CRDs, TS/Go contracts or the Helm chart drifted from their sources
+drift: ## Fail if generated CRDs, TS/Go/Java contracts or the Helm chart drifted from their sources
 	./scripts/check-crd-drift.sh
 	./scripts/check-contracts-drift.sh
 	./scripts/check-helm-drift.sh
@@ -83,6 +84,10 @@ contracts: ## Test and build the @re-cinq/agent-contracts npm package (100% cove
 .PHONY: contracts-go
 contracts-go: ## Vet, format-check and test the Go contracts module (needs Go)
 	cd packages/agent-contracts-go && go vet ./... && test -z "$$(gofmt -l .)" && go test ./...
+
+.PHONY: contracts-java
+contracts-java: ## Compile, test (100% coverage gate on the client) and package the Java contracts (needs JDK 17+ and Maven)
+	cd packages/agent-contracts-java && mvn -B -q verify
 
 .PHONY: docs
 docs: ## Build the documentation site
