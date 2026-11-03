@@ -100,6 +100,7 @@ export default defineConfig({
 					items: [
 						{ label: 'Repository layout', slug: 'contribute/repo-layout' },
 						{ label: 'Building', slug: 'contribute/building' },
+						{ label: 'Releasing', slug: 'contribute/releasing' },
 						{ label: 'Roadmap', slug: 'contribute/roadmap' },
 					],
 				},
