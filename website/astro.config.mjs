@@ -71,6 +71,14 @@ export default defineConfig({
 					],
 				},
 				{
+					label: 'Clients',
+					items: [
+						{ label: 'TypeScript', slug: 'clients/typescript' },
+						{ label: 'Go', slug: 'clients/go' },
+						{ label: 'Java', slug: 'clients/java' },
+					],
+				},
+				{
 					label: 'Reference',
 					items: [
 						{ label: 'AgentDefinition CRD', slug: 'reference/crd-agentdefinition' },

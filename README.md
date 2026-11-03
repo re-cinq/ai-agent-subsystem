@@ -53,6 +53,11 @@ generates the CRDs, so they cannot drift:
   ```sh
   npm install @re-cinq/agent-contracts
   ```
+- **Go**: [`agent-contracts-go`](packages/agent-contracts-go/) has the same types as controller-runtime
+  objects plus the same client.
+- **Java / Spring**: [`com.re-cinq:agent-contracts`](packages/agent-contracts-java/) has the types as
+  fabric8 `CustomResource`s (what Spring Cloud Kubernetes injects) plus the same client, published to
+  GitHub Packages.
 
 D matters only if you change the API itself; [CONTRIBUTING.md](CONTRIBUTING.md) covers the
 toolchain, and [ADR-001](adrs/ADR-001-language-choice.md) explains the choice.
@@ -222,8 +227,8 @@ flowchart TB
 - **`initializer`** — the init container: clones repos and installs the agent CLI before the run.
 - **`supervisor`** — runs inside the Job Pod, supervises the agent process, and streams its output;
   in a realtime session it also takes prompts and runs them turn by turn.
-- **`crdgen`** / **`tsgen`** — dev/CI tools that generate `deploy/crds` and the `@re-cinq/agent-contracts`
-  TypeScript types from the annotated `agentcore` structs.
+- **`crdgen`** / **`tsgen`** — dev/CI tools that generate `deploy/crds` and the TypeScript, Go and Java
+  contract types from the annotated `agentcore` structs.
 
 ## Repository layout
 
@@ -266,16 +271,19 @@ See the [roadmap](https://re-cinq.github.io/ai-agent-subsystem/contribute/roadma
 
 ## Releases
 
-Cut a release by bumping the npm package to the version you are about to tag, then pushing the tag:
+Cut a release by bumping the npm package and the Java pom to the version you are about to tag, then
+pushing the tag:
 
 ```sh
 (cd packages/agent-contracts && npm version 0.11.0 --no-git-tag-version)  # in the release PR
+(cd packages/agent-contracts-java && mvn -B -q versions:set -DnewVersion=0.11.0 -DgenerateBackupPoms=false)
 git tag v0.11.0 && git push origin v0.11.0
 ```
 
-The bump is part of the release PR, not the tag: `@re-cinq/agent-contracts` publishes the version
-committed in its `package.json`. `scripts/check-contracts-version.sh` runs on the tag and fails the
-publish if the two disagree, rather than letting npm reject a duplicate version quietly.
+The bump is part of the release PR, not the tag: `@re-cinq/agent-contracts` and the Java jar publish
+the version committed in `package.json` and `pom.xml`. `scripts/check-contracts-version.sh` runs on
+the tag and fails the publish if either disagrees, rather than letting npm reject a duplicate
+version quietly.
 
 The [`Publish images`](.github/workflows/images.yml) workflow builds, pushes, and cosign-signs the
 controller and agent images for the tag (each with an SPDX SBOM and SLSA provenance attestation). It

@@ -67,6 +67,18 @@ jobs:
       - name: Vet, gofmt and test
         run: make contracts-go
 
+  agent-contracts-java:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Compile, test (100% coverage gate) and package
+        run: make contracts-java
+
   website:
     runs-on: ubuntu-latest
     steps:

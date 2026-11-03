@@ -47,3 +47,14 @@ alias CrdStructs = AliasSeq!(ObjectMeta, EnvVar, SecretRef, McpHeader, McpServer
 	PullRequestDelivery, DeliverySpec, BatchSpec, RealtimeSpec, AgentDefinitionSpec, AgentDefinition, StationSpec,
 	Station, InputFile, AgentSpec, AgentStatus, Agent, ModelInfo, VendorModels, ModelCatalogStatus, ModelCatalog,
 	GitHubTrigger, AgentSpawnerSpec, AgentSpawnerStatus, AgentSpawner);
+
+/// Whether `T` is a top-level resource (it has its own CRD).
+template isKind(T)
+{
+	enum isKind = () {
+		bool found;
+		static foreach (Kind; CrdKinds)
+			found = found || is(T == Kind);
+		return found;
+	}();
+}
