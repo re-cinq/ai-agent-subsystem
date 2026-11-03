@@ -19,6 +19,10 @@ the npm package versions.
   (every `examples/` manifest must decode with unknown fields rejected; 100% coverage on the client),
   and each `v*` release deploys the jar to GitHub Packages at the version in `pom.xml`, which
   `scripts/check-contracts-version.sh` now checks alongside `package.json`.
+- **Client guides for TypeScript, Go and Java.** A new Clients section in the docs has one page per
+  language: install, connecting to the cluster (a `fetch` transport, a controller-runtime scheme, a
+  Spring Cloud Kubernetes bean), launching and waiting for a run, applying recipes, the permissions
+  each call needs and how to test without a cluster.
 
 ## v0.15.0
 
