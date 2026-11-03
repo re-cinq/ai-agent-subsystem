@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.16.0
+
 ### Added
 - **Python, Rust and C# contracts.** Three more client packages generated from the same D model as
   the CRDs, each with the same client as the TypeScript, Go and Java ones (create, get, find and

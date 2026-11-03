@@ -16,6 +16,9 @@ fi
 cd "$(dirname "$0")/.."
 
 sed -i "0,/\"version\": \".*\"/s//\"version\": \"$version\"/" packages/agent-contracts/package.json
+# The lockfile repeats the version for the root and for its own "" package entry, both before the first dependency.
+sed -i "1,/\"node_modules\//s/^\(  *\)\"version\": \".*\"/\1\"version\": \"$version\"/" \
+	packages/agent-contracts/package-lock.json
 sed -i "0,/^  <version>.*<\/version>/s//  <version>$version<\/version>/" packages/agent-contracts-java/pom.xml
 sed -i "0,/^version = \".*\"/s//version = \"$version\"/" packages/agent-contracts-python/pyproject.toml
 sed -i "0,/^version = \".*\"/s//version = \"$version\"/" packages/agent-contracts-rust/Cargo.toml
