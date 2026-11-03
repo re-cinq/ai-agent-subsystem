@@ -11,8 +11,7 @@ module javagen;
 
 import std.algorithm : canFind, map;
 import std.array : join, split;
-import std.ascii : isUpper, toUpper;
-import std.string : toUpper_ = toUpper;
+import wirenames : camel, pascalKeepCase, upperSnake;
 import std.traits : isIntegral, isBoolean, isSomeString, isArray, isAssociativeArray,
 	EnumMembers, ForeachType, ValueType;
 
@@ -41,54 +40,24 @@ private immutable string[] javaKeywords = ["abstract", "assert", "boolean", "bre
 	"public", "return", "short", "static", "strictfp", "super", "switch", "synchronized", "this",
 	"throw", "throws", "transient", "try", "void", "volatile", "while"];
 
-/// The words of a wire name: split on `_`, `-`, `.` and lower-to-upper boundaries.
-private string[] wireWords(string wire)
-{
-	string[] words;
-	string word;
-	foreach (character; wire)
-	{
-		if (character == '_' || character == '-' || character == '.')
-		{
-			words ~= word;
-			word = "";
-			continue;
-		}
-		if (isUpper(character) && word.length)
-		{
-			words ~= word;
-			word = "";
-		}
-		word ~= character;
-	}
-	words ~= word;
-	return words;
-}
-
-private string capitalized(string word)
-{
-	return word.length ? cast(char) toUpper(word[0]) ~ word[1 .. $] : word;
-}
-
 /// A Java enum constant from a wire value: `stream-json` -> `STREAM_JSON`, `Succeeded` -> `SUCCEEDED`.
 string javaConstant(string wire)
 {
-	return wireWords(wire).map!(toUpper_).join("_");
+	return upperSnake(wire);
 }
 
 /// A Java field identifier from a wire name: `headers_secret` -> `headersSecret`; keywords get a
 /// trailing underscore.
 string javaField(string wire)
 {
-	const words = wireWords(wire);
-	const name = words[0] ~ words[1 .. $].map!(capitalized).join;
+	const name = camel(wire);
 	return javaKeywords.canFind(name) ? name ~ "_" : name;
 }
 
 /// The accessor suffix for a wire name: `headers_secret` -> `HeadersSecret`.
 string javaAccessor(string wire)
 {
-	return wireWords(wire).map!(capitalized).join;
+	return pascalKeepCase(wire);
 }
 
 /// The Java type expression for D type `FT`. Numbers and booleans are boxed so an unset

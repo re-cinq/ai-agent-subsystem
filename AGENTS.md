@@ -18,6 +18,9 @@ Before changing code, read in this order:
 - **TypeScript package**: `packages/agent-contracts` — generated types + client; uses Node.js 22 and vitest
 - **Go module**: `packages/agent-contracts-go` — generated types + client; `make contracts-go`
 - **Java library**: `packages/agent-contracts-java` — generated fabric8 types + client for Spring apps; JDK 17+, Maven, JUnit 5
+- **Python package**: `packages/agent-contracts-python` — generated Pydantic models + client; pytest
+- **Rust crate**: `packages/agent-contracts-rust` — generated kube-rs types + client; cargo
+- **.NET package**: `packages/agent-contracts-dotnet` — generated types + client on KubernetesClient; .NET 10 SDK, xUnit v3
 - **Runtime platform**: Kubernetes (v1.27+); state lives in CRDs, not a database
 - **Docs site**: `website/` — Astro Starlight, deployed to GitHub Pages
 
@@ -30,10 +33,13 @@ packages/
   supervisor/  # runs inside Agent job pods, streams output
   initializer/ # init container: clones repos, installs agent CLI
   crdgen/      # dev tool: generates deploy/crds from D structs
-  tsgen/       # dev tool: generates the TS, Go and Java contract types (emit / emit-go / emit-java)
+  tsgen/       # dev tool: generates every contract package's types (emit, emit-go, emit-java, emit-python, emit-rust, emit-csharp)
   agent-contracts/      # @re-cinq/agent-contracts npm package
   agent-contracts-go/   # Go contracts module
   agent-contracts-java/ # com.re-cinq:agent-contracts Java library
+  agent-contracts-python/ # re-cinq-agent-contracts Python package
+  agent-contracts-rust/   # agent-contracts Rust crate
+  agent-contracts-dotnet/ # ReCinq.AgentContracts .NET package
   mockagent/   # test double for the agent process
   itest/       # integration-test harness
 deploy/        # Kubernetes manifests (CRDs, RBAC, controller Deployment, kustomization)
@@ -47,7 +53,7 @@ website/       # documentation site
 
 ```sh
 make build          # all runtime and codegen binaries (uses dub)
-make regen          # regenerate deploy/crds and the TS, Go and Java contract types
+make regen          # regenerate deploy/crds and every contract package's types
 ```
 
 ### Test
@@ -59,6 +65,9 @@ make itest          # host-level integration tests (no cluster, no docker, fast)
 make contracts      # vitest 100%-coverage gate for @re-cinq/agent-contracts
 make contracts-go   # go vet + gofmt + go test for packages/agent-contracts-go
 make contracts-java # mvn verify for packages/agent-contracts-java (JUnit + 100% jacoco gate on the client)
+make contracts-python  # pytest for packages/agent-contracts-python (100% gate on the client)
+make contracts-rust    # rustfmt + clippy + cargo test for packages/agent-contracts-rust
+make contracts-dotnet  # dotnet test for packages/agent-contracts-dotnet (100% gate on the client)
 
 # Single package:
 dub test :agentcore
@@ -124,6 +133,9 @@ kubectl apply -k deploy
 | `packages/agent-contracts/src/types.generated.ts` | `make regen` |
 | `packages/agent-contracts-go/types.generated.go` | `make regen` |
 | `packages/agent-contracts-java/src/main/java/com/recinq/agentcontracts/types/*.java` | `make regen` |
+| `packages/agent-contracts-python/src/agent_contracts/types_generated.py` | `make regen` |
+| `packages/agent-contracts-rust/src/types.rs` | `make regen` |
+| `packages/agent-contracts-dotnet/src/ReCinq.AgentContracts/Types.g.cs` | `make regen` |
 
 ## Compliance constraints
 

@@ -58,6 +58,14 @@ generates the CRDs, so they cannot drift:
 - **Java / Spring**: [`com.re-cinq:agent-contracts`](packages/agent-contracts-java/) has the types as
   fabric8 `CustomResource`s (what Spring Cloud Kubernetes injects) plus the same client, published to
   GitHub Packages.
+- **Python**: [`re-cinq-agent-contracts`](packages/agent-contracts-python/) has Pydantic models plus the
+  same client over the official `kubernetes` package, published to PyPI.
+- **Rust**: [`agent-contracts`](packages/agent-contracts-rust/) has the types as `kube::Resource`s plus
+  the same client, consumed from git at a release tag.
+- **C# / .NET**: [`ReCinq.AgentContracts`](packages/agent-contracts-dotnet/) has the types plus the same
+  client over the official `KubernetesClient` package, published to GitHub Packages.
+
+Each language has a [client guide](https://re-cinq.github.io/ai-agent-subsystem/clients/typescript/).
 
 D matters only if you change the API itself; [CONTRIBUTING.md](CONTRIBUTING.md) covers the
 toolchain, and [ADR-001](adrs/ADR-001-language-choice.md) explains the choice.
@@ -227,8 +235,8 @@ flowchart TB
 - **`initializer`** — the init container: clones repos and installs the agent CLI before the run.
 - **`supervisor`** — runs inside the Job Pod, supervises the agent process, and streams its output;
   in a realtime session it also takes prompts and runs them turn by turn.
-- **`crdgen`** / **`tsgen`** — dev/CI tools that generate `deploy/crds` and the TypeScript, Go and Java
-  contract types from the annotated `agentcore` structs.
+- **`crdgen`** / **`tsgen`** — dev/CI tools that generate `deploy/crds` and the TypeScript, Go, Java,
+  Python, Rust and C# contract types from the annotated `agentcore` structs.
 
 ## Repository layout
 
@@ -271,19 +279,18 @@ See the [roadmap](https://re-cinq.github.io/ai-agent-subsystem/contribute/roadma
 
 ## Releases
 
-Cut a release by bumping the npm package and the Java pom to the version you are about to tag, then
-pushing the tag:
+Cut a release by bumping every contract package to the version you are about to tag, then pushing
+the tag:
 
 ```sh
-(cd packages/agent-contracts && npm version 0.11.0 --no-git-tag-version)  # in the release PR
-(cd packages/agent-contracts-java && mvn -B -q versions:set -DnewVersion=0.11.0 -DgenerateBackupPoms=false)
+scripts/bump-contracts-version.sh 0.11.0  # in the release PR
 git tag v0.11.0 && git push origin v0.11.0
 ```
 
-The bump is part of the release PR, not the tag: `@re-cinq/agent-contracts` and the Java jar publish
-the version committed in `package.json` and `pom.xml`. `scripts/check-contracts-version.sh` runs on
-the tag and fails the publish if either disagrees, rather than letting npm reject a duplicate
-version quietly.
+The bump is part of the release PR, not the tag: each contract package publishes the version
+committed in its own manifest (`package.json`, `pom.xml`, `pyproject.toml`, `Cargo.toml`, the
+`.csproj`). `scripts/check-contracts-version.sh` runs on the tag and fails the publish if any of them
+disagrees, rather than letting a registry reject a duplicate version quietly.
 
 The [`Publish images`](.github/workflows/images.yml) workflow builds, pushes, and cosign-signs the
 controller and agent images for the tag (each with an SPDX SBOM and SLSA provenance attestation). It

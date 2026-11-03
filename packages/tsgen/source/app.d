@@ -1,15 +1,21 @@
 /// CLI for the contract generators: `ai-agent-tsgen emit <outfile>` writes the
-/// TypeScript types, `ai-agent-tsgen emit-go <outfile>` the Go types and
+/// TypeScript types, `ai-agent-tsgen emit-go <outfile>` the Go types,
+/// `ai-agent-tsgen emit-python <outfile>` the Python models,
+/// `ai-agent-tsgen emit-rust <outfile>` the Rust types,
+/// `ai-agent-tsgen emit-csharp <outfile>` the C# types and
 /// `ai-agent-tsgen emit-java <outdir>` one Java file per type (replacing the directory's
-/// `.java` files). Backs the three contract packages and their drift checks.
+/// `.java` files). Backs every contract package and its drift check.
 module app;
 
 import std.file : write, mkdirRecurse, dirEntries, SpanMode, remove;
 import std.path : dirName, buildPath, extension;
 import std.stdio : writeln, stderr;
 
+import csgen : emitCsTypes;
 import gogen : emitGoTypes;
 import javagen : emitJavaTypes;
+import pygen : emitPyTypes;
+import rustgen : emitRustTypes;
 import tsgen : emitTypes;
 
 version (unittest)
@@ -25,10 +31,11 @@ else
 {
 	int main(string[] args)
 	{
-		const emitters = ["emit": &emitTypes, "emit-go": &emitGoTypes];
+		const emitters = ["emit": &emitTypes, "emit-go": &emitGoTypes, "emit-python": &emitPyTypes,
+			"emit-rust": &emitRustTypes, "emit-csharp": &emitCsTypes];
 		if (args.length < 3 || (args[1] !in emitters && args[1] != "emit-java"))
 		{
-			stderr.writeln("usage: ai-agent-tsgen emit|emit-go <outfile> | emit-java <outdir>");
+			stderr.writeln("usage: ai-agent-tsgen emit|emit-go|emit-python|emit-rust|emit-csharp <outfile> | emit-java <outdir>");
 			return 2;
 		}
 

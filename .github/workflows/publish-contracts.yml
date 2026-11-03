@@ -2,7 +2,13 @@ name: Publish agent-contracts
 
 # On a v* tag, build + test the @re-cinq/agent-contracts package and publish it to
 # npm with provenance, tag the Go module packages/agent-contracts-go at the same
-# version, and deploy the Java com.re-cinq:agent-contracts jar to GitHub Packages. The TS types are regenerated from the D model first and the
+# version, deploy the Java com.re-cinq:agent-contracts jar and the ReCinq.AgentContracts
+# NuGet package to GitHub Packages, and publish re-cinq-agent-contracts to PyPI. The Rust
+# crate needs no job: consumers depend on it from git at the release tag.
+#
+# PyPI is tokenless too (Trusted Publishing): it needs a trusted publisher on pypi.org for
+# re-cinq-agent-contracts pointing at this repo and publish-contracts.yml (a "pending
+# publisher" before the first release). The TS types are regenerated from the D model first and the
 # drift check guards that the committed output matches the structs.
 #
 # Auth is tokenless via npm Trusted Publishing (OIDC): no NPM_TOKEN secret. It needs
@@ -112,3 +118,61 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: mvn -B -q deploy
+
+  publish-python:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # PyPI trusted publishing
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: dlang-community/setup-dlang@d7d85fcde7c4cd5f9a6618fce1bccc316e1e910b # v2
+        with:
+          compiler: dmd-2.111.0
+      - name: Contracts drift check (types match the D model)
+        run: ./scripts/check-contracts-drift.sh
+      - name: Package version matches the release tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: ./scripts/check-contracts-version.sh "$TAG"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Test and build the sdist and wheel
+        run: |
+          make contracts-python
+          cd packages/agent-contracts-python && .venv/bin/pip install -q build && .venv/bin/python -m build
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@aef6c9b6e301dc803e1bc9133e9ce67ae9b0906b # v1.14.3
+        with:
+          packages-dir: packages/agent-contracts-python/dist
+
+  publish-dotnet:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: dlang-community/setup-dlang@d7d85fcde7c4cd5f9a6618fce1bccc316e1e910b # v2
+        with:
+          compiler: dmd-2.111.0
+      - name: Contracts drift check (types match the D model)
+        run: ./scripts/check-contracts-drift.sh
+      - name: Package version matches the release tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: ./scripts/check-contracts-version.sh "$TAG"
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: '10.0.x'
+      - name: Test, pack and push to GitHub Packages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          make contracts-dotnet
+          cd packages/agent-contracts-dotnet
+          dotnet pack src/ReCinq.AgentContracts -c Release -o dist
+          dotnet nuget push "dist/*.nupkg" --source "https://nuget.pkg.github.com/${GITHUB_REPOSITORY_OWNER}/index.json" --api-key "$GITHUB_TOKEN"

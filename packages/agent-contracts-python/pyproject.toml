@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "re-cinq-agent-contracts"
+# release version: bumped in the release PR together with packages/agent-contracts/package.json
+version = "0.15.0"
+description = "Pydantic models and a client for the ai-agent-subsystem CRDs (Agent / Station / AgentDefinition / ModelCatalog / AgentSpawner). Types are generated from the D source so they cannot drift."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+dependencies = ["pydantic>=2.11"]
+
+[project.optional-dependencies]
+kubernetes = ["kubernetes>=30"]
+test = ["pytest>=8", "pytest-cov>=5", "pyyaml>=6", "kubernetes>=30"]
+
+[project.urls]
+Homepage = "https://github.com/re-cinq/ai-agent-subsystem"
+Documentation = "https://re-cinq.github.io/ai-agent-subsystem/clients/python/"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_contracts"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=agent_contracts.client --cov-branch --cov-report=term-missing --cov-fail-under=100"
+filterwarnings = ["error"]

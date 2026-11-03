@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <PackageId>ReCinq.AgentContracts</PackageId>
+    <!-- release version: bumped in the release PR together with packages/agent-contracts/package.json -->
+    <Version>0.15.0</Version>
+    <Authors>re-cinq</Authors>
+    <Description>Types and a client for the ai-agent-subsystem CRDs (Agent / Station / AgentDefinition / ModelCatalog / AgentSpawner), built on the official KubernetesClient package. Types are generated from the D source so they cannot drift.</Description>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageProjectUrl>https://re-cinq.github.io/ai-agent-subsystem/clients/csharp/</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/re-cinq/ai-agent-subsystem</RepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>kubernetes;crd;agents</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Generated members without a description in the D model have no XML doc. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="KubernetesClient" Version="21.0.8" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+</Project>

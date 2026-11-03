@@ -7,6 +7,23 @@ the npm package versions.
 ## Unreleased
 
 ### Added
+- **Python, Rust and C# contracts.** Three more client packages generated from the same D model as
+  the CRDs, each with the same client as the TypeScript, Go and Java ones (create, get, find and
+  wait for runs, read the ModelCatalog, server-side apply AgentDefinitions and Stations):
+  - **Python** `re-cinq-agent-contracts` (PyPI): Pydantic v2 models over the official `kubernetes`
+    package. Attributes are snake_case and accept the wire names; unknown fields are kept.
+  - **Rust** `agent-contracts` (git dependency at the release tag): serde types that implement
+    `kube::Resource`, so `kube::Api<Agent>` works directly.
+  - **C#** `ReCinq.AgentContracts` (GitHub Packages): types for the official `KubernetesClient`
+    package, targeting .NET 8+.
+
+  In every language an unset optional field is left out so the server's default applies, and an
+  unknown enum value reads as the first member like the controller does. `make drift` checks the
+  new generated files, `make contracts-python`, `contracts-rust` and `contracts-dotnet` run the
+  tests, and each `v*` tag publishes the Python and .NET packages. `scripts/bump-contracts-version.sh`
+  sets every contract package's version for a release PR. The docs gain a client guide per language.
+
+### Added
 - **Java contracts: `com.re-cinq:agent-contracts`.** Typed Java classes for every CRD, generated from
   the same D model as the CRDs and the TS and Go packages (new `ai-agent-tsgen emit-java`). The kinds
   extend fabric8's `CustomResource<Spec, Status>` with `@Group`/`@Version`/`@Plural`/`@ShortNames`

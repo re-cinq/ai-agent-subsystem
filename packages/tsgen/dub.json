@@ -1,6 +1,6 @@
 {
 	"name": "tsgen",
-	"description": "Dev/CI tool: generate the @re-cinq/agent-contracts TypeScript types from the agentcore structs.",
+	"description": "Dev/CI tool: generate every contract package's types (TypeScript, Go, Java, Python, Rust, C#) from the agentcore structs.",
 	"license": "Apache-2.0",
 	"targetType": "executable",
 	"targetName": "ai-agent-tsgen",

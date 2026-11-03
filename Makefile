@@ -63,16 +63,19 @@ ctest: ## Cross-distro container tests (needs docker)
 	./scripts/ctest-init-portable.sh
 
 .PHONY: regen
-regen: ## Regenerate deploy/crds (and the Helm chart's copy) and the TypeScript, Go and Java contracts from the D model
+regen: ## Regenerate deploy/crds (and the Helm chart's copy) and the TypeScript, Go, Java, Python, Rust and C# contracts from the D model
 	dub build :crdgen
 	./packages/crdgen/ai-agent-crdgen write-structures deploy/crds
 	cp deploy/crds/*.yaml deploy/helm/ai-agent-subsystem/crds/
 	dub run :tsgen -c application -q -- emit packages/agent-contracts/src/types.generated.ts
 	dub run :tsgen -c application -q -- emit-go packages/agent-contracts-go/types.generated.go
 	dub run :tsgen -c application -q -- emit-java packages/agent-contracts-java/src/main/java/com/recinq/agentcontracts/types
+	dub run :tsgen -c application -q -- emit-python packages/agent-contracts-python/src/agent_contracts/types_generated.py
+	dub run :tsgen -c application -q -- emit-rust packages/agent-contracts-rust/src/types.rs
+	dub run :tsgen -c application -q -- emit-csharp packages/agent-contracts-dotnet/src/ReCinq.AgentContracts/Types.g.cs
 
 .PHONY: drift
-drift: ## Fail if generated CRDs, TS/Go/Java contracts or the Helm chart drifted from their sources
+drift: ## Fail if generated CRDs, contract types or the Helm chart drifted from their sources
 	./scripts/check-crd-drift.sh
 	./scripts/check-contracts-drift.sh
 	./scripts/check-helm-drift.sh
@@ -88,6 +91,18 @@ contracts-go: ## Vet, format-check and test the Go contracts module (needs Go)
 .PHONY: contracts-java
 contracts-java: ## Compile, test (100% coverage gate on the client) and package the Java contracts (needs JDK 17+ and Maven)
 	cd packages/agent-contracts-java && mvn -B -q verify
+
+.PHONY: contracts-python
+contracts-python: ## Test the Python contracts (100% coverage gate on the client) in a local venv (needs Python 3.10+)
+	cd packages/agent-contracts-python && python3 -m venv .venv && .venv/bin/pip install -q -e '.[test]' && .venv/bin/python -m pytest -q
+
+.PHONY: contracts-rust
+contracts-rust: ## Format-check, lint and test the Rust contracts (needs cargo with rustfmt and clippy)
+	cd packages/agent-contracts-rust && cargo fmt --check && cargo clippy -q --all-targets -- -D warnings && cargo test -q
+
+.PHONY: contracts-dotnet
+contracts-dotnet: ## Build and test the C# contracts (100% coverage gate on the client) (needs the .NET 10 SDK)
+	cd packages/agent-contracts-dotnet && dotnet test --coverlet --coverlet-include '[ReCinq.AgentContracts]ReCinq.AgentContracts.AgentContractsClient*' --coverlet-threshold 100
 
 .PHONY: docs
 docs: ## Build the documentation site

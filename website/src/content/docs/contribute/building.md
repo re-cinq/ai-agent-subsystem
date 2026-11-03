@@ -19,11 +19,14 @@ A `Makefile` at the repository root is the task surface, and **CI runs these sam
 | `make itest` | Host-level integration tests (no cluster, no docker). |
 | `make itest-controller` | Controller integration tests (needs kind/minikube + docker). |
 | `make ctest` | Cross-distro container tests (needs docker). |
-| `make regen` | Regenerates `deploy/crds` and the TypeScript, Go and Java contracts from the D model. |
+| `make regen` | Regenerates `deploy/crds` and every contract package's types from the D model. |
 | `make drift` | Fails if any generated artifact drifted from the model. |
 | `make contracts` | Tests and builds the `@re-cinq/agent-contracts` npm package. |
 | `make contracts-go` | Vets and tests the Go contracts module. |
 | `make contracts-java` | Tests and packages the `com.re-cinq:agent-contracts` Java library (needs JDK 17+ and Maven). |
+| `make contracts-python` | Tests the `re-cinq-agent-contracts` Python package in a local venv. |
+| `make contracts-rust` | Format-checks, lints and tests the `agent-contracts` Rust crate. |
+| `make contracts-dotnet` | Builds and tests the `ReCinq.AgentContracts` .NET package (needs the .NET 10 SDK). |
 | `make docs` | Builds this documentation site. |
 | `make hooks` | Installs the git pre-push hook that runs the drift checks. |
 
@@ -41,6 +44,9 @@ underneath, and why.
 - **Node**: only for `make contracts` and `make docs` (the npm package and this site).
 - **Go**: only for `make contracts-go`.
 - **JDK 17+ and Maven**: only for `make contracts-java`.
+- **Python 3.10+**: only for `make contracts-python`.
+- **Rust (stable, rustfmt, clippy)**: only for `make contracts-rust`.
+- **.NET 10 SDK**: only for `make contracts-dotnet`.
 
 ## Build
 
@@ -60,12 +66,13 @@ sub-package, no separate install step.
 
 ## Generated artifacts
 
-Four artifacts are **generated from the annotated structs** in
-`packages/agentcore/source/agentcore/crds`, not hand-written — the CRD manifests in `deploy/crds`
-(via `crdgen`, which introspects the model with `describe-d` and emits OpenAPI schemas using
-`open-api`'s vocabulary) and the TypeScript, Go and Java types the three contract packages publish
-(via `tsgen`'s `emit`, `emit-go` and `emit-java`). One model, four consumers, so a Kubernetes schema
-and a TypeScript, Go or Java caller can never disagree about a field.
+The CRD manifests and every client's types are **generated from the annotated structs** in
+`packages/agentcore/source/agentcore/crds`, not hand-written. `crdgen` writes the manifests in
+`deploy/crds`: it introspects the model with `describe-d` and emits OpenAPI schemas using
+`open-api`'s vocabulary. `tsgen` writes the types the contract packages publish, one verb per
+language: `emit` (TypeScript), `emit-go`, `emit-java`, `emit-python`, `emit-rust` and `emit-csharp`.
+One model feeds all of them, so a Kubernetes schema and a caller in any of the six languages can
+never disagree about a field.
 
 ```sh
 make regen        # all of them, from the D model
@@ -78,8 +85,8 @@ dir and diffs against what is committed, failing if it drifted. CI runs them, an
 installs a pre-push hook that runs them before you can push.
 
 A third check, `scripts/check-contracts-version.sh`, runs on a `v*` tag and fails it when
-`packages/agent-contracts/package.json` or `packages/agent-contracts-java/pom.xml` does not match the
-tag — the published versions are committed rather than derived, so without it a release PR that forgot the bump republishes an existing version and npm
+any contract package's manifest does not match the tag — the published versions are committed rather
+than derived (`scripts/bump-contracts-version.sh` sets them all), so without it a release PR that forgot the bump republishes an existing version and npm
 rejects it with an error that reads like an auth failure.
 
 :::note
