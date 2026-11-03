@@ -64,6 +64,7 @@ AgentContractsClient agentContracts(KubernetesClient kube) {
 ```java
 Agent run = new Agent();
 run.setMetadata(new ObjectMetaBuilder().withGenerateName("story-writer-run-").build());
+
 AgentSpec spec = new AgentSpec();
 spec.setStationRef("story-writer");
 spec.setParameters(Map.of("title", "The Last Lighthouse"));
