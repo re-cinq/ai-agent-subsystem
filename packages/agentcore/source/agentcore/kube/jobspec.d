@@ -969,7 +969,7 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe,
 		env ~= aliasEntry;
 	}
 	strVar(homeEnv, bundleRoot);
-	strVar(pathEnv, "/agent/.local/bin:/usr/local/bin:/usr/bin:/bin");
+	strVar(pathEnv, "/agent/.local/bin:/agent/.opencode/bin:/usr/local/bin:/usr/bin:/bin");
 	return Json(env);
 }
 
@@ -1432,6 +1432,18 @@ unittest
 	auto container = agentContainer(buildJob(agent, station, definition, "img"));
 	envValue(container, "AGENT_DEADLINE_MS").should.equal("1790000");
 	isReservedEnvName("AGENT_DEADLINE_MS").should.equal(true);
+}
+
+unittest
+{
+	// #105: the OpenCode installer drops its binary in ~/.opencode/bin, so the agent finds it on PATH.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img"));
+	envValue(container, "PATH").should.equal("/agent/.local/bin:/agent/.opencode/bin:/usr/local/bin:/usr/bin:/bin");
 }
 
 unittest

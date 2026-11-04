@@ -9,6 +9,7 @@ the npm package versions.
 ### Fixed
 
 - **A sink that never answers no longer holds the run open.** The supervisor's sink, upload and conversation requests now give up after 5s without a connection and 10s (events) or 60s (uploads) without a response, so the run still tears down promptly instead of waiting out the Job deadline (#103).
+- **OpenCode runs find the CLI they installed.** The installer puts `opencode` in `~/.opencode/bin`, which the run container's `PATH` now includes, so a run without a pre-baked CLI no longer fails with `opencode: command not found` (#105).
 
 ## v0.16.1
 
