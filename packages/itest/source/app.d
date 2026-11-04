@@ -167,6 +167,7 @@ int main(string[] args)
 	sigpipeIgnored();
 	agentCrash();
 	deadSinkLogs();
+	deadSinkBurst();
 	orphanRobustness();
 	terminalShutdown();
 	runDeadline();
@@ -326,6 +327,16 @@ private void deadSinkLogs()
 	check("output still streamed", emitted(r.lines, `"i":0`));
 	check("dead sink does not fail the run (exit 0)", r.code == 0);
 	check("sink failure logged to stderr", r.err.canFind("sink failed"));
+}
+
+/// A dead sink costs each line its retries; stdout, the run's source of truth, must still
+/// get every line of a burst before the supervisor exits (#104).
+private void deadSinkBurst()
+{
+	writeln("dead sink: a burst still reaches stdout in full");
+	auto r = run(["MOCK_LINES": "40", "AGENT_NOTIFY_URL": "http://127.0.0.1:1/notify"]);
+	check("all 40 lines streamed", payloadCount(r.lines) == 40);
+	check("exit 0", r.code == 0);
 }
 
 private void orphanRobustness()

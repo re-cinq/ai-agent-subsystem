@@ -6,6 +6,10 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+
+- **A dead sink no longer costs the pod log the end of a run's output.** The supervisor writes each event to stdout as it reads it and hands it to the sinks through an in-order queue that a separate task delivers, so a sink's retries no longer slow the stdout reader. At exit it waits up to 5s for the queue to empty (#104).
+
 ## v0.16.1
 
 ### Fixed
