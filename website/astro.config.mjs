@@ -2,6 +2,7 @@
 import { defineConfig } from 'astro/config';
 import mermaid from 'astro-mermaid';
 import starlight from '@astrojs/starlight';
+import { codeThemes } from './src/code-themes.mjs';
 
 // https://astro.build/config
 export default defineConfig({
@@ -13,8 +14,11 @@ export default defineConfig({
 		// astro-mermaid must be registered before starlight so its remark/rehype
 		// transforms wrap the ```mermaid fenced blocks before Starlight renders them.
 		mermaid({
-			theme: 'default',
-			autoTheme: true,
+			theme: 'base',
+			autoTheme: false,
+			mermaidConfig: {
+				fontFamily: "Neue-Montreal, 'Helvetica Neue', Arial, sans-serif",
+			},
 		}),
 		starlight({
 			title: 'AI agent subsystem',
@@ -27,6 +31,21 @@ export default defineConfig({
 					href: 'https://github.com/re-cinq/ai-agent-subsystem',
 				},
 			],
+			expressiveCode: {
+				themes: codeThemes,
+				styleOverrides: {
+					borderRadius: '12px',
+					borderColor: 'var(--sl-color-hairline)',
+					uiFontFamily: 'var(--font-sans)',
+					frames: {
+						shadowColor: 'transparent',
+						editorActiveTabBackground: 'var(--sl-color-bg)',
+						editorTabBarBackground: 'var(--sl-color-gray-6)',
+						terminalTitlebarBackground: 'var(--sl-color-gray-6)',
+						editorActiveTabIndicatorTopColor: 'var(--sl-color-accent)',
+					},
+				},
+			},
 			customCss: ['./src/styles/re-cinq-tokens.css', './src/styles/custom.css'],
 			sidebar: [
 				{

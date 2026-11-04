@@ -9,7 +9,7 @@ per-run parameters, and carries a `status` the controller updates as the run pro
 ```mermaid
 flowchart LR
     AD["AgentDefinition"] --> ST["Station"] --> AG["Agent<br/>one run"]:::hi --> JB["Job"]
-    classDef hi fill:#2f5fd8,color:#fff,stroke:#16224f;
+    classDef hi stroke-width:2px;
     class AG hi
 ```
 

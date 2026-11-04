@@ -1,24 +1,35 @@
 /* ai-agent-subsystem docs theme: Starlight variables mapped onto re-cinq.com tokens. */
 
+/* re-cinq.com is light-only; dark mode is a guess built from its navy (--rc-dark) and indigo accents. */
 :root {
 	--sl-font: var(--font-sans);
+	--sl-line-height: var(--rc-body-line-height);
 
-	--sl-color-accent-low: var(--rc-dark);
+	--sl-color-accent-low: color-mix(in srgb, var(--rc-pulse-blue) 22%, var(--rc-stage-frontier));
 	--sl-color-accent: var(--rc-pulse-blue);
-	--sl-color-accent-high: var(--rc-primary-200);
+	--sl-color-accent-high: var(--rc-nebula-light);
 	--sl-color-text-accent: var(--rc-soft-indigo);
 
-	--sl-color-black: var(--rc-stage-frontier);
-	--sl-color-bg: var(--rc-stage-frontier);
-	--sl-color-bg-nav: var(--rc-dark);
-	--sl-color-bg-sidebar: var(--rc-dark);
-	--sl-color-hairline: color-mix(in srgb, var(--rc-soft-indigo) 25%, transparent);
-	--sl-color-hairline-light: color-mix(in srgb, var(--rc-soft-indigo) 35%, transparent);
+	--sl-color-white: #fff;
+	--sl-color-gray-1: var(--rc-surface-nebula);
+	--sl-color-gray-2: var(--rc-stroke-200);
+	--sl-color-gray-3: var(--rc-text-tertiary);
+	--sl-color-gray-4: color-mix(in srgb, var(--rc-soft-indigo) 45%, var(--rc-dark));
+	--sl-color-gray-5: color-mix(in srgb, var(--rc-soft-indigo) 22%, var(--rc-dark));
+	--sl-color-gray-6: color-mix(in srgb, var(--rc-soft-indigo) 10%, var(--rc-dark));
+	--sl-color-black: color-mix(in srgb, var(--rc-stage-frontier) 70%, #000);
+	--sl-color-bg: color-mix(in srgb, var(--rc-stage-frontier) 70%, #000);
+	--sl-color-bg-nav: var(--rc-stage-frontier);
+	--sl-color-bg-sidebar: color-mix(in srgb, var(--rc-stage-frontier) 70%, #000);
+	--sl-color-hairline: color-mix(in srgb, var(--rc-soft-indigo) 18%, transparent);
+	--sl-color-hairline-light: color-mix(in srgb, var(--rc-soft-indigo) 28%, transparent);
+	--sl-color-hairline-shade: color-mix(in srgb, var(--rc-soft-indigo) 12%, transparent);
+	--sl-color-bg-inline-code: color-mix(in srgb, var(--rc-soft-indigo) 14%, transparent);
 }
 
 :root[data-theme='light'] {
 	--sl-color-accent-low: var(--rc-surface-nebula);
-	--sl-color-accent: var(--rc-link);
+	--sl-color-accent: var(--rc-pulse-blue);
 	--sl-color-accent-high: var(--rc-dark);
 	--sl-color-text-accent: var(--rc-link);
 
@@ -32,7 +43,7 @@
 	--sl-color-gray-7: var(--rc-surface-grey);
 	--sl-color-black: var(--rc-bg);
 	--sl-color-bg: var(--rc-bg);
-	--sl-color-bg-nav: var(--rc-bg);
+	--sl-color-bg-nav: #fff;
 	--sl-color-bg-sidebar: var(--rc-bg);
 	--sl-color-hairline: var(--rc-stroke-200);
 	--sl-color-hairline-light: var(--rc-stroke-100);
@@ -73,13 +84,23 @@ h1#_top {
 	border-radius: var(--rc-radius-card);
 }
 
+body {
+	letter-spacing: var(--rc-body-letter-spacing);
+}
+
+.sl-link-button,
+.action {
+	border-radius: 999px;
+	font-weight: 500;
+}
+
 /* Mermaid relationship diagrams: centered, responsive, framed. */
-.mermaid,
+.sl-markdown-content .mermaid,
 pre.mermaid {
 	display: flex;
 	justify-content: center;
 	margin: 1.75rem 0;
-	background: transparent;
+	background: var(--sl-color-bg);
 	border: 1px solid var(--sl-color-hairline);
 	border-radius: var(--rc-radius-card);
 	padding: 1.25rem;
@@ -89,6 +110,90 @@ pre.mermaid {
 .mermaid svg {
 	max-width: 100%;
 	height: auto;
+}
+
+/* Mermaid skin: re-cinq tokens through Starlight vars, so diagrams follow the light/dark switch. */
+.mermaid {
+	--diagram-node-fill: var(--sl-color-accent-low);
+	--diagram-node-stroke: var(--sl-color-accent);
+	--diagram-text: var(--sl-color-white);
+	--diagram-line: var(--sl-color-gray-3);
+	--diagram-cluster-fill: var(--sl-color-gray-6);
+}
+
+.mermaid :is(text, tspan, .nodeLabel, .edgeLabel, .label, .messageText, .loopText, .noteText, .stateLabel, foreignObject div, foreignObject span, foreignObject p) {
+	font-family: var(--font-sans) !important;
+	fill: var(--diagram-text) !important;
+	color: var(--diagram-text) !important;
+}
+
+.mermaid :is(.node, .state, .stateGroup) :is(rect, circle, ellipse, polygon, path:not(.transition)),
+.mermaid :is(.actor, rect.actor, .entityBox, .er.entityBox, .labelBox) {
+	fill: var(--diagram-node-fill) !important;
+	stroke: var(--diagram-node-stroke) !important;
+	stroke-width: 1.5px !important;
+}
+
+/* Highlight classes used by the docs' diagrams (classDef hi/ad/st/ag): accent fill, white text. */
+.mermaid .node:is(.hi, .ad, .st, .ag) {
+	--diagram-node-fill: var(--sl-color-accent);
+	--diagram-node-stroke: var(--sl-color-accent-high);
+	--diagram-text: #fff;
+}
+
+.mermaid .node.st {
+	--diagram-node-fill: color-mix(in srgb, var(--sl-color-accent) 82%, var(--rc-soft-indigo));
+}
+
+.mermaid .node.ag {
+	--diagram-node-fill: color-mix(in srgb, var(--sl-color-accent) 64%, var(--rc-soft-indigo));
+}
+
+.mermaid .node rect,
+.mermaid .cluster rect,
+.mermaid rect.actor {
+	rx: 10px;
+	ry: 10px;
+}
+
+.mermaid .cluster rect,
+.mermaid .composite > rect,
+.mermaid .note {
+	fill: var(--diagram-cluster-fill) !important;
+	stroke: var(--sl-color-hairline-light) !important;
+}
+
+.mermaid :is(.flowchart-link, .edgePath path, .messageLine0, .messageLine1, .actor-line, .transition, .relationshipLine, .er.relationshipLine) {
+	stroke: var(--diagram-line) !important;
+}
+
+.mermaid :is(marker path, .arrowheadPath, #arrowhead path, .marker) {
+	fill: var(--diagram-line) !important;
+	stroke: var(--diagram-line) !important;
+}
+
+.mermaid :is(.edgeLabel, .edgeLabel *, .labelBkg) {
+	background-color: var(--sl-color-bg) !important;
+	fill: var(--sl-color-bg) !important;
+}
+
+.mermaid :is(#sequencenumber circle, [id$='sequencenumber'] circle) {
+	fill: var(--sl-color-accent) !important;
+	stroke: none !important;
+}
+
+.mermaid text.sequenceNumber {
+	fill: #fff !important;
+}
+
+.mermaid .er.attributeBoxOdd,
+.mermaid .row-rect-odd path {
+	fill: var(--sl-color-bg) !important;
+}
+
+.mermaid .er.attributeBoxEven,
+.mermaid .row-rect-even path {
+	fill: var(--sl-color-gray-6) !important;
 }
 
 /* Tighten dense reference field tables. */

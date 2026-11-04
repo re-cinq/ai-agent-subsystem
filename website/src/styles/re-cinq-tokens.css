@@ -1,9 +1,9 @@
 /* Design tokens lifted from re-cinq.com. Values stay verbatim so the docs track the brand. */
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@500;600&family=Inter:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@500;600&display=swap');
 
 :root {
 	--font-headings: 'IBM Plex Sans', sans-serif;
-	--font-sans: Inter, sans-serif;
+	--font-sans: Neue-Montreal, 'Helvetica Neue', Arial, sans-serif;
 
 	--rc-bg: #fafafa;
 	--rc-foreground: #0a0a0a;
@@ -31,6 +31,10 @@
 	--rc-warning-base: #fa7319;
 	--rc-error-base: #fb3748;
 	--rc-info-lighter: #e8f1ff;
+
+	--brand-blue: #0014eb;
+	--rc-body-letter-spacing: 0.01em;
+	--rc-body-line-height: 1.46;
 
 	--rc-h1-font-weight: 500;
 	--rc-h1-letter-spacing: -1.3px;

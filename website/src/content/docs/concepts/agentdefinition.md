@@ -10,7 +10,7 @@ reference.
 ```mermaid
 flowchart LR
     AD["AgentDefinition<br/>recipe"]:::hi --> ST["Station"] --> AG["Agent"] --> JB["Job"]
-    classDef hi fill:#2f5fd8,color:#fff,stroke:#16224f;
+    classDef hi stroke-width:2px;
     class AD hi
 ```
 

@@ -10,7 +10,7 @@ with a Kubernetes `PodTemplateSpec` and a few run-management knobs. It is where 
 ```mermaid
 flowchart LR
     AD["AgentDefinition"] --> ST["Station<br/>runtime"]:::hi --> AG["Agent"] --> JB["Job"]
-    classDef hi fill:#2f5fd8,color:#fff,stroke:#16224f;
+    classDef hi stroke-width:2px;
     class ST hi
 ```
 

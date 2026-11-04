@@ -58,9 +58,9 @@ flowchart LR
     AD["AgentDefinition<br/>the recipe"] -->|agentDefRef| ST["Station<br/>the runtime"]
     ST -->|stationRef| AG["Agent<br/>one run"]
     AG -->|controller creates| JB["Job → Pod"]
-    classDef ad fill:#2f5fd8,color:#fff,stroke:#16224f;
-    classDef st fill:#3f7be0,color:#fff,stroke:#16224f;
-    classDef ag fill:#5b93ec,color:#fff,stroke:#16224f;
+    classDef ad stroke-width:2px;
+    classDef st stroke-width:2px;
+    classDef ag stroke-width:2px;
     class AD ad
     class ST st
     class AG ag
