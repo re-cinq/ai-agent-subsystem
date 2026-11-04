@@ -820,6 +820,54 @@ unittest
 
 unittest
 {
+	import core.time : msecs;
+	import vibe.core.core : runTask;
+	import agentcore.crds.enums : ConcurrencyPolicy;
+
+	// #70: the poll pass and the watch reconcile the same Pending Agent at once on a Replace
+	// Station: one preemption of the running run and one Job, not two of each.
+	auto client = stationClient();
+	client.station.spec.concurrencyPolicy = ConcurrencyPolicy.replace;
+	client.createDelay = 20.msecs;
+	client.watchLines = [
+		`{"type":"MODIFIED","object":{"metadata":{"name":"run-new","resourceVersion":"3",` ~
+			`"labels":{"agents.re-cinq.com/station":"stn","agents.re-cinq.com/agent-definition":"def"}},` ~
+			`"spec":{"stationRef":"stn"},"status":{"phase":"Pending"}}}`,
+	];
+
+	auto running = pendingRun("run-old", "stn");
+	running.status.phase = Phase.running;
+	running.status.startedAt = "2026-06-22T10:00:00Z";
+	auto leadership = new Leadership;
+	leadership.isLeader = true;
+	auto cache = new AgentCache;
+	cache.upsert(running);
+	cache.upsert(pendingRun("run-new", "stn"));
+	auto settings = ControlSettings("img");
+
+	auto poll = runTask(() nothrow {
+		try
+			reconcileAll(client, "ai-agents", settings, cache, leadership);
+		catch (Exception)
+		{
+		}
+	});
+	auto watcher = runTask(() nothrow {
+		try
+			cast(void) watch(client, "ai-agents", settings, leadership, cache, "1");
+		catch (Exception)
+		{
+		}
+	});
+	poll.join();
+	watcher.join();
+
+	client.deletedAgents.should.equal(["run-old"]);
+	client.createdJobs.length.should.equal(1);
+}
+
+unittest
+{
 	// Losing leadership mid-pass stops the sweep: the first start flips leadership, so
 	// the remaining Pending Agents in the same pass are not reconciled.
 	auto client = stationClient(); // unlimited concurrency: without the guard all 3 start
