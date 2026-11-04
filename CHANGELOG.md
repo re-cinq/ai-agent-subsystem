@@ -6,6 +6,10 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+
+- **A controller replica stops leading before its Lease can expire.** Leadership now lapses 10s after the last successful renew, measured on the clock instead of counted in failed ticks, so a renew that hangs on a degraded API server no longer leaves two replicas reconciling at once (#106).
+
 ## v0.16.1
 
 ### Fixed
