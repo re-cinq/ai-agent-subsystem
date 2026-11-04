@@ -31,7 +31,7 @@ import agentcore.output.session : sessionEvent, sessionIdFor;
 import agentcore.output.terminal : terminalFor;
 import archive : collect, tarGz;
 import outbox : fillOutbox, headOf;
-import sink : emit, postConversation, postUpload;
+import sink : emit, flushSinks, postConversation, postUpload;
 
 /// How often the wait loop polls the agent's exit / terminal-event state.
 enum pollInterval = 20.msecs;
@@ -263,6 +263,7 @@ void finishRun(const OutputSink[] sinks, in EventSource source, int code, string
 	// even though the work is done (#58). _exit guarantees PID 1 dies so the pod and
 	// Job finish promptly; stdout is already flushed per event, and any grandchildren
 	// die with the container once PID 1 is gone.
+	flushSinks();
 	_exit(code);
 	assert(0, "unreachable");
 }
