@@ -49,10 +49,10 @@ and run-history retention limits. ([validated by TestEveryExampleManifestDecodes
 One run. Holds: a reference to a Station, per-run parameter overrides (prompt variables), the run's own wiring, and a
 lifecycle `status` (phase, start/end time, output tail). ([validated by TestDeepCopyLeavesTheOriginalUntouched](packages/agent-contracts-go/types_test.go#L63)) The controller creates a Job per Agent and
 patches status as the Job progresses. The output tail is bounded by `MAX_OUTPUT_BYTES` (default
-256 KiB) to stay under etcd's per-object limit.
+256 KiB) to stay under etcd's per-object limit. ([validated by succeeded batch poll with maxOutputBytes 64 keeps only the last 64 bytes of the output](packages/agentcore/source/agentcore/reconcile/reconcile_driver.d#L1765))
 
 The recipe is reusable; what belongs to a single run is given on the Agent. `Agent.spec` takes
-optional `repos`, `conversation`, `output` (`sinks`, `select`, `watch`), `secrets` and `env`.
+optional `repos`, `conversation`, `output` (`sinks`, `select`, `watch`), `secrets` and `env`. ([validated by an Agent that sets none of the per-run fields runs the recipe unchanged](packages/agentcore/source/agentcore/kube/jobspec.d#L2452))
 Before it builds the Job, the controller lays the Agent's values over its AgentDefinition's, and a value the Agent sets wins over the recipe's. ([validated by an Agent's repos replace the recipe's repos](packages/agentcore/source/agentcore/kube/jobspec.d#L2464))
 An Agent's `repos`, `output.sinks` and `output.select` replace the recipe's; its `conversation`
 replaces each field it sets; its `secrets`, `env` and `output.watch` replace the recipe's entry of the
@@ -87,7 +87,7 @@ next reconcile, so the Agents still using a recipe can be listed before it is de
 
 - An Agent run is immutable once created; the controller owns its lifecycle.
 - Only the leader replica reconciles; standby replicas take over within the Lease duration on leader failure.
-- `status.output` is truncated to the last `MAX_OUTPUT_BYTES` (default 256 KiB); the full log is available in the Job's Pod logs.
+- `status.output` is truncated to the last `MAX_OUTPUT_BYTES` (default 256 KiB); the full log is available in the Job's Pod logs. ([validated by succeeded batch poll with maxOutputBytes 64 keeps only the last 64 bytes of the output](packages/agentcore/source/agentcore/reconcile/reconcile_driver.d#L1765))
 - Generated files (`deploy/crds/`, `packages/agent-contracts/src/types.generated.ts`) must never be edited directly; CI enforces this with a drift check.
 - Every tagged release pins image digests in `deploy/` — floating tags are never used in production manifests.
 - The TypeScript contracts package enforces 100% test coverage on its hand-written logic (vitest gate in CI).
