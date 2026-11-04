@@ -6,6 +6,10 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+
+- **`maxConcurrentRuns` holds when the poll pass and the watch reconcile at the same time.** The two used to decide admission separately, so while one waited on a Job create, the other could admit a second run against a cache that did not show the first. Reconciles now take turns, and a run the controller starts counts at once, before the watch confirms it (#135).
+
 ## v0.16.1
 
 ### Fixed
