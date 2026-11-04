@@ -22,6 +22,7 @@ export default defineConfig({
 		}),
 		starlight({
 			title: 'AI agent subsystem',
+			logo: { src: './src/assets/logo.svg' },
 			description:
 				'Run autonomous coding agents as Kubernetes resources: declarative recipes, reusable runtimes, and a reconciling controller.',
 			social: [

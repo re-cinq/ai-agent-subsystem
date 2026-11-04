@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="AI agent subsystem">
+	<defs>
+		<linearGradient id="shield" x1="0" y1="0" x2="1" y2="1">
+			<stop offset="0" stop-color="#5664f4"/>
+			<stop offset="1" stop-color="#8e2de2"/>
+		</linearGradient>
+	</defs>
+	<polygon points="64.00,6.00 109.35,27.84 120.55,76.91 89.17,116.26 38.83,116.26 7.45,76.91 18.65,27.84" fill="url(#shield)" stroke="#0f1d49" stroke-width="4" stroke-linejoin="round"/>
+	<circle cx="64" cy="64" r="34" fill="none" stroke="#e6e8fd" stroke-width="3" opacity="0.5"/>
+	<g fill="#d5e5ff"><circle cx="85.85" cy="37.95" r="6.5"/><circle cx="75.63" cy="95.95" r="6.5"/><circle cx="30.52" cy="58.10" r="6.5"/></g>
+	<path d="M64 40 C68.32 59.68 68.32 59.68 88 64 C68.32 68.32 68.32 68.32 64 88 C59.68 68.32 59.68 68.32 40 64 C59.68 59.68 59.68 59.68 64 40 Z" fill="#fff"/>
+</svg>
