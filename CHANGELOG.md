@@ -9,6 +9,11 @@ the npm package versions.
 ### Fixed
 
 - **Controller API client gaps.** Watches ask for bookmarks, so a quiet namespace no longer falls into a full re-list when its resourceVersion is compacted. A CA bundle that fails to load is logged, and none is configured out of cluster. A status patch for an Agent deleted mid-reconcile is dropped, not logged as an error on every poll. The controller refuses to start without `POD_NAME` or `HOSTNAME`, not falling back to an identity two replicas could share (#118).
+- **`maxConcurrentRuns` holds when the poll pass and the watch reconcile at the same time.** The two used to decide admission separately, so while one waited on a Job create, the other could admit a second run against a cache that did not show the first. Reconciles now take turns, and a run the controller starts counts at once, before the watch confirms it (#135).
+- **A controller replica stops leading before its Lease can expire.** Leadership now lapses 10s after the last successful renew, measured on the clock instead of counted in failed ticks, so a renew that hangs on a degraded API server no longer leaves two replicas reconciling at once (#106).
+- **A dead sink no longer costs the pod log the end of a run's output.** The supervisor writes each event to stdout as it reads it and hands it to the sinks through an in-order queue that a separate task delivers, so a sink's retries no longer slow the stdout reader. At exit it waits up to 5s for the queue to empty (#104).
+- **A sink that never answers no longer holds the run open.** The supervisor's sink, upload and conversation requests now give up after 5s without a connection and 10s (events) or 60s (uploads) without a response, so the run still tears down promptly instead of waiting out the Job deadline (#103).
+- **OpenCode runs find the CLI they installed.** The installer puts `opencode` in `~/.opencode/bin`, which the run container's `PATH` now includes, so a run without a pre-baked CLI no longer fails with `opencode: command not found` (#105).
 
 ## v0.16.1
 

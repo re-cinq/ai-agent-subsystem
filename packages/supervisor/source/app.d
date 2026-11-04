@@ -9,6 +9,7 @@ import std.process : environment;
 import agentcore.core.env : envRealtimeStyle;
 import agentcore.core.log : logError;
 import realtime : superviseRealtime;
+import sink : flushSinks;
 import supervise : supervise, installSignalForwarding;
 
 private __gshared int g_exitCode = 1;
@@ -42,6 +43,7 @@ int main(string[] args)
 			g_exitCode = 1;
 		}
 
+		flushSinks();
 		try
 			exitEventLoop();
 		catch (Exception e)
