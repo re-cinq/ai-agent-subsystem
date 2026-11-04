@@ -6,6 +6,10 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+
+- **A sink that never answers no longer holds the run open.** The supervisor's sink, upload and conversation requests now give up after 5s without a connection and 10s (events) or 60s (uploads) without a response, so the run still tears down promptly instead of waiting out the Job deadline (#103).
+
 ## v0.16.1
 
 ### Fixed

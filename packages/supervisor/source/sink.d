@@ -1,6 +1,6 @@
 module sink;
 
-import core.time : msecs;
+import core.time : Duration, msecs, seconds;
 import std.functional : toDelegate;
 
 import agentcore.output.event : EventSource;
@@ -16,7 +16,7 @@ import std.conv : to;
 import std.process : environment;
 import std.string : indexOf, strip;
 import vibe.core.core : sleep;
-import vibe.http.client : requestHTTP, HTTPClientRequest, HTTPClientResponse;
+import vibe.http.client : requestHTTP, HTTPClientRequest, HTTPClientResponse, HTTPClientSettings;
 import vibe.http.common : HTTPMethod, httpMethodFromString;
 
 version (unittest) import fluent.asserts;
@@ -39,7 +39,29 @@ private HttpSink sinkPoster() nothrow
 	return retryingPoster(toDelegate(&vibeTransport), retryPolicyFromEnv(), toDelegate(&napMs), "[supervisor]");
 }
 
-/// One request with vibe's HTTP client; a connection error throws.
+/// vibe's client waits forever by default, so a sink that accepts and never answers would
+/// hold the run's final event, and with it the pod, until the Job deadline.
+private HTTPClientSettings clientWaiting(Duration forResponse) @safe
+{
+	auto settings = new HTTPClientSettings;
+	settings.connectTimeout = 5.seconds;
+	settings.readTimeout = forResponse;
+	return settings;
+}
+
+/// An event is one line, so a sink that is slower than this is treated as down.
+HTTPClientSettings sinkClient() @safe
+{
+	return clientWaiting(10.seconds);
+}
+
+/// An archive or upload is megabytes, which the receiver may take a while to accept.
+HTTPClientSettings uploadClient() @safe
+{
+	return clientWaiting(60.seconds);
+}
+
+/// One request with vibe's HTTP client; a connection error or a timeout throws.
 private HttpResponse vibeTransport(HttpRequest request)
 {
 	HttpResponse response;
@@ -53,7 +75,7 @@ private HttpResponse vibeTransport(HttpRequest request)
 		(scope HTTPClientResponse res) {
 			response.status = res.statusCode;
 			res.dropBody();
-		});
+		}, sinkClient);
 	return response;
 }
 
@@ -102,7 +124,7 @@ void postConversation(string url, const(ubyte)[] archive) nothrow
 			if (res.statusCode >= 300)
 				logError("[conversation] save rejected: " ~ res.statusCode.to!string);
 			res.dropBody();
-		});
+		}, uploadClient);
 	}
 	catch (Exception e)
 		logError("[conversation] save failed: " ~ e.msg);
@@ -186,7 +208,7 @@ private UploadAttempt uploadOnce(string url, const(ubyte)[] body_, string header
 			if (attempt != UploadAttempt.delivered)
 				logError("[watch] upload rejected: " ~ res.statusCode.to!string);
 			res.dropBody();
-		});
+		}, uploadClient);
 		return attempt;
 	}
 	catch (Exception e)
@@ -194,4 +216,13 @@ private UploadAttempt uploadOnce(string url, const(ubyte)[] body_, string header
 		logError("[watch] upload failed: " ~ e.msg);
 		return UploadAttempt.retry;
 	}
+}
+
+unittest
+{
+	// #103: a sink that never answers gives up instead of holding the run past its teardown.
+	sinkClient.connectTimeout.should.equal(5.seconds);
+	sinkClient.readTimeout.should.equal(10.seconds);
+	uploadClient.connectTimeout.should.equal(5.seconds);
+	uploadClient.readTimeout.should.equal(60.seconds);
 }
