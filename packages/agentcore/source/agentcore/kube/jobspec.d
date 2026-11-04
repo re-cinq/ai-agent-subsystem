@@ -40,6 +40,9 @@ enum bundleVolume = "agent";
 /// uid 1000). Init and agent are separate filesystems — without this volume the clone
 /// dies with the init container's layer and the agent finds no repo.
 enum workspaceVolume = "workspace";
+/// The agent container's scratch /tmp: its root filesystem is read-only (#64), and agent
+/// CLIs and the tools they run write temporary files there.
+enum tmpVolume = "tmp";
 /// A pull request delivery's volumes: the outbox the agent's supervisor drops the
 /// bundle into and the courier reads, and the courier's own scratch HOME, which the
 /// agent never mounts.
@@ -433,7 +436,7 @@ private Json wirePodTemplate(Json template_, Json[] command, Json env, Json init
 			container["command"] = Json(command);
 			container["env"] = env;
 			container["volumeMounts"] = withBundleMount(container);
-			container["securityContext"] = nonRootSecurity();
+			container["securityContext"] = agentSecurity();
 			if (!("resources" in container))
 				container["resources"] = agentResources();
 		}
@@ -567,6 +570,7 @@ private Json withBundleMount(Json container)
 					mounts ~= m;
 	mounts ~= reservedMount(bundleVolume, bundleRoot);
 	mounts ~= reservedMount(workspaceVolume, defaultWorkspace);
+	mounts ~= reservedMount(tmpVolume, "/tmp");
 	return Json(mounts);
 }
 
@@ -582,7 +586,7 @@ private bool isNamed(Json entry, string name)
 /// Whether `entry` (a volume or a mount) takes a name the run pod reserves for itself.
 private bool isReservedVolume(Json entry)
 {
-	return [bundleVolume, workspaceVolume, outboxVolume, courierVolume].canFind!(name => isNamed(entry, name));
+	return [bundleVolume, workspaceVolume, tmpVolume, outboxVolume, courierVolume].canFind!(name => isNamed(entry, name));
 }
 
 private Json emptyDirVolume(string name)
@@ -603,6 +607,7 @@ private Json withBundleVolume(Json spec)
 					volumes ~= v;
 	volumes ~= emptyDirVolume(bundleVolume);
 	volumes ~= emptyDirVolume(workspaceVolume);
+	volumes ~= emptyDirVolume(tmpVolume);
 	return Json(volumes);
 }
 
@@ -656,6 +661,15 @@ private Json nonRootSecurity()
 	security["capabilities"] = Json(caps);
 	security["seccompProfile"] = runtimeDefaultSeccomp();
 	return Json(security);
+}
+
+/// The agent container runs untrusted code, so on top of the non-root baseline its image
+/// is read-only: everything it may write is a volume the pod owns.
+private Json agentSecurity()
+{
+	auto security = nonRootSecurity();
+	security["readOnlyRootFilesystem"] = Json(true);
+	return security;
 }
 
 private Json podSecurity()
@@ -1375,8 +1389,8 @@ unittest
 
 	job["spec"]["template"]["metadata"]["labels"]["agents.re-cinq.com/component"]
 		.get!string.should.equal("job");
-	job["spec"]["template"]["spec"]["volumes"].get!(Json[]).length.should.equal(2);
-	agentContainer(job)["volumeMounts"].get!(Json[]).length.should.equal(2);
+	job["spec"]["template"]["spec"]["volumes"].get!(Json[]).length.should.equal(3);
+	agentContainer(job)["volumeMounts"].get!(Json[]).length.should.equal(3);
 }
 
 unittest
@@ -2412,8 +2426,8 @@ unittest // the agent mounts the outbox and every container of a delivering run 
 		.should.equal(["octo/app", "agent/bug-fixer-run-1", "main", "Fix ENG-1", "/workspace/app"]);
 	[envValue(initContainerOf(job), envDelivery), envValue(containerNamed(job, courierContainerName), envDelivery)]
 		.should.equal([planJson, planJson]);
-	agentContainer(job)["volumeMounts"][2].should.equal(parseJsonString(`{"name":"outbox","mountPath":"/outbox"}`));
-	[pod["volumes"][2]["name"].get!string, pod["volumes"][3]["name"].get!string].should.equal(["outbox", "courier"]);
+	agentContainer(job)["volumeMounts"][3].should.equal(parseJsonString(`{"name":"outbox","mountPath":"/outbox"}`));
+	[pod["volumes"][3]["name"].get!string, pod["volumes"][4]["name"].get!string].should.equal(["outbox", "courier"]);
 }
 
 unittest // a recipe env named AGENT_DELIVERY cannot replace the controller's plan
@@ -2610,4 +2624,25 @@ unittest // two Agents sharing one AgentDefinition get Jobs with their own repos
 	seen(secondPod)[0][0].should.contain("two.git");
 	seen(firstPod)[2][0].should.contain("collector/1");
 	seen(secondPod)[2][0].should.contain("collector/2");
+}
+
+unittest
+{
+	// #64: the agent container runs untrusted code on a read-only root; the only places it
+	// writes are its HOME bundle, the workspace and a scratch /tmp, each its own emptyDir.
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	station.spec.template_ = parseJsonString(`{"spec":{"containers":[{"name":"agent","image":"node:22",`
+		~ `"volumeMounts":[{"name":"tmp","mountPath":"/elsewhere"}]}],"volumes":[{"name":"tmp","emptyDir":{"medium":"Memory"}}]}}`);
+
+	auto job = buildJob(agent, station, definition, "img");
+	auto container = agentContainer(job);
+
+	container["securityContext"]["readOnlyRootFilesystem"].get!bool.should.equal(true);
+	container["volumeMounts"].should.equal(parseJsonString(`[{"name":"agent","mountPath":"/agent"},`
+		~ `{"name":"workspace","mountPath":"/workspace"},{"name":"tmp","mountPath":"/tmp"}]`));
+	job["spec"]["template"]["spec"]["volumes"].should.equal(parseJsonString(
+		`[{"name":"agent","emptyDir":{}},{"name":"workspace","emptyDir":{}},{"name":"tmp","emptyDir":{}}]`));
 }
