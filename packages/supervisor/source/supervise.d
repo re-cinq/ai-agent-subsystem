@@ -55,8 +55,13 @@ private enum agentStderrTag = "[agent] ";
 /// distinct from any code the agent itself could return.
 enum deadlineExitCode = 124;
 
-/// PID of the spawned agent, shared with the signal handler.
+/// PID of the spawned agent, shared with the signal handler; 0 before the spawn and
+/// once the agent is reaped, when the number may already belong to another process.
 private __gshared pid_t g_childPid = 0;
+
+/// A termination signal that arrived before the agent had a pid, delivered to it once
+/// it does instead of being lost (#128).
+private __gshared int g_pendingSignal = 0;
 
 /// Set in realtime mode, where a termination signal ends the session gracefully — its
 /// conversation saved — instead of being forwarded to an agent that may be between turns.
@@ -73,6 +78,8 @@ extern (C) private void forwardSignal(int sig) nothrow @nogc @system
 		g_terminate = true;
 	else if (g_childPid > 0)
 		kill(g_childPid, sig);
+	else
+		g_pendingSignal = sig;
 }
 
 /// Take over signal handling from vibe: ignore `SIGPIPE` (so a broken sink socket
@@ -161,6 +168,9 @@ final class AgentProcess
 			: Redirect.stdout | Redirect.stderr;
 		pipes = pipeProcess(argv, redirect);
 		g_childPid = pipes.process.pid;
+		if (g_pendingSignal)
+			kill(g_childPid, g_pendingSignal);
+		g_pendingSignal = 0;
 
 		// Stream stdout in its own task so the agent's *process exit* ends the run,
 		// not stdout EOF: a stray child that inherits and holds stdout open would
@@ -220,6 +230,7 @@ final class AgentProcess
 				processCode = pipes.process.wait();
 			catch (Exception)
 				processCode = 1;
+			g_childPid = 0;
 			processExited = true;
 		});
 	}
@@ -582,4 +593,20 @@ unittest
 	deadlineFromEnv().should.equal(Duration.zero);
 	environment[envDeadlineMs] = "-1";
 	deadlineFromEnv().should.equal(Duration.zero);
+}
+
+unittest
+{
+	// #128: once the agent is reaped its pid may be reused, so nothing may signal it.
+	auto agent = new AgentProcess(["true"], false, "claude", (string) nothrow {});
+	waitFlag(agent.processExited, 5000.msecs).should.equal(true);
+	g_childPid.should.equal(0);
+}
+
+unittest
+{
+	// #128: a SIGTERM that lands before the agent's pid is known still reaches the agent.
+	forwardSignal(SIGTERM);
+	auto agent = new AgentProcess(["sleep", "30"], false, "claude", (string) nothrow {});
+	waitFlag(agent.processExited, 5000.msecs).should.equal(true);
 }

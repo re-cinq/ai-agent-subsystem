@@ -8,6 +8,7 @@ the npm package versions.
 
 ### Fixed
 
+- **The supervisor no longer loses a shutdown signal or signals a recycled pid.** A SIGTERM that arrives while the agent is still being spawned is held and delivered once it has a pid, and the agent's pid is cleared when it is reaped, so a late force-down cannot hit an unrelated process (#128).
 - **Controller API client gaps.** Watches ask for bookmarks, so a quiet namespace no longer falls into a full re-list when its resourceVersion is compacted. A CA bundle that fails to load is logged, and none is configured out of cluster. A status patch for an Agent deleted mid-reconcile is dropped, not logged as an error on every poll. The controller refuses to start without `POD_NAME` or `HOSTNAME`, not falling back to an identity two replicas could share (#118).
 - **`maxConcurrentRuns` holds when the poll pass and the watch reconcile at the same time.** The two used to decide admission separately, so while one waited on a Job create, the other could admit a second run against a cache that did not show the first. Reconciles now take turns, and a run the controller starts counts at once, before the watch confirms it (#135).
 - **A controller replica stops leading before its Lease can expire.** Leadership now lapses 10s after the last successful renew, measured on the clock instead of counted in failed ticks, so a renew that hangs on a degraded API server no longer leaves two replicas reconciling at once (#106).
