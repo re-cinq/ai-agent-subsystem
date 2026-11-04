@@ -1,5 +1,8 @@
 module cache;
 
+import vibe.core.sync : TaskMutex;
+
+import agentcore.core.types : Phase;
 import agentcore.crds.agent : Agent;
 
 /// The controller's informer-style view of the namespace's Agents, keyed by name.
@@ -8,12 +11,30 @@ import agentcore.crds.agent : Agent;
 /// from here instead of re-listing the API server every reconcile, which is what
 /// keeps reconcile cost O(changed) rather than O(all).
 ///
-/// Plain thread-local state, no locking: the watch, sweep and election run as vibe
-/// tasks on the one event-loop thread (the same race-free assumption
-/// leaderelection.d documents), so the cache is only ever touched from that thread.
+/// Plain thread-local state: the watch, sweep and election run as vibe tasks on the
+/// one event-loop thread (the same race-free assumption leaderelection.d documents),
+/// so the map needs no lock. `admission` serializes whole reconciles, which yield.
 final class AgentCache
 {
 	private Agent[string] byName;
+
+	/// Held across one Agent's reconcile. The fibers don't race on the map, but a
+	/// reconcile yields on API calls mid-decision: without this the watch could admit a
+	/// run against a view that doesn't yet show the one the poll pass is starting (#135).
+	TaskMutex admission;
+
+	this() nothrow
+	{
+		admission = new TaskMutex;
+	}
+
+	/// Record a phase the controller just caused, ahead of the watch confirming it, so
+	/// the next admission decision counts it.
+	void markPhase(string name, Phase phase)
+	{
+		if (auto agent = name in byName)
+			agent.status.phase = phase;
+	}
 
 	/// Replace the whole cache with a fresh LIST result (initial sync, or resync
 	/// after a 410). Drops any Agents that disappeared while we were not watching.

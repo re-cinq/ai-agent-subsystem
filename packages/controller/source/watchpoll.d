@@ -5,6 +5,8 @@ import std.datetime.systime : Clock;
 import std.datetime.timezone : UTC;
 import std.exception : enforce;
 import vibe.data.json : Json, parseJsonString;
+import std.algorithm.searching : find;
+import std.range.primitives : empty, front;
 import std.random : uniform;
 
 import vibe.core.core : runTask, sleep;
@@ -329,7 +331,7 @@ private string watch(AgentInformerClient client, string ns, ControlSettings sett
 			if (event.parsed)
 			{
 				cache.upsert(event.agent);
-				reconcileOne(client, ns, event.agent, settings, cache.snapshot());
+				cast(void) reconcileAdmitted(client, ns, event.agent.metadata.name, settings, cache);
 			}
 			break;
 		case "DELETED":
@@ -354,34 +356,38 @@ private void reconcileAll(AgentInformerClient client, string ns, ControlSettings
 {
 	auto agents = cache.snapshot();
 	recordPhaseGauges(agents);
-	// Work on a mutable copy so a run started (or preempted) earlier in THIS pass is
-	// reflected in the Station concurrency count the later Agents see. The cache won't
-	// carry the new status until the patch round-trips through the informer, so without
-	// this a burst of Pending Agents for a capacity-1 Station would all be admitted.
-	foreach (ref agent; agents)
+	foreach (agent; agents)
 	{
 		// A leadership loss mid-pass must stop us creating Jobs / issuing deletes from a
 		// now-stale cache; the watch path already rechecks this per event.
 		if (!leadership.isLeader)
 			return;
-		const effect = reconcileOne(client, ns, agent, settings, agents);
-		if (effect.startedRun)
-			agent.status.phase = Phase.running;
-		if (effect.preemptedAgent.length)
-			markTerminal(agents, effect.preemptedAgent);
+		cast(void) reconcileAdmitted(client, ns, agent.metadata.name, settings, cache);
 	}
 }
 
-/// Mark the preempted Agent terminal in the pass's working view so it stops counting
-/// toward the Station's concurrency limit and is not preempted again this pass.
-private void markTerminal(Agent[] agents, string name) nothrow
+/// Reconcile the cached Agent `name` holding the cache's admission lock, then record
+/// the run it started or preempted in the cache. The status patch takes a watch round
+/// trip to land there, so without this a burst of Pending Agents for a capacity-1
+/// Station would all be admitted, whether by one poll pass or by the pass and the
+/// watch interleaving. An Agent gone from the cache by the time the lock is ours is
+/// skipped.
+private ReconcileEffect reconcileAdmitted(AgentInformerClient client, string ns, string name,
+	ControlSettings settings, AgentCache cache)
 {
-	foreach (ref agent; agents)
-		if (agent.metadata.name == name)
-		{
-			agent.status.phase = Phase.failed;
-			return;
-		}
+	cache.admission.lock();
+	scope (exit)
+		cache.admission.unlock();
+	auto agents = cache.snapshot();
+	auto current = agents.find!(agent => agent.metadata.name == name);
+	if (current.empty)
+		return ReconcileEffect.init;
+	const effect = reconcileOne(client, ns, current.front, settings, agents);
+	if (effect.startedRun)
+		cache.markPhase(name, Phase.running);
+	if (effect.preemptedAgent.length)
+		cache.markPhase(effect.preemptedAgent, Phase.failed);
+	return effect;
 }
 
 /// Safety-net poll: every ~15s do a full paginated LIST that refreshes the cache
@@ -644,6 +650,7 @@ version (unittest)
 		AgentDefinition definition;
 		Leadership flipLeaderOnCreate; /// when set, leadership drops after the first createJob
 		bool stationMissing; /// when set, getStation throws NotFound
+		Duration createDelay; /// how long createJob yields, as a real API call does
 
 		Json[] createdJobs;
 		string[] patchedNames;
@@ -675,6 +682,8 @@ version (unittest)
 		void createJob(string ns, Json job)
 		{
 			createdJobs ~= job;
+			if (createDelay > Duration.zero)
+				sleep(createDelay);
 			if (flipLeaderOnCreate !is null)
 				flipLeaderOnCreate.isLeader = false;
 		}
@@ -762,6 +771,49 @@ unittest
 	leadership.isLeader = true;
 	auto cache = new AgentCache;
 	sync(client, "ai-agents", ControlSettings("img"), cache, leadership);
+
+	client.createdJobs.length.should.equal(1);
+}
+
+unittest
+{
+	import core.time : msecs;
+	import vibe.core.core : runTask;
+
+	// #135: the poll pass and the watch run as separate fibers. While the pass waits on
+	// r1's Job create, a watch event for r2 must not admit it against a cache that still
+	// shows r1 Pending: one Job on a capacity-1 Station, not two.
+	auto client = stationClient();
+	client.station.spec.maxConcurrentRuns = 1;
+	client.createDelay = 20.msecs;
+	client.watchLines = [
+		`{"type":"ADDED","object":{"metadata":{"name":"r2","resourceVersion":"2",` ~
+			`"labels":{"agents.re-cinq.com/station":"stn","agents.re-cinq.com/agent-definition":"def"}},` ~
+			`"spec":{"stationRef":"stn"},"status":{"phase":"Pending"}}}`,
+	];
+
+	auto leadership = new Leadership;
+	leadership.isLeader = true;
+	auto cache = new AgentCache;
+	cache.upsert(pendingRun("r1", "stn"));
+	auto settings = ControlSettings("img");
+
+	auto poll = runTask(() nothrow {
+		try
+			reconcileAll(client, "ai-agents", settings, cache, leadership);
+		catch (Exception)
+		{
+		}
+	});
+	auto watcher = runTask(() nothrow {
+		try
+			cast(void) watch(client, "ai-agents", settings, leadership, cache, "1");
+		catch (Exception)
+		{
+		}
+	});
+	poll.join();
+	watcher.join();
 
 	client.createdJobs.length.should.equal(1);
 }
