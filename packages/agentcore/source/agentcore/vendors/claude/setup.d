@@ -1,28 +1,49 @@
 module agentcore.vendors.claude.setup;
 
+import std.algorithm.iteration : map;
+import std.array : join;
 import std.file : exists;
 
 import agentcore.core.exec : findExecutable;
 import agentcore.kube.bundle : claudeStageSource;
 import agentcore.vendors.base.setup : AgentSetup, CliOrigin, CliReport;
 
+/// The Claude Code CLI release a run installs: the one the agent image bakes, its
+/// `CLAUDE_CLI_VERSION` build arg (a unit test holds the two equal).
+enum claudeCliVersion = "2.1.267";
+
+/// One architecture's native glibc build of `claudeCliVersion`; the hashes come from
+/// downloads.claude.ai/claude-code-releases/<version>/manifest.json.
+struct ClaudePackage
+{
+	string machine; /// what `uname -m` reports
+	string platform; /// the release's directory for it
+	string sha256;
+}
+
+immutable ClaudePackage[] claudePackages = [
+	ClaudePackage("x86_64", "linux-x64", "0399c793ff571d5946ef923d80b4f330d05ac4b6842a6b0775468f5d389403c0"),
+	ClaudePackage("aarch64", "linux-arm64", "226a4e009574044a18bf5495f127806b2a1bfcbf25b3c01608705fafee95fefb"),
+];
+
 /// Put the Claude Code CLI on `~/.local/bin` in the shared HOME. The agent image
-/// bakes a pinned CLI at `claudeStageSource` (its version is the image's
-/// `CLAUDE_CLI_VERSION` build arg), so the init copies that — no network, and
-/// every run of one image runs the same CLI. An image without a baked CLI falls
-/// back to the official installer, which self-detects OS/arch/libc, verifies a
-/// SHA256 checksum from the release manifest, and takes the latest release;
-/// `pipefail` plus `curl -f` make a failed download fail the step instead of
-/// succeeding silently through the pipe. Either way the step is guarded by
-/// `command -v`, so a CLI already on PATH or an init-container retry is a no-op.
+/// bakes a pinned CLI at `claudeStageSource`, so the init copies that — no network,
+/// and every run of one image runs the same CLI. An image without a baked CLI
+/// downloads that same pinned release for its architecture and installs it only once
+/// its SHA-256 matches the pin, so no unverified script ever runs (#74). Either way
+/// the step is guarded by `command -v`, so a CLI already on PATH or an
+/// init-container retry is a no-op.
 final class ClaudeSetup : AgentSetup, CliReport
 {
 	private string bakedCli;
+	private const(ClaudePackage)[] packages;
 
-	/// `bakedCli` is where the image bakes its pinned CLI.
-	this(string bakedCli = claudeStageSource) @safe
+	/// `bakedCli` is where the image bakes its pinned CLI; `packages` are the
+	/// per-architecture releases the fallback may download.
+	this(string bakedCli = claudeStageSource, in ClaudePackage[] packages = claudePackages) @safe
 	{
 		this.bakedCli = bakedCli;
+		this.packages = packages;
 	}
 
 	override string name() const @safe
@@ -45,9 +66,21 @@ final class ClaudeSetup : AgentSetup, CliReport
 				`command -v claude >/dev/null 2>&1 || { mkdir -p "$HOME/.local/bin" && cp '`
 					~ bakedCli ~ `' "$HOME/.local/bin/claude" && chmod +x "$HOME/.local/bin/claude"; }`,
 			]];
+		const architectures = packages
+			.map!(p => "\n  " ~ p.machine ~ ") platform=" ~ p.platform ~ " sha256=" ~ p.sha256 ~ " ;;")
+			.join;
 		return [[
-			"bash", "-o", "pipefail", "-c",
-			"command -v claude >/dev/null 2>&1 || curl -fsSL https://claude.ai/install.sh | bash",
+			"bash", "-euo", "pipefail", "-c",
+			`command -v claude >/dev/null 2>&1 && exit 0
+case "$(uname -m)" in` ~ architectures ~ `
+  *) echo "no Claude CLI release for $(uname -m)" >&2; exit 1 ;;
+esac
+mkdir -p "$HOME/.local/bin"
+download="$HOME/.local/bin/claude.download"
+curl -fsSL -o "$download" "https://downloads.claude.ai/claude-code-releases/` ~ claudeCliVersion ~ `/$platform/claude"
+echo "$sha256  $download" | sha256sum -c - >/dev/null || { rm -f "$download"; exit 1; }
+chmod 0755 "$download"
+mv "$download" "$HOME/.local/bin/claude"`,
 		]];
 	}
 
@@ -105,19 +138,41 @@ version (unittest)
 		mkdirRecurse(box.bin);
 		mkdirRecurse(buildPath(box.root, "image"));
 
-		foreach (tool; ["bash", "sh", "mkdir", "cp", "chmod", "cat", "printf"])
+		foreach (tool; ["bash", "sh", "mkdir", "cp", "chmod", "cat", "printf", "mv", "rm", "uname", "sha256sum"])
 			symlink(findExecutable(tool), buildPath(box.bin, tool));
 
-		// The network installer, as far as the step can tell: it records the call
-		// and hands back a script that installs a CLI reporting 9.9.9.
-		const installer = buildPath(box.root, "install.sh");
-		write(installer, `mkdir -p "$HOME/.local/bin"
-printf '#!/bin/sh\necho "9.9.9 (Claude Code)"\n' > "$HOME/.local/bin/claude"
-chmod +x "$HOME/.local/bin/claude"
-`);
-		writeExecutable(buildPath(box.bin, "curl"),
-			"#!/bin/sh\necho \"$@\" >> '" ~ box.curlLog ~ "'\ncat '" ~ installer ~ "'\n");
+		// The release server, as far as the step can tell: it records the call and
+		// writes the `-o` file with a CLI reporting 9.9.9.
+		writeExecutable(buildPath(box.bin, "curl"), "#!/bin/sh\necho \"$@\" >> '" ~ box.curlLog ~ "'\n"
+			~ `while [ "$1" != "-o" ]; do shift; done; cp '` ~ fakeRelease(box) ~ `' "$2"` ~ "\n");
 		return box;
+	}
+
+	/// The CLI the stand-in release server hands out.
+	string fakeRelease(in Sandbox box)
+	{
+		const path = buildPath(box.root, "release-claude");
+		if (!path.exists)
+			writeExecutable(path, "#!/bin/sh\necho '9.9.9 (Claude Code)'\n");
+		return path;
+	}
+
+	/// The release pin for this host's architecture, with `sha256` in place of the real one.
+	ClaudePackage[] pinnedTo(string sha256)
+	{
+		import std.algorithm.iteration : map;
+		import std.array : array;
+
+		return claudePackages.map!(p => ClaudePackage(p.machine, p.platform, sha256)).array;
+	}
+
+	string sha256Hex(string path)
+	{
+		import std.digest : LetterCase, toHexString;
+		import std.digest.sha : sha256Of;
+		import std.file : read;
+
+		return sha256Of(read(path)).toHexString!(LetterCase.lower).idup;
 	}
 
 	void writeExecutable(string path, string script)
@@ -165,8 +220,9 @@ chmod +x "$HOME/.local/bin/claude"
 
 	auto steps = claude.installSteps;
 	steps.length.should.equal(1);
-	steps[0][0 .. 4].should.equal(["bash", "-o", "pipefail", "-c"]);
-	steps[0][4].canFind("https://claude.ai/install.sh").should.equal(true);
+	steps[0][0 .. 4].should.equal(["bash", "-euo", "pipefail", "-c"]);
+	// #74: never an unpinned installer piped into a shell.
+	steps[0][4].canFind("install.sh").should.equal(false);
 	steps[0][4].canFind("command -v claude").should.equal(true);
 }
 
@@ -208,19 +264,48 @@ unittest
 
 unittest
 {
-	// An image without a baked CLI falls back to the network installer.
+	// #74: an image without a baked CLI downloads the pinned release for its architecture
+	// and installs it once its checksum matches the pin.
 	auto box = sandbox("download");
 	scope (exit)
 		rmdirRecurse(box.root);
 
-	auto claude = new ClaudeSetup(box.baked);
+	auto claude = new ClaudeSetup(box.baked, pinnedTo(sha256Hex(fakeRelease(box))));
 	originIn(box, claude).should.equal(CliOrigin.downloaded);
 
 	foreach (step; claude.installSteps)
 		runIn(box, step).status.should.equal(0);
 
-	readText(box.curlLog).canFind("https://claude.ai/install.sh").should.equal(true);
+	const platform = execute(["uname", "-m"]).output.strip == "aarch64" ? "linux-arm64" : "linux-x64";
+	readText(box.curlLog).canFind("https://downloads.claude.ai/claude-code-releases/" ~ claudeCliVersion
+		~ "/" ~ platform ~ "/claude").should.equal(true);
 	installedVersion(box).should.equal("9.9.9 (Claude Code)");
+}
+
+unittest
+{
+	// #74: a download whose checksum is not the pin fails the step and installs nothing.
+	auto box = sandbox("tampered");
+	scope (exit)
+		rmdirRecurse(box.root);
+
+	auto claude = new ClaudeSetup(box.baked, pinnedTo("0000000000000000000000000000000000000000000000000000000000000000"));
+	foreach (step; claude.installSteps)
+		runIn(box, step).status.should.not.equal(0);
+
+	buildPath(box.home, ".local", "bin", "claude").exists.should.equal(false);
+}
+
+unittest
+{
+	import std.path : buildNormalizedPath, dirName;
+
+	// #74: the fallback pins the same CLI the agent image bakes.
+	const dockerfile = readText(buildNormalizedPath(dirName(__FILE_FULL_PATH__),
+		"../../../../../../scripts/container/Dockerfile.agent"));
+	dockerfile.canFind("ARG CLAUDE_CLI_VERSION=" ~ claudeCliVersion ~ "\n").should.equal(true);
+	dockerfile.canFind("ARG CLAUDE_CLI_SHA256_AMD64=" ~ claudePackages[0].sha256 ~ "\n").should.equal(true);
+	dockerfile.canFind("ARG CLAUDE_CLI_SHA256_ARM64=" ~ claudePackages[1].sha256 ~ "\n").should.equal(true);
 }
 
 unittest

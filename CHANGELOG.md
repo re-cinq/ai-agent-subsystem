@@ -8,6 +8,7 @@ the npm package versions.
 
 ### Fixed
 
+- **An image without a baked Claude CLI installs the pinned release, checksum-verified.** The fallback no longer pipes `claude.ai/install.sh` into bash; it downloads the CLI the agent image pins (2.1.267) for the pod's architecture and installs it only when its SHA-256 matches. A unit test keeps the pin equal to the Dockerfile's `CLAUDE_CLI_*` build args (#74).
 - **The agent container's root filesystem is read-only.** Agent code can now write only to its HOME bundle, the workspace and a new scratch `/tmp`, each a pod-owned `emptyDir`; a Station volume named `tmp` is replaced like the other reserved ones (#64).
 - **Preempting a run can never delete every Agent, and its Job goes with it.** `deleteAgent` refuses an empty name, which would have sent a DELETE to the Agents collection URL, and every delete now asks for background propagation so the preempted run's Job is collected after it (#70).
 - **The supervisor no longer loses a shutdown signal or signals a recycled pid.** A SIGTERM that arrives while the agent is still being spawned is held and delivered once it has a pid, and the agent's pid is cleared when it is reaped, so a late force-down cannot hit an unrelated process (#128).
