@@ -1,6 +1,6 @@
 module sink;
 
-import core.time : msecs;
+import core.time : Duration, MonoTime, msecs, seconds;
 import std.functional : toDelegate;
 
 import agentcore.output.event : EventSource;
@@ -9,14 +9,14 @@ import agentcore.crds.output_sink : OutputSink;
 import agentcore.core.env : envConversationAuth;
 import agentcore.batch.provider : HttpRequest, HttpResponse;
 import agentcore.output.httpsink : retryingPoster;
-import agentcore.output.output : emitEvent, headerLines, HttpSink, sinkHeaders;
+import agentcore.output.output : deliverEvent, emitEvent, headerLines, HttpSink, sinkHeaders;
 import agentcore.output.retry : RetryPolicy, retryPolicyFromEnv, withRetry;
 
 import std.conv : to;
 import std.process : environment;
 import std.string : indexOf, strip;
-import vibe.core.core : sleep;
-import vibe.http.client : requestHTTP, HTTPClientRequest, HTTPClientResponse;
+import vibe.core.core : runTask, sleep;
+import vibe.http.client : requestHTTP, HTTPClientRequest, HTTPClientResponse, HTTPClientSettings;
 import vibe.http.common : HTTPMethod, httpMethodFromString;
 
 version (unittest) import fluent.asserts;
@@ -28,7 +28,64 @@ version (unittest) import fluent.asserts;
 /// container's `notify`, so both containers' events land identically.
 void emit(const OutputSink[] sinks, in EventSource src, string payload, bool toSinks = true) nothrow
 {
-	emitEvent(sinks, src, payload, sinkPoster(), "[supervisor]", toSinks);
+	emitEvent(sinks, src, payload, sinkPoster(), "[supervisor]", false);
+	if (toSinks && sinks.length)
+		queueDelivery(PendingDelivery(sinks, src, payload));
+}
+
+/// One event waiting for the sinks.
+private struct PendingDelivery
+{
+	const(OutputSink)[] sinks;
+	EventSource src;
+	string payload;
+}
+
+/// A dead sink costs every event its retries; were they paid on the caller's fiber, the
+/// stdout reader would fall behind and the tail of a burst would never leave the pipe
+/// before the supervisor exits (#104). So one task delivers, in order, while the caller
+/// moves on. Past this many waiting events a new one skips the sinks; stdout still has it.
+private enum maxPendingDeliveries = 10_000;
+
+private PendingDelivery[] pendingDeliveries;
+private bool delivering;
+
+private void queueDelivery(PendingDelivery delivery) nothrow
+{
+	if (pendingDeliveries.length >= maxPendingDeliveries)
+	{
+		logError("[supervisor] sink backlog full; event kept on stdout only");
+		return;
+	}
+	pendingDeliveries ~= delivery;
+	if (delivering)
+		return;
+	delivering = true;
+	runTask(() nothrow {
+		while (pendingDeliveries.length)
+		{
+			const next = pendingDeliveries[0];
+			deliverEvent(next.sinks, next.src, next.payload, sinkPoster(), "[supervisor]");
+			pendingDeliveries = pendingDeliveries[1 .. $];
+		}
+		delivering = false;
+	});
+}
+
+/// Long enough for a live sink to take a run's last events, short enough that a dead one
+/// cannot hold the pod.
+enum sinkFlushDeadline = 5.seconds;
+
+/// Wait, at most `within`, for the queued events to reach the sinks; called before the
+/// supervisor exits. A sink still failing when the time is up loses the rest.
+void flushSinks(Duration within = sinkFlushDeadline) nothrow
+{
+	const giveUp = MonoTime.currTime + within;
+	while (delivering && MonoTime.currTime < giveUp)
+		napMs(10);
+	if (delivering)
+		logError("[supervisor] sinks still behind at exit; " ~ pendingDeliveries.length.to!string
+			~ " event(s) kept on stdout only");
 }
 
 /// POSTs to an http(s) sink with vibe's HTTP client, retrying transient failures with bounded
@@ -39,7 +96,29 @@ private HttpSink sinkPoster() nothrow
 	return retryingPoster(toDelegate(&vibeTransport), retryPolicyFromEnv(), toDelegate(&napMs), "[supervisor]");
 }
 
-/// One request with vibe's HTTP client; a connection error throws.
+/// vibe's client waits forever by default, so a sink that accepts and never answers would
+/// hold the run's final event, and with it the pod, until the Job deadline.
+private HTTPClientSettings clientWaiting(Duration forResponse) @safe
+{
+	auto settings = new HTTPClientSettings;
+	settings.connectTimeout = 5.seconds;
+	settings.readTimeout = forResponse;
+	return settings;
+}
+
+/// An event is one line, so a sink that is slower than this is treated as down.
+HTTPClientSettings sinkClient() @safe
+{
+	return clientWaiting(10.seconds);
+}
+
+/// An archive or upload is megabytes, which the receiver may take a while to accept.
+HTTPClientSettings uploadClient() @safe
+{
+	return clientWaiting(60.seconds);
+}
+
+/// One request with vibe's HTTP client; a connection error or a timeout throws.
 private HttpResponse vibeTransport(HttpRequest request)
 {
 	HttpResponse response;
@@ -53,7 +132,7 @@ private HttpResponse vibeTransport(HttpRequest request)
 		(scope HTTPClientResponse res) {
 			response.status = res.statusCode;
 			res.dropBody();
-		});
+		}, sinkClient);
 	return response;
 }
 
@@ -102,7 +181,7 @@ void postConversation(string url, const(ubyte)[] archive) nothrow
 			if (res.statusCode >= 300)
 				logError("[conversation] save rejected: " ~ res.statusCode.to!string);
 			res.dropBody();
-		});
+		}, uploadClient);
 	}
 	catch (Exception e)
 		logError("[conversation] save failed: " ~ e.msg);
@@ -186,7 +265,7 @@ private UploadAttempt uploadOnce(string url, const(ubyte)[] body_, string header
 			if (attempt != UploadAttempt.delivered)
 				logError("[watch] upload rejected: " ~ res.statusCode.to!string);
 			res.dropBody();
-		});
+		}, uploadClient);
 		return attempt;
 	}
 	catch (Exception e)
@@ -194,4 +273,13 @@ private UploadAttempt uploadOnce(string url, const(ubyte)[] body_, string header
 		logError("[watch] upload failed: " ~ e.msg);
 		return UploadAttempt.retry;
 	}
+}
+
+unittest
+{
+	// #103: a sink that never answers gives up instead of holding the run past its teardown.
+	sinkClient.connectTimeout.should.equal(5.seconds);
+	sinkClient.readTimeout.should.equal(10.seconds);
+	uploadClient.connectTimeout.should.equal(5.seconds);
+	uploadClient.readTimeout.should.equal(60.seconds);
 }

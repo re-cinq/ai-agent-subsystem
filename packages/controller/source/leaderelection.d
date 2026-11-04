@@ -1,7 +1,7 @@
 module leaderelection;
 
 import core.thread : Thread;
-import core.time : seconds;
+import core.time : Duration, MonoTime, seconds;
 import std.datetime.systime : Clock;
 import std.datetime.timezone : UTC;
 import std.format : format;
@@ -26,11 +26,11 @@ enum leaseDurationSeconds = 15;
 /// standby re-checks the Lease this often.
 enum renewIntervalSeconds = 5;
 
-/// A healthy leader renews every renewIntervalSeconds, several times within a lease
-/// duration, so one failed renew does not mean the lease is lost. Step down only
-/// once consecutive transient renew failures reach this count — kept one short of
-/// the renews that fit in a duration so we always relinquish before it can expire.
-enum maxConsecutiveRenewFailures = leaseDurationSeconds / renewIntervalSeconds - 1; // = 2
+/// How long leadership outlives the last successful renew: a renew interval short of
+/// the lease duration, so we stop reconciling before a standby can take the expired
+/// Lease. Wall-clock, not a count of failed ticks: one tick blocked on a degraded
+/// apiserver can outlast the whole lease (#106).
+enum renewDeadlineSeconds = leaseDurationSeconds - renewIntervalSeconds;
 
 /// Leadership flag the election loop (writer) shares with the reconcile loops
 /// (readers). They all run as cooperative vibe fibers on the one event-loop
@@ -40,19 +40,30 @@ enum maxConsecutiveRenewFailures = leaseDurationSeconds / renewIntervalSeconds -
 /// debug/test build instead of silently becoming a data race (UB in D).
 final class Leadership
 {
+	Duration renewDeadline = renewDeadlineSeconds.seconds;
 	private bool flag;
+	private MonoTime heldUntil;
 	private Thread owner;
 
+	/// True while we won the last tick and it is no older than the renew deadline.
 	bool isLeader() nothrow
 	{
 		assertOwningThread();
-		return flag;
+		return flag && MonoTime.currTime < heldUntil;
 	}
 
 	void isLeader(bool value) nothrow
 	{
 		assertOwningThread();
 		flag = value;
+		heldUntil = MonoTime.currTime + renewDeadline;
+	}
+
+	/// Whether the last tick won, deadline aside: a leadership that lapsed is still held.
+	bool held() nothrow
+	{
+		assertOwningThread();
+		return flag;
 	}
 
 	private void assertOwningThread() nothrow
@@ -68,7 +79,7 @@ final class Leadership
 
 /// One running leader election: its fixed collaborators (the Lease client, this
 /// replica's namespace + identity, and the `Leadership` flag it drives) plus the
-/// `observation` and `renewFailures` count that advance each tick. Built once and
+/// `observation` that advances each tick. Built once and
 /// passed by `ref` so a tick mutates it in place rather than threading state
 /// through return values.
 struct Election
@@ -78,7 +89,6 @@ struct Election
 	string identity;
 	Leadership leadership;
 	Observation observation;
-	int renewFailures; /// consecutive transient renew failures while we hold the Lease
 	Readiness readiness; /// readiness flag: set from each tick's API reachability (optional in tests)
 }
 
@@ -200,17 +210,14 @@ void runLeaderElection(LeaseClient client, string ns, string identity, Leadershi
 	}
 }
 
-/// One tick wrapped with transient-failure tolerance. A definitive outcome
-/// (success, including a lost 409 race that electionTick acts on immediately)
-/// resets the failure count. A thrown error is a transient renew failure: a leader
-/// stays put until maxConsecutiveRenewFailures of them in a row, then steps down so
-/// a stale leader stops reconciling.
+/// One tick wrapped with transient-failure tolerance. A thrown error is a transient
+/// renew failure: a leader stays put until its renew deadline lapses, then steps down
+/// so a stale leader stops reconciling. A lost 409 race steps it down at once.
 void electionTickGuarded(ref Election election, long now, string timestamp) nothrow
 {
 	try
 	{
 		electionTick(election, now, timestamp);
-		election.renewFailures = 0;
 	}
 	// Throwable, not Exception: the tick's HTTP client can raise a vibe-level
 	// AssertError on an anomalous bodyless response, and this path runs every 5s on
@@ -222,9 +229,7 @@ void electionTickGuarded(ref Election election, long now, string timestamp) noth
 		// alike — unlike the reconcile sync, which only the leader runs.
 		markReady(election.readiness, false);
 		logError("election: %s", error.msg);
-		if (!election.leadership.isLeader)
-			return;
-		if (++election.renewFailures >= maxConsecutiveRenewFailures)
+		if (election.leadership.held && !election.leadership.isLeader)
 			setLeader(election.leadership, election.identity, false);
 	}
 }
@@ -267,7 +272,7 @@ private void setLeader(Leadership leadership, string identity, bool won) nothrow
 {
 	if (won && !leadership.isLeader)
 		logInfo("election: %s acquired leadership", identity);
-	else if (!won && leadership.isLeader)
+	else if (!won && leadership.held)
 		logInfo("election: %s lost leadership", identity);
 	leadership.isLeader = won;
 	recordLeadership(won);
@@ -378,11 +383,13 @@ version (unittest)
 		bool createOk = true;
 		bool patchOk = true;
 		int getThrows; // number of upcoming getLease calls that fail transiently
+		Duration getDelay; // how long each getLease blocks first, like a degraded apiserver
 		string[] writes;
 		private int generation;
 
 		override LeaseRecord getLease(string ns, string name)
 		{
+			Thread.sleep(getDelay);
 			if (getThrows > 0)
 			{
 				getThrows--;
@@ -533,19 +540,35 @@ unittest
 
 unittest
 {
-	// Consecutive transient failures up to the tolerance step us down, since by
-	// then the lease can no longer be safely held.
+	import core.time : msecs;
+
+	// #106: leadership lapses once the renew deadline passes without a renewal, even
+	// while the tick that would have noticed is still blocked on the API.
+	auto leadership = new Leadership;
+	leadership.renewDeadline = 50.msecs;
+	leadership.isLeader = true;
+	leadership.isLeader.should.equal(true);
+
+	Thread.sleep(80.msecs);
+	leadership.isLeader.should.equal(false);
+}
+
+unittest
+{
+	import core.time : msecs;
+
+	// #106: one renew that hangs past the deadline steps the leader down; a standby may
+	// already hold the expired Lease, so tolerating a second failure would be split brain.
 	auto client = new FakeLeaseClient;
 	auto leadership = new Leadership;
+	leadership.renewDeadline = 50.msecs;
 	auto election = Election(client, "ns", "me", leadership);
 
 	electionTickGuarded(election, 100, "ts-1");
-	client.getThrows = 2;
-
+	client.getThrows = 1;
+	client.getDelay = 80.msecs;
 	electionTickGuarded(election, 105, "ts-2");
-	leadership.isLeader.should.equal(true); // first failure tolerated
-	electionTickGuarded(election, 110, "ts-3");
-	leadership.isLeader.should.equal(false); // tolerance exhausted -> step down
+	leadership.isLeader.should.equal(false);
 }
 
 unittest

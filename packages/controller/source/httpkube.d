@@ -8,7 +8,7 @@ import std.file : readText;
 import vibe.data.json : Json, parseJsonString;
 import std.string : strip;
 
-import vibe.core.log : logInfo;
+import vibe.core.log : logError, logInfo;
 import vibe.http.client : HTTPClientRequest, HTTPClientResponse, HTTPClientSettings, requestHTTP;
 import vibe.http.common : HTTPMethod, httpMethodString;
 import vibe.stream.operations : readAllUTF8, readLine;
@@ -143,12 +143,15 @@ final class HttpKubeClient : KubeClient, LeaseClient, AgentInformerClient, Model
 		auto s = new HTTPClientSettings;
 		s.connectTimeout = apiConnectTimeout;
 		s.readTimeout = readTimeout;
+		if (ca.length == 0)
+			return s;
+		// A CA that fails to load leaves the handshake to fail with no reason given, so
+		// say why here.
 		s.tlsContextSetup = (TLSContext ctx) @safe nothrow {
 			try
 				() @trusted { ctx.useTrustedCertificateFile(ca); }();
-			catch (Exception)
-			{
-			}
+			catch (Exception error)
+				logError("loading the API server CA %s: %s", ca, error.msg);
 		};
 		return s;
 	}
@@ -177,7 +180,8 @@ final class HttpKubeClient : KubeClient, LeaseClient, AgentInformerClient, Model
 	override void patchAgentStatus(string ns, string name, Json statusPatch)
 	{
 		const status = send(HTTPMethod.PATCH, crUrl(ns, "agents", name) ~ "/status", statusPatch,
-			"application/merge-patch+json", [200, 409]);
+			"application/merge-patch+json", [200, 404, 409]);
+		// 404: the Agent was deleted after the event that led here; the watch drops it.
 		if (status == 409)
 		{
 			// The patch carried a resourceVersion precondition and the Agent changed
@@ -633,7 +637,7 @@ enum watchReadTimeout = (watchTimeoutSeconds + 60).seconds;
 /// to end the long poll after `timeoutSeconds`. Free + pure so it is unit-testable.
 private string watchQuery(string resourceVersion, int timeoutSeconds)
 {
-	return "?watch=1&resourceVersion=" ~ resourceVersion ~ "&timeoutSeconds=" ~ timeoutSeconds.to!string;
+	return "?watch=1&allowWatchBookmarks=true&resourceVersion=" ~ resourceVersion ~ "&timeoutSeconds=" ~ timeoutSeconds.to!string;
 }
 
 /// The current bearer token, re-read from `path` so a rotated projected
@@ -675,7 +679,7 @@ unittest
 {
 	// The watch asks the server to close the long poll after timeoutSeconds, so a
 	// silently dropped (half-open) connection can't wedge the watch indefinitely.
-	watchQuery("12345", 300).should.equal("?watch=1&resourceVersion=12345&timeoutSeconds=300");
+	watchQuery("12345", 300).should.equal("?watch=1&allowWatchBookmarks=true&resourceVersion=12345&timeoutSeconds=300");
 }
 
 unittest
@@ -850,4 +854,28 @@ unittest // the spawner client lists spawners and their Agents, gets a spawner, 
 		"POST " ~ base ~ `agents application/json {"kind":"Agent"}`,
 		"PATCH " ~ base ~ `agentspawners/nightly/status application/merge-patch+json {"status":{"lastAgent":"a"}}`
 	]);
+}
+
+unittest // #118: a status patch for an Agent deleted since the event is dropped, not thrown
+{
+	import vibe.http.server : HTTPServerRequest, HTTPServerResponse, HTTPServerSettings, listenHTTP;
+	import vibe.http.status : HTTPStatus;
+
+	auto settings = new HTTPServerSettings;
+	settings.port = 0;
+	settings.bindAddresses = ["127.0.0.1"];
+	auto listener = listenHTTP(settings, (scope HTTPServerRequest req, scope HTTPServerResponse res) {
+		res.writeBody(`{"kind":"Status","code":404}`, HTTPStatus.notFound, "application/json");
+	});
+	scope (exit)
+		listener.stopListening();
+	const apiBase = "http://127.0.0.1:" ~ listener.bindAddresses[0].port.to!string;
+	auto client = new HttpKubeClient(ClusterConfig(apiBase, "tok", "", "", "ai-agents"));
+
+	client.patchAgentStatus("ai-agents", "gone", parseJsonString(`{"status":{"phase":"Running"}}`));
+}
+
+unittest // #118: with no CA bundle there is no TLS setup to fail silently
+{
+	(HttpKubeClient.makeSettings("", 1.seconds).tlsContextSetup is null).should.equal(true);
 }
