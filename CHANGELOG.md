@@ -6,6 +6,10 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+
+- **Controller API client gaps.** Watches ask for bookmarks, so a quiet namespace no longer falls into a full re-list when its resourceVersion is compacted. A CA bundle that fails to load is logged, and none is configured out of cluster. A status patch for an Agent deleted mid-reconcile is dropped, not logged as an error on every poll. The controller refuses to start without `POD_NAME` or `HOSTNAME`, not falling back to an identity two replicas could share (#118).
+
 ## v0.16.1
 
 ### Fixed

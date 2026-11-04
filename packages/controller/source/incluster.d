@@ -4,6 +4,7 @@ import std.algorithm.searching : all;
 import std.ascii : isDigit;
 import std.conv : to;
 import std.exception : enforce;
+import std.file : exists;
 import std.process : environment;
 
 import agentcore.core.env : envMaxOutputBytes, defaultMaxOutputBytes;
@@ -103,7 +104,7 @@ ClusterConfig loadClusterConfig()
 	config.apiBase = resolveApiBase(environment.get("KUBE_API_URL", ""), host, port);
 	config.token = exists(tokenPath) ? readText(tokenPath).strip : environment.get("KUBE_API_TOKEN", "");
 	config.tokenPath = exists(tokenPath) ? tokenPath : "";
-	config.caFile = caPath;
+	config.caFile = caFileIfPresent(caPath);
 	config.namespace = exists(namespacePath) ? readText(namespacePath)
 		.strip : environment.get("NAMESPACE", "ai-agents");
 	config.maxOutputBytes = parseMaxOutputBytes(
@@ -114,7 +115,7 @@ ClusterConfig loadClusterConfig()
 	config.modelCatalogEnabled = parseFlag(envModelCatalogEnabled, environment.get(envModelCatalogEnabled, "false"));
 	config.modelCatalogRefreshSeconds = parseCount(envModelCatalogRefreshSeconds,
 		environment.get(envModelCatalogRefreshSeconds, defaultModelCatalogRefreshSeconds.to!string));
-	config.identity = environment.get("POD_NAME", environment.get("HOSTNAME", "agent-controller"));
+	config.identity = leaseIdentity(environment.get("POD_NAME", ""), environment.get("HOSTNAME", ""));
 	config.realtimeApiToken = environment.get(envRealtimeApiToken, "");
 	config.realtimeSigningKey = environment.get(envRealtimeSigningKey, "");
 	config.realtimeApiPort = parseCount(envRealtimeApiPort,
@@ -148,6 +149,22 @@ bool parseFlag(string setting, string raw) @safe pure
 	enforce(raw == "true" || raw == "false",
 		setting ~ ` must be "true" or "false", got: "` ~ raw ~ `"`);
 	return raw == "true";
+}
+
+/// The Lease holder string: this pod's name, else its hostname. Two replicas sharing
+/// one would both believe they hold the Lease, so having neither is fatal (#118).
+string leaseIdentity(string podName, string hostname) @safe
+{
+	const identity = podName.length ? podName : hostname;
+	enforce(identity.length, "POD_NAME or HOSTNAME must name this replica for leader election");
+	return identity;
+}
+
+/// The service-account CA bundle when it is mounted. Out of cluster it is not, and the
+/// API server's certificate is verified against the system trust store instead.
+string caFileIfPresent(string path) @safe
+{
+	return exists(path) ? path : "";
 }
 
 version (unittest) import fluent.asserts;
@@ -200,4 +217,18 @@ unittest // realtime is enabled only with both the API token and the signing key
 	config.realtimeSigningKey = "key";
 
 	[neither, tokenOnly, config.realtimeEnabled].should.equal([false, false, true]);
+}
+
+unittest // #118: the Lease holder is this pod's own name, never a constant two replicas could share
+{
+	import std.exception : assertThrown;
+
+	leaseIdentity("ctrl-abc", "host-1").should.equal("ctrl-abc");
+	leaseIdentity("", "host-1").should.equal("host-1");
+	assertThrown(leaseIdentity("", ""));
+}
+
+unittest // #118: no CA path out of cluster, where the service-account bundle is absent
+{
+	caFileIfPresent("/nonexistent/ca.crt").should.equal("");
 }
