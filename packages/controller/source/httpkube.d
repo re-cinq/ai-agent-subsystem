@@ -225,18 +225,17 @@ final class HttpKubeClient : KubeClient, LeaseClient, AgentInformerClient, Model
 
 	override void deleteAgent(string ns, string name, string resourceVersion = "")
 	{
-		Json body = Json.init;
-		string contentType = "";
+		// Without a name the URL is the collection's, and the DELETE removes every Agent.
+		enforce(name.length, "deleteAgent: an Agent name is required");
+		// Background: the Agent goes now and its Job, owned by it, is collected after.
+		auto body = Json([
+			"apiVersion": Json("meta.k8s.io/v1"),
+			"kind": Json("DeleteOptions"),
+			"propagationPolicy": Json("Background"),
+		]);
 		if (resourceVersion.length)
-		{
-			Json preconditions = Json.emptyObject;
-			preconditions["resourceVersion"] = Json(resourceVersion);
-			body = Json.emptyObject;
-			body["apiVersion"] = Json("meta.k8s.io/v1");
-			body["kind"] = Json("DeleteOptions");
-			body["preconditions"] = preconditions;
-			contentType = "application/json";
-		}
+			body["preconditions"] = Json(["resourceVersion": Json(resourceVersion)]);
+		const contentType = "application/json";
 		// 409: the Agent changed since our cache snapshot — skip the delete rather than
 		// remove a newer object. 404: already gone. Both are non-errors for pruning.
 		send(HTTPMethod.DELETE, crUrl(ns, "agents", name), body, contentType, [200, 202, 404, 409]);
@@ -878,4 +877,54 @@ unittest // #118: a status patch for an Agent deleted since the event is dropped
 unittest // #118: with no CA bundle there is no TLS setup to fail silently
 {
 	(HttpKubeClient.makeSettings("", 1.seconds).tlsContextSetup is null).should.equal(true);
+}
+
+unittest // #70: deleteAgent with no name refuses, since a DELETE on the collection URL removes every Agent
+{
+	import std.exception : assertThrown;
+	import vibe.http.server : HTTPServerRequest, HTTPServerResponse, HTTPServerSettings, listenHTTP;
+
+	int requests;
+	auto settings = new HTTPServerSettings;
+	settings.port = 0;
+	settings.bindAddresses = ["127.0.0.1"];
+	auto listener = listenHTTP(settings, (scope HTTPServerRequest req, scope HTTPServerResponse res) {
+		requests++;
+		res.writeBody("{}", "application/json");
+	});
+	scope (exit)
+		listener.stopListening();
+	const apiBase = "http://127.0.0.1:" ~ listener.bindAddresses[0].port.to!string;
+	auto client = new HttpKubeClient(ClusterConfig(apiBase, "tok", "", "", "ai-agents"));
+
+	assertThrown(client.deleteAgent("ai-agents", "", "rv-1"));
+	requests.should.equal(0);
+}
+
+unittest // #70: a preempting delete cascades to the run's Job in the background, precondition or not
+{
+	import vibe.http.server : HTTPServerRequest, HTTPServerResponse, HTTPServerSettings, listenHTTP;
+	import vibe.stream.operations : readAllUTF8;
+
+	string[] bodies;
+	auto settings = new HTTPServerSettings;
+	settings.port = 0;
+	settings.bindAddresses = ["127.0.0.1"];
+	auto listener = listenHTTP(settings, (scope HTTPServerRequest req, scope HTTPServerResponse res) {
+		bodies ~= req.bodyReader.readAllUTF8;
+		res.writeBody("{}", "application/json");
+	});
+	scope (exit)
+		listener.stopListening();
+	const apiBase = "http://127.0.0.1:" ~ listener.bindAddresses[0].port.to!string;
+	auto client = new HttpKubeClient(ClusterConfig(apiBase, "tok", "", "", "ai-agents"));
+
+	client.deleteAgent("ai-agents", "run-old", "rv-1");
+	client.deleteAgent("ai-agents", "run-older");
+
+	bodies.length.should.equal(2);
+	parseJsonString(bodies[0]).should.equal(parseJsonString(`{"apiVersion":"meta.k8s.io/v1","kind":"DeleteOptions",`
+		~ `"propagationPolicy":"Background","preconditions":{"resourceVersion":"rv-1"}}`));
+	parseJsonString(bodies[1]).should.equal(parseJsonString(`{"apiVersion":"meta.k8s.io/v1","kind":"DeleteOptions",`
+		~ `"propagationPolicy":"Background"}`));
 }
