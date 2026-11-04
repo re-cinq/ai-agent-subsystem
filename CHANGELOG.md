@@ -6,6 +6,10 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+
+- **OpenCode runs find the CLI they installed.** The installer puts `opencode` in `~/.opencode/bin`, which the run container's `PATH` now includes, so a run without a pre-baked CLI no longer fails with `opencode: command not found` (#105).
+
 ## v0.16.1
 
 ### Fixed
