@@ -27,7 +27,7 @@ export default defineConfig({
 					href: 'https://github.com/re-cinq/ai-agent-subsystem',
 				},
 			],
-			customCss: ['./src/styles/custom.css'],
+			customCss: ['./src/styles/re-cinq-tokens.css', './src/styles/custom.css'],
 			sidebar: [
 				{
 					label: 'Concepts',
