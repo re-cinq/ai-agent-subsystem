@@ -6,6 +6,10 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+
+- **The supervisor no longer loses a shutdown signal or signals a recycled pid.** A SIGTERM that arrives while the agent is still being spawned is held and delivered once it has a pid, and the agent's pid is cleared when it is reaped, so a late force-down cannot hit an unrelated process (#128).
+
 ## v0.16.1
 
 ### Fixed
