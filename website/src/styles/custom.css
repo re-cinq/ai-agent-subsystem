@@ -1,17 +1,76 @@
-/* ai-agent-subsystem docs theme — Kubernetes-inspired blue accent. */
+/* ai-agent-subsystem docs theme: Starlight variables mapped onto re-cinq.com tokens. */
 
 :root {
-	--sl-color-accent-low: #131c44;
-	--sl-color-accent: #2f5fd8;
-	--sl-color-accent-high: #b9c8ff;
-	--sl-color-text-accent: #9db1ff;
+	--sl-font: var(--font-sans);
+
+	--sl-color-accent-low: var(--rc-dark);
+	--sl-color-accent: var(--rc-pulse-blue);
+	--sl-color-accent-high: var(--rc-primary-200);
+	--sl-color-text-accent: var(--rc-soft-indigo);
+
+	--sl-color-black: var(--rc-stage-frontier);
+	--sl-color-bg: var(--rc-stage-frontier);
+	--sl-color-bg-nav: var(--rc-dark);
+	--sl-color-bg-sidebar: var(--rc-dark);
+	--sl-color-hairline: color-mix(in srgb, var(--rc-soft-indigo) 25%, transparent);
+	--sl-color-hairline-light: color-mix(in srgb, var(--rc-soft-indigo) 35%, transparent);
 }
 
 :root[data-theme='light'] {
-	--sl-color-accent-low: #d9e2ff;
-	--sl-color-accent: #2f5fd8;
-	--sl-color-accent-high: #16224f;
-	--sl-color-text-accent: #2a55c7;
+	--sl-color-accent-low: var(--rc-surface-nebula);
+	--sl-color-accent: var(--rc-link);
+	--sl-color-accent-high: var(--rc-dark);
+	--sl-color-text-accent: var(--rc-link);
+
+	--sl-color-white: var(--rc-text-primary);
+	--sl-color-gray-1: var(--rc-foreground);
+	--sl-color-gray-2: var(--rc-text-body);
+	--sl-color-gray-3: var(--rc-text-secondary);
+	--sl-color-gray-4: var(--rc-text-tertiary);
+	--sl-color-gray-5: var(--rc-stroke-200);
+	--sl-color-gray-6: var(--rc-surface-hover);
+	--sl-color-gray-7: var(--rc-surface-grey);
+	--sl-color-black: var(--rc-bg);
+	--sl-color-bg: var(--rc-bg);
+	--sl-color-bg-nav: var(--rc-bg);
+	--sl-color-bg-sidebar: var(--rc-bg);
+	--sl-color-hairline: var(--rc-stroke-200);
+	--sl-color-hairline-light: var(--rc-stroke-100);
+	--sl-color-hairline-shade: var(--rc-divider-soft);
+
+	--sl-color-blue-low: var(--rc-info-lighter);
+	--sl-color-blue: var(--rc-link);
+}
+
+:root,
+:root[data-theme='light'] {
+	--sl-color-green: var(--rc-success-base);
+	--sl-color-orange: var(--rc-warning-base);
+	--sl-color-red: var(--rc-error-base);
+}
+
+.sl-markdown-content :is(h1, h2, h3, h4, h5, h6),
+h1#_top,
+.site-title {
+	font-family: var(--font-headings);
+	font-weight: var(--rc-h1-font-weight);
+}
+
+h1#_top {
+	letter-spacing: var(--rc-h1-letter-spacing);
+}
+
+.sl-markdown-content h2 {
+	letter-spacing: var(--rc-h2-letter-spacing);
+}
+
+.sl-markdown-content :is(h3, h4) {
+	letter-spacing: var(--rc-h4-letter-spacing);
+}
+
+.card,
+.sl-link-card {
+	border-radius: var(--rc-radius-card);
 }
 
 /* Mermaid relationship diagrams: centered, responsive, framed. */
@@ -21,8 +80,8 @@ pre.mermaid {
 	justify-content: center;
 	margin: 1.75rem 0;
 	background: transparent;
-	border: 1px solid var(--sl-color-gray-5);
-	border-radius: 0.5rem;
+	border: 1px solid var(--sl-color-hairline);
+	border-radius: var(--rc-radius-card);
 	padding: 1.25rem;
 	overflow-x: auto;
 }

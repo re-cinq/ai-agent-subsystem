@@ -1,0 +1,40 @@
+/* Design tokens lifted from re-cinq.com. Values stay verbatim so the docs track the brand. */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@500;600&family=Inter:wght@400;500;600&display=swap');
+
+:root {
+	--font-headings: 'IBM Plex Sans', sans-serif;
+	--font-sans: Inter, sans-serif;
+
+	--rc-bg: #fafafa;
+	--rc-foreground: #0a0a0a;
+	--rc-text-primary: #0b0b0b;
+	--rc-text-body: #474747;
+	--rc-text-secondary: #727272;
+	--rc-text-tertiary: #a3a3a3;
+	--rc-link: #4a55cc;
+	--rc-link-calm: #3f4a8a;
+	--rc-dark: #0f1d49;
+	--rc-stage-frontier: #061d49;
+	--rc-pulse-blue: #5664f4;
+	--rc-soft-indigo: #8f96f6;
+	--rc-primary-100: #d5e5ff;
+	--rc-primary-200: #b3ceff;
+	--rc-primary-400: #5681ff;
+	--rc-surface-nebula: #f3f5ff;
+	--rc-nebula-light: #e6e8fd;
+	--rc-surface-grey: #f9f9f9;
+	--rc-surface-hover: #efefef;
+	--rc-stroke-100: #eee;
+	--rc-stroke-200: #e6e6e6;
+	--rc-divider-soft: #eceef5;
+	--rc-success-base: #1fc16b;
+	--rc-warning-base: #fa7319;
+	--rc-error-base: #fb3748;
+	--rc-info-lighter: #e8f1ff;
+
+	--rc-h1-font-weight: 500;
+	--rc-h1-letter-spacing: -1.3px;
+	--rc-h2-letter-spacing: -1px;
+	--rc-h4-letter-spacing: -0.5px;
+	--rc-radius-card: 20px;
+}
