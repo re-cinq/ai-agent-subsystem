@@ -1,7 +1,7 @@
 [package]
 name = "agent-contracts"
 # release version: bumped in the release PR together with packages/agent-contracts/package.json
-version = "0.16.1"
+version = "0.17.0"
 edition = "2024"
 rust-version = "1.85"
 license = "Apache-2.0"

@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.17.0
+
 ### Fixed
 
 - **An image without a baked Claude CLI installs the pinned release, checksum-verified.** The fallback no longer pipes `claude.ai/install.sh` into bash; it downloads the CLI the agent image pins (2.1.267) for the pod's architecture and installs it only when its SHA-256 matches. A unit test keeps the pin equal to the Dockerfile's `CLAUDE_CLI_*` build args (#74).

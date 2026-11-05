@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "re-cinq-agent-contracts"
 # release version: bumped in the release PR together with packages/agent-contracts/package.json
-version = "0.16.1"
+version = "0.17.0"
 description = "Pydantic models and a client for the ai-agent-subsystem CRDs (Agent / Station / AgentDefinition / ModelCatalog / AgentSpawner). Types are generated from the D source so they cannot drift."
 readme = "README.md"
 license = "Apache-2.0"
