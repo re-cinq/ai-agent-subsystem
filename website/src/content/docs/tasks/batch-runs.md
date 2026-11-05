@@ -28,9 +28,9 @@ Deployment:
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - https://github.com/re-cinq/ai-agent-subsystem//deploy?ref=v0.16.1
+  - https://github.com/re-cinq/ai-agent-subsystem//deploy?ref=v0.17.0
 components:
-  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/batch?ref=v0.16.1
+  - https://github.com/re-cinq/ai-agent-subsystem//deploy/components/batch?ref=v0.17.0
 ```
 
 From a checkout, use the local paths instead (`resources: [deploy]`, `components:
