@@ -65,6 +65,25 @@ private Socket acceptWithin(Socket listener)
 	return Socket.select(readable, null, null, postDeadline) > 0 ? listener.accept() : null;
 }
 
+/// A listener on a loopback port the kernel picks, so the itest never collides with
+/// another process or a parallel run holding a fixed one (#127).
+private Socket listenLocal(out ushort port)
+{
+	auto listener = new TcpSocket();
+	listener.bind(new InternetAddress("127.0.0.1", InternetAddress.PORT_ANY));
+	listener.listen(8);
+	port = (cast(InternetAddress) listener.localAddress).port;
+	return listener;
+}
+
+/// A free loopback port for a server the supervisor opens itself.
+private ushort freePort()
+{
+	ushort port;
+	listenLocal(port).close();
+	return port;
+}
+
 /// The identity the controller would inject; the supervisor stamps it onto
 /// every event. Merged into every run so assertions can find the ids.
 private string[string] withSource(string[string] extra)
@@ -162,6 +181,7 @@ int main(string[] args)
 	eventIds();
 	fileSink();
 	httpSink();
+	selectedSink();
 	signalForwarded();
 	interruptForwarded();
 	sigpipeIgnored();
@@ -253,13 +273,11 @@ private void fileSink()
 private void httpSink()
 {
 	writeln("http sink notifications");
-	auto listener = new TcpSocket();
-	listener.setOption(SocketOptionLevel.SOCKET, SocketOption.REUSEADDR, true);
-	listener.bind(new InternetAddress("127.0.0.1", cast(ushort) 18_099));
-	listener.listen(8);
+	ushort port;
+	auto listener = listenLocal(port);
 
 	auto pipes = pipeProcess([supervisor, "--", mock], Redirect.stdout,
-		withSource(["MOCK_LINES": "3", "AGENT_NOTIFY_URL": "http://127.0.0.1:18099/notify"]));
+		withSource(["MOCK_LINES": "3", "AGENT_NOTIFY_URL": "http://127.0.0.1:" ~ port.to!string ~ "/notify"]));
 
 	// 5 posts: the `agent started` lifecycle event, the 3 agent outputs, then the
 	// `agent succeeded` lifecycle event — the same stream the init container produces.
@@ -285,6 +303,50 @@ private void httpSink()
 		emitted(posts, `"status":"started"`) && emitted(posts, `"exitCode":0`));
 	check("notification carries agent id", emitted(posts, `"agent":"test-agent"`));
 	check("exit 0", code == 0);
+}
+
+/// `AGENT_SELECT` narrows what reaches the sinks, never stdout: with a `result` selector
+/// the sink gets the lifecycle events and the agent's result, not its other lines (#127).
+private void selectedSink()
+{
+	writeln("output select filters sink delivery, not stdout");
+	ushort port;
+	auto listener = listenLocal(port);
+	auto pipes = pipeProcess([supervisor, "--", mock], Redirect.stdout,
+		withSource(["MOCK_MODE": "linger", "MOCK_LINES": "2", "AGENT_EXIT_GRACE_MS": "200",
+			"AGENT_MODEL": "claude-sonnet-4-6", "AGENT_SELECT": `[{"event":"result"}]`,
+			"AGENT_NOTIFY_URL": "http://127.0.0.1:" ~ port.to!string ~ "/notify"]));
+
+	// started, the result, and the exit event: three posts, then nothing within the deadline.
+	string[] posts;
+	foreach (_; 0 .. 4)
+	{
+		auto conn = posts.length < 3 ? acceptWithin(listener) : acceptWithinShort(listener);
+		if (conn is null)
+			break;
+		posts ~= readBody(conn);
+		conn.send("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+		conn.close();
+	}
+	string[] lines;
+	foreach (line; pipes.stdout.byLine)
+		lines ~= line.idup;
+	wait(pipes.pid);
+	listener.close();
+
+	check("stdout keeps the unselected lines", emitted(lines, `"i":0`) && emitted(lines, `"i":1`));
+	check("the sink gets the result", emitted(posts, `"type":"result"`));
+	check("the sink gets no unselected line", !emitted(posts, `"i":0`) && !emitted(posts, `"i":1`));
+	check("the sink still gets the lifecycle events",
+		emitted(posts, `"status":"started"`) && emitted(posts, `"exitCode"`));
+}
+
+/// The next connection within a short wait, for a check that none is coming.
+private Socket acceptWithinShort(Socket listener)
+{
+	auto readable = new SocketSet(1);
+	readable.add(listener);
+	return Socket.select(readable, null, null, 2.seconds) > 0 ? listener.accept() : null;
 }
 
 private void signalForwarded()
@@ -482,7 +544,7 @@ private void watchedFileMissing()
 /// Run the mock with an uploading watch against an HTTP fixture on `port` answering
 /// one request per entry of `statuses`, in order; the last request it received (empty
 /// when none came) and the run.
-private Result uploadRun(ushort port, string[] statuses, string artifactBody,
+private Result uploadRun(string[] statuses, string artifactBody,
 	string[string] extra, out Request received)
 {
 	const root = buildPath(tempDir, "itest-upload");
@@ -490,10 +552,8 @@ private Result uploadRun(ushort port, string[] statuses, string artifactBody,
 	if (artifact.exists)
 		remove(artifact);
 
-	auto listener = new TcpSocket();
-	listener.setOption(SocketOptionLevel.SOCKET, SocketOption.REUSEADDR, true);
-	listener.bind(new InternetAddress("127.0.0.1", port));
-	listener.listen(8);
+	ushort port;
+	auto listener = listenLocal(port);
 
 	string[string] env = [
 		"MOCK_LINES": "1",
@@ -537,7 +597,7 @@ private void uploadedFile()
 {
 	writeln("watched file uploaded by reference");
 	Request req;
-	auto r = uploadRun(18_102, ["201 Created"], "report body", null, req);
+	auto r = uploadRun(["201 Created"], "report body", null, req);
 
 	check("run completes (exit 0)", r.code == 0);
 	check("upload POSTed to the expanded url",
@@ -559,7 +619,7 @@ private void uploadRejected()
 {
 	writeln("rejected upload reports a reason");
 	Request req;
-	auto r = uploadRun(18_103, ["400 Bad Request", "201 Created"], "report body", null, req);
+	auto r = uploadRun(["400 Bad Request", "201 Created"], "report body", null, req);
 
 	check("run completes (exit 0)", r.code == 0);
 	check("rejected upload says why", emitted(r.lines, `"reason":"upload-failed"`));
@@ -573,7 +633,7 @@ private void uploadRetried()
 {
 	writeln("upload retried past a transient failure");
 	Request req;
-	auto r = uploadRun(18_105, ["503 Service Unavailable", "201 Created"], "report body", null, req);
+	auto r = uploadRun(["503 Service Unavailable", "201 Created"], "report body", null, req);
 
 	check("run completes (exit 0)", r.code == 0);
 	check("retried upload carries the file's bytes", req.body_ == "report body");
@@ -586,7 +646,7 @@ private void uploadTooLarge()
 {
 	writeln("over-cap upload reports too-large");
 	Request req;
-	auto r = uploadRun(18_104, [], "report body", ["MAX_UPLOAD_BYTES": "4"], req);
+	auto r = uploadRun([], "report body", ["MAX_UPLOAD_BYTES": "4"], req);
 
 	check("run completes (exit 0)", r.code == 0);
 	check("over-cap file says too-large", emitted(r.lines, `"reason":"too-large"`));
@@ -629,17 +689,15 @@ private void conversationSaved()
 	mkdirRecurse(stateDir);
 	write(buildPath(stateDir, "conv-new.jsonl"), `{"turn":"one"}`);
 
-	auto listener = new TcpSocket();
-	listener.setOption(SocketOptionLevel.SOCKET, SocketOption.REUSEADDR, true);
-	listener.bind(new InternetAddress("127.0.0.1", cast(ushort) 18_101));
-	listener.listen(8);
+	ushort port;
+	auto listener = listenLocal(port);
 
 	auto pipes = pipeProcess([supervisor, "--", mock], Redirect.stdout,
 		withSource([
 			"MOCK_LINES": "1",
 			"HOME": home,
 			"AGENT_MODEL": "claude-sonnet-4-6",
-			"AGENT_CONVERSATION_SOURCE": "http://127.0.0.1:18101/conversations",
+			"AGENT_CONVERSATION_SOURCE": "http://127.0.0.1:" ~ port.to!string ~ "/conversations",
 			"AGENT_CONVERSATION_PIN": "conv-new",
 		]));
 
@@ -807,8 +865,9 @@ private int postRealtime(ushort port, string path, string token, string body_ = 
 private void realtimeStdinTurns()
 {
 	writeln("realtime stdin session runs posted turns and idles out");
-	auto pipes = realtimeRun(18_301, ["AGENT_REALTIME_PROMPT": "one", "AGENT_REALTIME_IDLE_MS": "1500"]);
-	const accepted = postRealtime(18_301, "/v1/prompt", realtimeToken, `{"prompt":"two"}`);
+	const port = freePort();
+	auto pipes = realtimeRun(port, ["AGENT_REALTIME_PROMPT": "one", "AGENT_REALTIME_IDLE_MS": "1500"]);
+	const accepted = postRealtime(port, "/v1/prompt", realtimeToken, `{"prompt":"two"}`);
 	auto r = drain(pipes);
 
 	check("posted prompt accepted (202)", accepted == 202);
@@ -827,11 +886,12 @@ private void realtimeAuthAndClose()
 {
 	writeln("realtime session refuses bad requests and ends on close");
 	const began = MonoTime.currTime;
-	auto pipes = realtimeRun(18_302, null);
-	const unauthorized = postRealtime(18_302, "/v1/prompt", "", `{"prompt":"x"}`);
-	const empty = postRealtime(18_302, "/v1/prompt", realtimeToken, `{"prompt":""}`);
-	const accepted = postRealtime(18_302, "/v1/prompt", realtimeToken, `{"prompt":"three"}`);
-	const closed = postRealtime(18_302, "/v1/close", realtimeToken);
+	const port = freePort();
+	auto pipes = realtimeRun(port, null);
+	const unauthorized = postRealtime(port, "/v1/prompt", "", `{"prompt":"x"}`);
+	const empty = postRealtime(port, "/v1/prompt", realtimeToken, `{"prompt":""}`);
+	const accepted = postRealtime(port, "/v1/prompt", realtimeToken, `{"prompt":"three"}`);
+	const closed = postRealtime(port, "/v1/close", realtimeToken);
 	auto r = drain(pipes);
 
 	check("no token refused (401)", unauthorized == 401);
@@ -847,7 +907,8 @@ private void realtimeAuthAndClose()
 private void realtimePerTurn()
 {
 	writeln("realtime per-turn session resumes the announced thread");
-	auto pipes = realtimeRun(18_303, [
+	const port = freePort();
+	auto pipes = realtimeRun(port, [
 		"AGENT_MODEL": "gpt-5-codex",
 		"AGENT_REALTIME_STYLE": "turn",
 		"AGENT_REALTIME_PROMPT": "one",
@@ -855,8 +916,8 @@ private void realtimePerTurn()
 		"MOCK_MODE": "turn",
 		"MOCK_SESSION": "thr-1",
 	]);
-	const accepted = postRealtime(18_303, "/v1/prompt", realtimeToken, `{"prompt":"two"}`);
-	const closed = postRealtime(18_303, "/v1/close", realtimeToken);
+	const accepted = postRealtime(port, "/v1/prompt", realtimeToken, `{"prompt":"two"}`);
+	const closed = postRealtime(port, "/v1/close", realtimeToken);
 	auto r = drain(pipes);
 
 	check("prompt and close accepted (202)", accepted == 202 && closed == 202);
@@ -870,7 +931,8 @@ private void realtimePerTurn()
 private void realtimeResumeWaits()
 {
 	writeln("resumed realtime session waits for prompts");
-	auto pipes = realtimeRun(18_304, [
+	const port = freePort();
+	auto pipes = realtimeRun(port, [
 		"AGENT_CONVERSATION_PIN": "sess-old",
 		"MOCK_SESSION": "sess-old",
 		"AGENT_REALTIME_IDLE_MS": "800",
@@ -886,8 +948,9 @@ private void realtimeResumeWaits()
 private void realtimeSigterm()
 {
 	writeln("realtime session ends gracefully on SIGTERM");
-	auto pipes = realtimeRun(18_305, null);
-	const ready = postRealtime(18_305, "/v1/prompt", "wrong", `{"prompt":"x"}`);
+	const port = freePort();
+	auto pipes = realtimeRun(port, null);
+	const ready = postRealtime(port, "/v1/prompt", "wrong", `{"prompt":"x"}`);
 	kill(pipes.pid.processID, SIGTERM);
 	auto r = drain(pipes);
 
@@ -900,7 +963,8 @@ private void realtimeSigterm()
 private void realtimeDeadline()
 {
 	writeln("realtime session ends at the run deadline");
-	auto r = drain(realtimeRun(18_306, ["AGENT_DEADLINE_MS": "1000"]));
+	const port = freePort();
+	auto r = drain(realtimeRun(port, ["AGENT_DEADLINE_MS": "1000"]));
 
 	check("deadline exits 124", r.code == 124);
 }
@@ -909,7 +973,8 @@ private void realtimeDeadline()
 private void realtimeNoContinuity()
 {
 	writeln("realtime session warns when turns cannot continue");
-	auto r = drain(realtimeRun(18_307, [
+	const port = freePort();
+	auto r = drain(realtimeRun(port, [
 		"AGENT_MODEL": "exec",
 		"AGENT_REALTIME_STYLE": "turn",
 		"AGENT_REALTIME_PROMPT": "one",
