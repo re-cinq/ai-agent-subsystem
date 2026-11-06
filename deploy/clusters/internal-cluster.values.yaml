@@ -1,5 +1,5 @@
 # re:cinq's internal cluster (project re-cinq-internal). Argo CD deploys the
-# chart (deploy/chart, a link to deploy/helm/ai-agent-subsystem) with these
+# chart (deploy/chart; deploy/helm/ai-agent-subsystem links to it) with these
 # values on every merge to main (re-cinq/infrastructure, docs/deploying.md).
 # Everything lands in the chart's own `ai-agents` namespace; the floor
 # (re-cinq/floor) creates its Agents there.
