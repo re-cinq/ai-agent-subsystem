@@ -25,6 +25,11 @@
             "repository": { "type": "string", "pattern": "^[^@:]+(:[0-9]+)?(/[^@:]+)*$" },
             "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
           }
+        },
+        "podMonitor": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "enabled": { "type": "boolean" } }
         }
       }
     },
