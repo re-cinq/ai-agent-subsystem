@@ -1,0 +1,15 @@
+{{- if .Values.controller.podMonitor.enabled }}
+# The controller has no Service; its /metrics is on the container port named
+# health. Agent run pods are not scraped: their policy admits no ingress.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: agent-controller
+  namespace: ai-agents
+spec:
+  selector:
+    matchLabels:
+      agents.re-cinq.com/component: controller
+  podMetricsEndpoints:
+    - { port: health, path: /metrics, interval: 30s }
+{{- end }}

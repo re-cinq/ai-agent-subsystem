@@ -11,4 +11,5 @@ controller:
   image:
     repository: ghcr.io/re-cinq/ai-agent-controller
     digest: sha256:c1abb59da048e98329caf04ffc1c2bde41736e10a140307b83e848fefabb92c4
+  podMonitor: { enabled: true }
 agentImage: ghcr.io/re-cinq/ai-agent@sha256:114888ca18e4c5616b60d92d0c22ac21c88d51e396aacb0c030235e210c650b2
