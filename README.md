@@ -305,6 +305,48 @@ Finally it opens a PR that pins `deploy/` and the install page's cosign-verify e
 signed digests (sourced from the build, not a mutable tag), so `main` and `kubectl apply -k deploy`
 never ship a floating `:latest`. The local equivalent is `scripts/pin-image-digests.sh`.
 
+## How re:cinq deploys this
+
+The sections above are for anyone installing the operator. re:cinq's own instance is a pull-based
+Argo CD deployment, so nothing here is applied to the cluster by hand.
+
+- **Where.** Namespace `ai-agents` on the GKE Autopilot cluster `internal-cluster` in GCP project
+  `re-cinq-internal`. [floor](https://github.com/re-cinq/floor) creates its Agent resources in that
+  same namespace (`clusterAgent.agentsNamespace: ai-agents`). Argo CD itself is installed by
+  [re-cinq/infrastructure](https://github.com/re-cinq/infrastructure) (`docs/deploying.md` there);
+  its UI is <https://argocd.gcp.re-cinq.com> (Google sign-in).
+- **What Argo watches.** An ApplicationSet scans every repository in the re-cinq GitHub org and
+  deploys the ones that have both `deploy/chart/Chart.yaml` and
+  `deploy/clusters/internal-cluster.values.yaml`. The Argo application is named after the repo,
+  `ai-agent-subsystem`. The chart decides the namespace: its `templates/namespace.yaml` creates
+  `ai-agents` and every other template sets `namespace: ai-agents` explicitly, so the values file
+  does not need to. The AppProject allows CRDs and Namespaces as the only cluster-scoped objects,
+  which is exactly what the chart ships (the CRDs live in the chart's `crds/`).
+- **Why `deploy/chart` is the real directory.** GitHub's contents API does not follow directory
+  symlinks, so Argo's repo filter never saw the chart while it lived behind
+  `deploy/helm/ai-agent-subsystem`. That path is now the symlink and `deploy/chart` the directory;
+  scripts and workflows that still name the old path work through the link.
+- **Release = merge to main.** `deploy/clusters/internal-cluster.values.yaml` pins the controller
+  and agent image digests. Nothing bumps that file automatically: the release workflow's pin PR
+  rewrites the chart's own `values.yaml`, not the cluster values, so moving the internal cluster to
+  a new release is a PR that changes the two digests in `internal-cluster.values.yaml` (together
+  with a floor release that lists the new version). Argo CD syncs the merge within minutes.
+- **Check a rollout.** In the Argo UI the application should be `Synced` and `Healthy`, or from a
+  shell:
+
+  ```sh
+  gcloud container clusters get-credentials internal-cluster --region europe-west1 --project re-cinq-internal
+  kubectl -n ai-agents get deploy,pods
+  kubectl -n ai-agents logs deploy/agent-controller
+  ```
+
+  The controller's metrics reach the cluster-wide Prometheus through the PodMonitor the chart
+  ships when `controller.podMonitor.enabled` is true (it is, in the cluster values); dashboards are
+  at <https://grafana.gcp.re-cinq.com>.
+- **Roll back.** Revert the merge (or open a PR that restores the previous digests) and let Argo
+  sync it. Do not `helm upgrade`, `helm rollback` or `kubectl apply` against the cluster: Argo CD
+  owns those objects and reverts any drift on its next sync.
+
 ## License
 
 [Apache-2.0](LICENSE).

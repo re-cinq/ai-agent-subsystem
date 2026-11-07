@@ -89,6 +89,12 @@ make ctest              # cross-distro container tests; needs docker
 
 ### Deploy
 
+re:cinq's own instance (namespace `ai-agents`, cluster `internal-cluster`, project
+`re-cinq-internal`) is deployed by Argo CD from `deploy/chart` with
+`deploy/clusters/internal-cluster.values.yaml`; merging to main releases it, and a manual
+`helm upgrade` or `kubectl apply` against that cluster is reverted on the next sync. See
+"How re:cinq deploys this" in README.md. The commands below are for any other cluster.
+
 Release images are cosign-signed and published to `ghcr.io/re-cinq`. Install the latest release:
 
 ```sh
