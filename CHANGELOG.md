@@ -6,6 +6,10 @@ the npm package versions.
 
 ## Unreleased
 
+### Changed
+
+- **The README says how re:cinq deploys the operator.** Argo CD watches `deploy/chart` and `deploy/clusters/internal-cluster.values.yaml` and deploys into `ai-agents` on `internal-cluster`; a release is a merge to main, a rollback a revert, and nothing is applied to that cluster by hand. AGENTS.md points there from its deploy section.
+
 ## v0.17.0
 
 ### Fixed
