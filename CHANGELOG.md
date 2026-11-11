@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.18.0
+
 ### Fixed
 
 - **Pods are no longer killed in init on runtimes with an unlimited open-file limit.** containerd 2.x (kind's node image, for one) gives a container a soft and hard `RLIMIT_NOFILE` of 2147483584, and an LDC build's `std.process` sizes an 8-byte-per-descriptor buffer from that limit in every child it forks, about 16 GB against the init container's 2Gi, so the first spawn ended the pod in `Init:OOMKilled`. The init and the supervisor now lower their own soft limit to 1048576 (Docker's default, what runs had until then) at startup, before spawning anything; a limit already at or below that is untouched. The container tests run the init and the supervisor under the runtime's limit and a 2g cap.
