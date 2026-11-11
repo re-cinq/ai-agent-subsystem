@@ -156,7 +156,7 @@ check "nested in-workspace path still clones" "$([ -f "$work/ws-nest/nested/app/
 # image build, which runs the pinned CLI.
 fake_bin="$work/fake-bin"
 mkdir -p "$fake_bin" "$work/home-claude"
-printf '#!/bin/sh\necho "2.1.267 (Claude Code)"\n' >"$fake_bin/claude"
+printf '#!/bin/sh\necho "2.1.311 (Claude Code)"\n' >"$fake_bin/claude"
 chmod +x "$fake_bin/claude"
 sink_cli="$work/sink-cli.jsonl"
 : >"$sink_cli"
@@ -169,7 +169,7 @@ PATH="$fake_bin:$PATH" HOME="$work/home-claude" \
 rc=$?
 check "claude run exits 0" "$([ "$rc" -eq 0 ] && echo 0 || echo 1)"
 check "installed event carries the CLI version" \
-	"$(grep '"status":"installed"' "$sink_cli" | grep '"tool":"claude"' | grep -q '"version":"2.1.267"' && echo 0 || echo 1)"
+	"$(grep '"status":"installed"' "$sink_cli" | grep '"tool":"claude"' | grep -q '"version":"2.1.311"' && echo 0 || echo 1)"
 check "installed event says the CLI was already present" \
 	"$(grep '"status":"installed"' "$sink_cli" | grep -q '"origin":"present"' && echo 0 || echo 1)"
 

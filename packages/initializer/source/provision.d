@@ -497,7 +497,7 @@ private string cliVersion(string[] versionCommand)
 }
 
 /// The version in a CLI's `--version` output: its first word that starts with a
-/// digit (`2.1.267 (Claude Code)`, `codex-cli 0.46.0`). "" when there is none.
+/// digit (`2.1.311 (Claude Code)`, `codex-cli 0.46.0`). "" when there is none.
 string versionIn(string output) @safe pure
 {
 	import std.ascii : isDigit;
@@ -511,7 +511,7 @@ string versionIn(string output) @safe pure
 
 @safe unittest
 {
-	versionIn("2.1.267 (Claude Code)\n").should.equal("2.1.267");
+	versionIn("2.1.311 (Claude Code)\n").should.equal("2.1.311");
 	versionIn("codex-cli 0.46.0").should.equal("0.46.0");
 	versionIn("no version here").should.equal("");
 	versionIn("").should.equal("");

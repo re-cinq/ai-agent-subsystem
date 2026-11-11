@@ -12,6 +12,7 @@ the npm package versions.
 
 ### Changed
 
+- **Run pods install Claude Code CLI 2.1.311 and Codex CLI 0.167.1.** Claude moves from 2.1.267 to the `stable` release 2.1.311 (agent image build args and the init fallback, both checksum-pinned) and Codex from 0.142.5 to 0.167.1 (statically linked musl packages, SHA-256 checked before unpacking). Gemini CLI stays at 0.62.0: as of 0.68.0 a non-interactive run still has an allowed shell call turned into a denial when its flags came from earlier tool output or a build or test command follows a build-file edit, and nothing can override it.
 - **The README says how re:cinq deploys the operator.** Argo CD watches `deploy/chart` and `deploy/clusters/internal-cluster.values.yaml` and deploys into `ai-agents` on `internal-cluster`; a release is a merge to main, a rollback a revert, and nothing is applied to that cluster by hand. AGENTS.md points there from its deploy section.
 
 ## v0.17.0

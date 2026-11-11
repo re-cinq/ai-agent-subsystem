@@ -9,7 +9,7 @@ import agentcore.vendors.base.setup : AgentSetup;
 /// what a run needs: 0.142 stopped reading OPENAI_API_KEY in `codex exec`, and the
 /// unpinned installer shipped that to run pods unannounced. Raise it deliberately,
 /// together with the checksums in `codexPackages`.
-enum codexCliVersion = "0.142.5";
+enum codexCliVersion = "0.167.1";
 
 /// One architecture's Codex release package: the `uname -m` it serves, the release
 /// target it names, and the SHA-256 of its `codex-package-<target>.tar.gz` (the
@@ -25,9 +25,9 @@ struct CodexPackage
 /// base image, glibc or musl.
 immutable CodexPackage[] codexPackages = [
 	CodexPackage("x86_64", "x86_64-unknown-linux-musl",
-		"14ab953574506cb30d8c773e5a3458fd0a2d1aad58062f0a98ea6a159889b80e"),
+		"a945df3df83e849dd7b74787e27f8a459c1946b0e3afe3dc8eef8a8d1845fd4f"),
 	CodexPackage("aarch64", "aarch64-unknown-linux-musl",
-		"600d444443e8ec04397586965fde7de77de7795842f5e7b0e622c7b05f7fc356"),
+		"ef3e1443a7795d596f1601a533d7225a1030488d60c965af1f0610ab95889031"),
 ];
 
 /// Install the pinned OpenAI Codex CLI from its GitHub release package — the
@@ -172,16 +172,16 @@ version (unittest)
 	codex.requires.should.equal(["bash", "curl", "tar", "sha256sum"]);
 }
 
-@safe unittest // pinned install step downloads the 0.142.5 musl packages, never the latest installer
+@safe unittest // pinned install step downloads the 0.167.1 musl packages, never the latest installer
 {
 	const steps = (new CodexSetup).installSteps;
 	steps.length.should.equal(1);
 	steps[0][0 .. 4].should.equal(["bash", "-euo", "pipefail", "-c"]);
 	steps[0][4].canFind("https://chatgpt.com/codex/install.sh").should.equal(false);
-	steps[0][4].canFind("https://github.com/openai/codex/releases/download/rust-v0.142.5/codex-package-")
+	steps[0][4].canFind("https://github.com/openai/codex/releases/download/rust-v0.167.1/codex-package-")
 		.should.equal(true);
-	steps[0][4].canFind("14ab953574506cb30d8c773e5a3458fd0a2d1aad58062f0a98ea6a159889b80e").should.equal(true);
-	steps[0][4].canFind("600d444443e8ec04397586965fde7de77de7795842f5e7b0e622c7b05f7fc356").should.equal(true);
+	steps[0][4].canFind("a945df3df83e849dd7b74787e27f8a459c1946b0e3afe3dc8eef8a8d1845fd4f").should.equal(true);
+	steps[0][4].canFind("ef3e1443a7795d596f1601a533d7225a1030488d60c965af1f0610ab95889031").should.equal(true);
 }
 
 unittest // x86_64 pod installs the x86_64 musl package as ~/.local/bin/codex
@@ -193,7 +193,7 @@ unittest // x86_64 pod installs the x86_64 musl package as ~/.local/bin/codex
 	foreach (step; (new CodexSetup(fakePackages(box))).installSteps)
 		runIn(box, step).status.should.equal(0);
 
-	readText(box.curlLog).canFind("rust-v0.142.5/codex-package-x86_64-unknown-linux-musl.tar.gz").should.equal(true);
+	readText(box.curlLog).canFind("rust-v0.167.1/codex-package-x86_64-unknown-linux-musl.tar.gz").should.equal(true);
 	installedVersion(box).should.equal("codex-cli 9.9.9");
 }
 
@@ -206,7 +206,7 @@ unittest // aarch64 pod installs the aarch64 musl package
 	foreach (step; (new CodexSetup(fakePackages(box))).installSteps)
 		runIn(box, step).status.should.equal(0);
 
-	readText(box.curlLog).canFind("rust-v0.142.5/codex-package-aarch64-unknown-linux-musl.tar.gz").should.equal(true);
+	readText(box.curlLog).canFind("rust-v0.167.1/codex-package-aarch64-unknown-linux-musl.tar.gz").should.equal(true);
 	installedVersion(box).should.equal("codex-cli 9.9.9");
 }
 

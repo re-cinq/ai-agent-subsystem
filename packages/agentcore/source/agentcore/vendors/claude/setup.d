@@ -10,7 +10,7 @@ import agentcore.vendors.base.setup : AgentSetup, CliOrigin, CliReport;
 
 /// The Claude Code CLI release a run installs: the one the agent image bakes, its
 /// `CLAUDE_CLI_VERSION` build arg (a unit test holds the two equal).
-enum claudeCliVersion = "2.1.267";
+enum claudeCliVersion = "2.1.311";
 
 /// One architecture's native glibc build of `claudeCliVersion`; the hashes come from
 /// downloads.claude.ai/claude-code-releases/<version>/manifest.json.
@@ -22,8 +22,8 @@ struct ClaudePackage
 }
 
 immutable ClaudePackage[] claudePackages = [
-	ClaudePackage("x86_64", "linux-x64", "0399c793ff571d5946ef923d80b4f330d05ac4b6842a6b0775468f5d389403c0"),
-	ClaudePackage("aarch64", "linux-arm64", "226a4e009574044a18bf5495f127806b2a1bfcbf25b3c01608705fafee95fefb"),
+	ClaudePackage("x86_64", "linux-x64", "86dc1fcc69498159eaf15f446613e847010f9036bfbbdffd4c49350be8489ada"),
+	ClaudePackage("aarch64", "linux-arm64", "2e2496c9a8065df93acb0fca2d341f59a6b8777649b2e025ab8c9bcd5eef61f3"),
 ];
 
 /// Put the Claude Code CLI on `~/.local/bin` in the shared HOME. The agent image
@@ -233,7 +233,7 @@ unittest
 	auto box = sandbox("baked");
 	scope (exit)
 		rmdirRecurse(box.root);
-	writeExecutable(box.baked, "#!/bin/sh\necho '2.1.267 (Claude Code)'\n");
+	writeExecutable(box.baked, "#!/bin/sh\necho '2.1.311 (Claude Code)'\n");
 
 	auto claude = new ClaudeSetup(box.baked);
 	originIn(box, claude).should.equal(CliOrigin.baked);
@@ -243,7 +243,7 @@ unittest
 		runIn(box, step).status.should.equal(0);
 
 	box.curlLog.exists.should.equal(false);
-	installedVersion(box).should.equal("2.1.267 (Claude Code)");
+	installedVersion(box).should.equal("2.1.311 (Claude Code)");
 }
 
 unittest
@@ -252,14 +252,14 @@ unittest
 	auto box = sandbox("baked-retry");
 	scope (exit)
 		rmdirRecurse(box.root);
-	writeExecutable(box.baked, "#!/bin/sh\necho '2.1.267 (Claude Code)'\n");
+	writeExecutable(box.baked, "#!/bin/sh\necho '2.1.311 (Claude Code)'\n");
 	auto claude = new ClaudeSetup(box.baked);
 
 	foreach (attempt; 0 .. 2)
 		foreach (step; claude.installSteps)
 			runIn(box, step).status.should.equal(0);
 
-	installedVersion(box).should.equal("2.1.267 (Claude Code)");
+	installedVersion(box).should.equal("2.1.311 (Claude Code)");
 }
 
 unittest
@@ -315,7 +315,7 @@ unittest
 	auto box = sandbox("present");
 	scope (exit)
 		rmdirRecurse(box.root);
-	writeExecutable(box.baked, "#!/bin/sh\necho '2.1.267 (Claude Code)'\n");
+	writeExecutable(box.baked, "#!/bin/sh\necho '2.1.311 (Claude Code)'\n");
 	writeExecutable(buildPath(box.bin, "claude"), "#!/bin/sh\necho '1.0.0 (Claude Code)'\n");
 
 	auto claude = new ClaudeSetup(box.baked);
