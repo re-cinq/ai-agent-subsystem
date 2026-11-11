@@ -57,7 +57,10 @@ fi
 fail=0
 for img in $targets; do
   echo ">> $img"
-  "$engine" run --rm \
+  # The memory cap of a kind pod, and the hard open-file limit containerd 2.x hands one;
+  # the soft limit starts at Docker's default so the suite's own harness is unaffected, and
+  # run-itest.sh raises it to the hard limit for the pod-like supervisor run.
+  "$engine" run --rm --ulimit nofile=1048576:2147483584 -m 2g --memory-swap 2g \
     -v "$stage:/opt/sup:ro" \
     -v "$PWD/scripts/container/run-itest.sh:/run-itest.sh:ro" \
     "$img" /run-itest.sh || { echo "<<< $img FAILED >>>"; fail=1; }

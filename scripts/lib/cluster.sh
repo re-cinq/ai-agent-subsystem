@@ -3,8 +3,7 @@
 #
 #   env: CLUSTER_TOOL (kind|minikube, default kind), CLUSTER (cluster/profile name,
 #        default agent-itest), KEEP=1 (don't tear down), REBUILD=1 (force image
-#        rebuilds), CONTROLLER_IMAGE, AGENT_IMAGE. Use minikube on hosts where kind's
-#        containerd OOMs the init.
+#        rebuilds), CONTROLLER_IMAGE, AGENT_IMAGE.
 
 cluster="${CLUSTER:-agent-itest}"
 cluster_tool="${CLUSTER_TOOL:-kind}"

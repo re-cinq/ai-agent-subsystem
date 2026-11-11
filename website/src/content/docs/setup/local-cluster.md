@@ -19,7 +19,7 @@ network from the run pod.
 
 | Variable | Effect |
 | --- | --- |
-| `CLUSTER_TOOL` | `kind` (default) or `minikube`. Use minikube where kind's containerd OOMs the init container. |
+| `CLUSTER_TOOL` | `kind` (default) or `minikube`. minikube is the alternative where kind is unavailable. A pod that ends `Init:OOMKilled` right after the supervisor tool is staged was started by a runtime with an unlimited open-file limit (containerd 2.x); current images lower their own limit to 1048576, so update the image. |
 | `CLUSTER` | Cluster or profile name, default `agent-demo`. |
 | `EXAMPLES` | Space-separated names from `examples/*.yaml`, or `all`. Default `story-writer`. |
 | `KEEP=1` | Keep the cluster afterwards (it is deleted by default). |
