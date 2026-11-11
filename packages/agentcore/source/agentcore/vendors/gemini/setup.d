@@ -13,6 +13,12 @@ import agentcore.vendors.gemini.policy : geminiBypassPolicyToml;
 /// shell command whose flags appeared in an earlier command's output (its taint
 /// check runs after the policy, so the bypass policy cannot allow it), which left
 /// runs unable to use `grep -n` or `git -C` a few minutes in. Raise it deliberately.
+/// Re-read at 0.68.0 on 2026-11-11 (scheduler.ts, `hasTaintedOrBuildFileRisk()` in
+/// the bundle): after the policy engine allows a shell call, the scheduler turns
+/// ALLOW into DENY whenever the session is not interactive and the command carries a
+/// flag taken from earlier tool output or is a build/test command run after a build
+/// file was modified. Only a person's confirmation clears it, and no setting, policy
+/// or hook can, so the pin stays.
 enum geminiCliVersion = "0.62.0";
 
 /// Install the Gemini CLI from its npm tarball, without npm. Gemini ships no
@@ -106,7 +112,11 @@ version (unittest) import std.algorithm.searching : canFind;
 @safe unittest
 {
 	// The CLI is pinned, never `latest`: a release changes what a headless run may do,
-	// and 0.63.0 started refusing shell calls the bypass policy allows.
+	// and 0.63.0 started refusing shell calls the bypass policy allows. Re-read at
+	// 0.68.0 on 2026-11-11: the scheduler still turns an allowed shell call into a
+	// denial when the session is not interactive and the command has a flag taken from
+	// earlier output, or is a build/test command after a build file was modified; no
+	// setting, policy or hook overrides it, so do not raise the pin without re-checking.
 	const script = (new GeminiSetup).installSteps[0][4];
 	script.canFind("/latest").should.equal(false);
 	script.canFind("gemini-cli-0.62.0.tgz").should.equal(true);

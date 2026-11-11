@@ -112,11 +112,11 @@ unittest
 {
 	// An installed agent CLI reports its version and where it came from
 	LifecycleEvent ev = {phase: Phase.init_, status: Status.installed, tool: "claude"};
-	ev.version_ = "2.1.267";
+	ev.version_ = "2.1.311";
 	ev.origin = "baked";
 	const json = ev.toJson;
 	json.should.contain(`"status":"installed"`);
 	json.should.contain(`"tool":"claude"`);
-	json.should.contain(`"version":"2.1.267"`);
+	json.should.contain(`"version":"2.1.311"`);
 	json.should.contain(`"origin":"baked"`);
 }

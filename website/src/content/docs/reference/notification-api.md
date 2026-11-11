@@ -79,7 +79,7 @@ Empty optional fields are omitted. Examples:
 ```json
 { "kind": "lifecycle", "phase": "init", "status": "started" }
 { "kind": "lifecycle", "phase": "init", "status": "installing", "tool": "apt" }
-{ "kind": "lifecycle", "phase": "init", "status": "installed", "tool": "claude", "version": "2.1.267", "origin": "baked" }
+{ "kind": "lifecycle", "phase": "init", "status": "installed", "tool": "claude", "version": "2.1.311", "origin": "baked" }
 { "kind": "lifecycle", "phase": "agent", "status": "started" }
 { "kind": "lifecycle", "phase": "agent", "status": "succeeded", "exitCode": 0 }
 { "kind": "lifecycle", "phase": "agent", "status": "failed", "reason": "not-found" }
