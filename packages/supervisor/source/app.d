@@ -8,6 +8,7 @@ import std.process : environment;
 
 import agentcore.core.env : envRealtimeStyle;
 import agentcore.core.log : logError;
+import agentcore.core.openfiles : capOpenFileLimit;
 import realtime : superviseRealtime;
 import sink : flushSinks;
 import supervise : supervise, installSignalForwarding;
@@ -20,6 +21,9 @@ int main(string[] args)
 	// unittests; return before the reconcile/supervise work so the test binary exits 0.
 	version (unittest)
 		return 0;
+
+	// The agent CLI inherits this limit; an unlimited one gets every spawned child killed.
+	capOpenFileLimit();
 
 	// The controller invokes the supervisor as `ai-agent-supervisor -- <agent argv>`.
 	const sep = args.countUntil("--");

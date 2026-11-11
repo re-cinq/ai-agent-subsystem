@@ -5,6 +5,7 @@ import core.sys.posix.signal : signal, SIGPIPE, SIG_IGN;
 import std.process : environment;
 
 import agentcore.core.env : envDelivery;
+import agentcore.core.openfiles : capOpenFileLimit;
 import agentcore.delivery.plan : parsePlan;
 import agentcore.tools.mcp_settings : writeMcpSettings;
 import courier : courier;
@@ -22,6 +23,10 @@ int main(string[] args)
 	// the test binary exits 0 instead of attempting a real clone/install.
 	version (unittest)
 		return 0;
+
+	// Before anything is spawned: a runtime with an unlimited open-file limit would
+	// get every child killed (see capOpenFileLimit).
+	capOpenFileLimit();
 
 	if (args.length == 5 && args[1] == "mcp-settings")
 	{

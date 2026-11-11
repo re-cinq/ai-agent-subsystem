@@ -20,6 +20,10 @@ engine="${CONTAINER_ENGINE:-docker}"
 builder="${BUILDER_IMAGE:-debian:bullseye}"
 targets="${TARGETS:-debian:bookworm-slim ubuntu:24.04 rockylinux:9 amazonlinux:2023 alpine:3.20}"
 codex_version="$(sed -n 's/^enum codexCliVersion = "\(.*\)";/\1/p' packages/agentcore/source/agentcore/vendors/codex/setup.d)"
+# The limits a kind pod on containerd 2.x gets: an open-file limit of 2^31-64, and the
+# init container's 2Gi memory cap. Without the init lowering its own limit, druntime sizes
+# a buffer from it in every forked child and the first spawn is OOM-killed (exit -9).
+pod_limits=(--ulimit nofile=2147483584:2147483584 -m 2g --memory-swap 2g)
 codex_env=(-e "CTEST_CODEX=${CTEST_CODEX:-0}" -e "CTEST_CODEX_VERSION=$codex_version")
 
 work="$(mktemp -d)"
@@ -98,7 +102,7 @@ if [ -n "$glibc_targets" ]; then
 	chmod +x scripts/container/run-init.sh 2>/dev/null || true
 	for img in $glibc_targets; do
 		echo ">> $img"
-		"$engine" run --rm "${codex_env[@]}" \
+		"$engine" run --rm "${pod_limits[@]}" "${codex_env[@]}" \
 			-v "$stage/ai-agent-init:/usr/local/bin/ai-agent-init:ro" \
 			-v "$origin:/origin:ro" \
 			-v "$PWD/scripts/container/run-init.sh:/run-init.sh:ro" \
