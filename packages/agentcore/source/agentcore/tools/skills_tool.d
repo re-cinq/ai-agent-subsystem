@@ -1,22 +1,26 @@
 module agentcore.tools.skills_tool;
 
-import agentcore.core.env : envSkillsSource;
-import agentcore.kube.bundle : claudeConfigDir, claudeSkillsDir, claudeSettingsPath;
+import agentcore.core.env : envModel, envSkillsSource;
+import agentcore.kube.bundle : agentsSkillsDir, claudeConfigDir, claudeSkillsDir, claudeSettingsPath;
 import agentcore.tools.initcontext : InitContext;
 import agentcore.tools.skills : safeSkillName;
 import agentcore.tools.tool : Tool;
 
-/// Stage the run's Claude skills + settings into `$HOME/.claude` (HOME=/agent), where
+/// Stage the run's skills + Claude settings into `$HOME/.claude` (HOME=/agent), where
 /// headless `claude --print` auto-loads them user-scope (cwd-independent, trust-free —
-/// project scope under cwd `/` is skipped). The subsystem is **consumer-agnostic**: it
+/// project scope under cwd `/` is skipped), and copy them into `$HOME/.agents/skills`,
+/// where Gemini CLI and Codex discover user skills. The subsystem is **consumer-agnostic**: it
 /// FETCHES from the URL the recipe hands it (`resources.skillsSource`) and knows nothing
 /// of the registry — nothing org-specific is baked in. Steps, all guarded + best-effort
 /// (a missing/unreachable skill never fails the run):
 ///  1. copy the cloned repo's own `.claude/skills` (its conventions);
 ///  2. when a source is set: fetch the registry's `settings.json` (org session hooks);
-///  3. fetch each recipe-named skill as `<source>/<name>.tar.gz` and extract it.
-/// The source is read from the env at run time (`"$AGENT_SKILLS_SOURCE"`) so a URL from
-/// the recipe never enters the shell command string; skill names are re-validated.
+///  3. fetch each recipe-named skill as `<source>/<name>.tar.gz` and extract it, sending
+///     the run's model in an `X-Agent-Model` header a registry may use to tailor a skill;
+///  4. always, copy the staged skills into `$HOME/.agents/skills` (a copy: Codex skips
+///     symlinks), so a repo's own skills reach Gemini and Codex too.
+/// The source and model are read from the env at run time (`"$AGENT_SKILLS_SOURCE"`,
+/// `"$AGENT_MODEL"`) so neither enters the shell command string; skill names are re-validated.
 final class SkillsTool : Tool
 {
 	override string name() const @safe
@@ -42,31 +46,46 @@ final class SkillsTool : Tool
 				~ " && cp -r \"$d\"/. " ~ claudeSkillsDir ~ "/ 2>/dev/null || true; fi; done",
 		];
 
-		// No registry configured -> repo-own only.
-		if (ctx.skillsSource.length == 0)
-			return result;
+		result ~= registrySteps(ctx);
 
-		// The registry URL, read from the env so it never enters the command string.
-		const src = "\"$" ~ envSkillsSource ~ "\"";
-
-		// (2) org settings.json (session hooks) from the registry root.
+		// (4) Gemini CLI and Codex read user skills from here, not from `.claude`.
 		result ~= [
 			"sh", "-c",
-			"mkdir -p " ~ claudeConfigDir ~ " && curl -fsSL " ~ src ~ "/settings.json -o "
-				~ claudeSettingsPath ~ " 2>/dev/null || true",
+			"mkdir -p " ~ agentsSkillsDir ~ " && cp -r " ~ claudeSkillsDir ~ "/. " ~ agentsSkillsDir
+				~ "/ 2>/dev/null || true",
 		];
-
-		// (3) each named skill as a tarball, extracted into the skills dir.
-		foreach (skill; ctx.skills)
-			if (safeSkillName(skill))
-				result ~= [
-					"sh", "-c",
-					"mkdir -p " ~ claudeSkillsDir ~ " && curl -fsSL " ~ src ~ "/" ~ skill
-						~ ".tar.gz | tar -xz -C " ~ claudeSkillsDir ~ " 2>/dev/null || true",
-				];
 
 		return result;
 	}
+}
+
+/// Steps (2) and (3); none when no registry is configured.
+private string[][] registrySteps(in InitContext ctx) @safe
+{
+	if (ctx.skillsSource.length == 0)
+		return [];
+
+	// The registry URL and model, read from the env so they never enter the command string.
+	const src = "\"$" ~ envSkillsSource ~ "\"";
+	const modelHeader = "-H \"X-Agent-Model: $" ~ envModel ~ "\"";
+
+	// (2) org settings.json (session hooks) from the registry root.
+	string[][] steps = [[
+		"sh", "-c",
+		"mkdir -p " ~ claudeConfigDir ~ " && curl -fsSL " ~ src ~ "/settings.json -o "
+			~ claudeSettingsPath ~ " 2>/dev/null || true",
+	]];
+
+	// (3) each named skill as a tarball, extracted into the skills dir.
+	foreach (skill; ctx.skills)
+		if (safeSkillName(skill))
+			steps ~= [
+				"sh", "-c",
+				"mkdir -p " ~ claudeSkillsDir ~ " && curl -fsSL " ~ modelHeader ~ " " ~ src ~ "/" ~ skill
+					~ ".tar.gz | tar -xz -C " ~ claudeSkillsDir ~ " 2>/dev/null || true",
+			];
+
+	return steps;
 }
 
 version (unittest) import fluent.asserts;
@@ -78,12 +97,13 @@ version (unittest) import std.algorithm.searching : canFind, any;
 	tool.name.should.equal("skills");
 	tool.requires.should.equal(["sh", "curl", "tar"]);
 
-	// No registry source: only the repo-own copy step.
+	// No registry source: the repo-own copy step, then the .agents copy.
 	InitContext ctx;
 	ctx.workspaceDir = "/workspace";
 	auto steps = tool.steps(ctx);
-	steps.length.should.equal(1);
+	steps.length.should.equal(2);
 	steps[0][2].canFind("/workspace/*/.claude/skills").should.equal(true);
+	steps[$ - 1][2].canFind("cp -r /agent/.claude/skills/. /agent/.agents/skills/").should.equal(true);
 }
 
 @safe unittest
@@ -94,8 +114,8 @@ version (unittest) import std.algorithm.searching : canFind, any;
 	ctx.skills = ["review-checklist", "bad name", "../evil"];
 	auto steps = (new SkillsTool).steps(ctx);
 
-	// repo-own + settings fetch + 1 safe skill (2 unsafe names dropped) = 3.
-	steps.length.should.equal(3);
+	// repo-own + settings fetch + 1 safe skill (2 unsafe names dropped) + .agents copy = 4.
+	steps.length.should.equal(4);
 	steps[1][2].canFind("AGENT_SKILLS_SOURCE").should.equal(true);
 	steps[1][2].canFind("/settings.json").should.equal(true);
 	steps[2][2].canFind("/review-checklist.tar.gz").should.equal(true);
@@ -104,4 +124,19 @@ version (unittest) import std.algorithm.searching : canFind, any;
 	// literal in the command (no shell injection surface).
 	steps.any!(s => s[2].canFind("evil") || s[2].canFind("bad name")).should.equal(false);
 	steps.any!(s => s[2].canFind("registry.example")).should.equal(false);
+}
+
+@safe unittest
+{
+	InitContext ctx;
+	ctx.workspaceDir = "/workspace";
+	ctx.skillsSource = "https://registry.example/skills";
+	ctx.skills = ["review-checklist"];
+	ctx.model = "gemini-4-argon";
+	auto steps = (new SkillsTool).steps(ctx);
+
+	steps[2][2].canFind("X-Agent-Model: $AGENT_MODEL").should.equal(true);
+	steps.any!(s => s[2].canFind("gemini-4-argon")).should.equal(false);
+	steps[$ - 1][2].canFind("/agent/.agents/skills").should.equal(true);
+	steps[$ - 1][2].canFind("/agent/.claude/skills/.").should.equal(true);
 }
