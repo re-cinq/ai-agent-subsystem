@@ -6,6 +6,11 @@ the npm package versions.
 
 ## Unreleased
 
+### Added
+
+- **Skills reach Gemini CLI and Codex.** After staging into `$HOME/.claude/skills`, the init copies every skill, the cloned repo's own included, into `$HOME/.agents/skills`, the folder both CLIs read user skills from (Claude Code ignores it). It is a copy, as Codex skips symlinks, and best-effort like the rest of the skills tool.
+- **The skill fetch carries the run's model in an `X-Agent-Model` header.** A registry may use it to tailor a skill to the model that will read it. The value is read from `$AGENT_MODEL` at run time, so it never enters the command string, and is empty when the run names no model.
+
 ## v0.18.0
 
 ### Fixed

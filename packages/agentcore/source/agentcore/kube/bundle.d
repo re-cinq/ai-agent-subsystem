@@ -30,6 +30,10 @@ enum claudeStageSource = "/usr/local/lib/ai-agent/claude";
 /// the image.
 enum claudeConfigDir = "/agent/.claude";
 enum claudeSkillsDir = "/agent/.claude/skills";
+
+/// The user-scope skills folder Gemini CLI and Codex discover (`$HOME/.agents/skills/<name>/SKILL.md`,
+/// HOME=/agent). Claude Code ignores it, so SkillsTool copies the staged skills here too.
+enum agentsSkillsDir = "/agent/.agents/skills";
 enum claudeSettingsPath = "/agent/.claude/settings.json";
 
 /// Where the init (McpTool) merges a recipe's MCP servers for gemini-cli, which reads

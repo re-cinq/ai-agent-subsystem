@@ -1621,6 +1621,7 @@ unittest
 	envValue(agentContainer(job), "AGENT_FILES").should.equal("");
 	// The init still gets the whole run env beside it.
 	envValue(initContainerOf(job), "AGENT_NAME").should.equal("bug-fixer-run-1");
+	envValue(initContainerOf(job), envModel).should.equal(envValue(agentContainer(job), envModel));
 }
 
 unittest
