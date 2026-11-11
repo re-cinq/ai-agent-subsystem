@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.19.0
+
 ### Added
 
 - **Skills reach Gemini CLI and Codex.** After staging into `$HOME/.claude/skills`, the init copies every skill, the cloned repo's own included, into `$HOME/.agents/skills`, the folder both CLIs read user skills from (Claude Code ignores it). It is a copy, as Codex skips symlinks, and best-effort like the rest of the skills tool.

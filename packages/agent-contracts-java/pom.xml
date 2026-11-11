@@ -7,7 +7,7 @@
   <groupId>com.re-cinq</groupId>
   <artifactId>agent-contracts</artifactId>
   <!-- release version: bumped in the release PR together with packages/agent-contracts/package.json -->
-  <version>0.18.0</version>
+  <version>0.19.0</version>
   <packaging>jar</packaging>
 
   <name>agent-contracts</name>
