@@ -4,12 +4,12 @@
 # Everything lands in the chart's own `ai-agents` namespace; the floor
 # (re-cinq/floor) creates its Agents there.
 #
-# Images pinned to v0.18.0, the digests in that release's install.yaml. They
-# replaced v0.15.0; the CRDs the floor's cluster agent writes have not changed
-# between the two. Move both digests together.
+# Images pinned to v0.20.0, the digests in that release's install.yaml. They
+# replaced v0.18.0; the CRDs have not changed between the two. Move both
+# digests together.
 controller:
   image:
     repository: ghcr.io/re-cinq/ai-agent-controller
-    digest: sha256:14a3b9f18c430f390baf124beb9e26bdedec3e8744b471117145c0f373d8dda0
+    digest: sha256:b1308d2162702abe4d8434e89b381868579dbfccfffc9f318af09dc3469756d2
   podMonitor: { enabled: true }
-agentImage: ghcr.io/re-cinq/ai-agent@sha256:b153b7e4ad31d710b440df78e977df2619532cd1af14b9eaa0ecdfcd1c651296
+agentImage: ghcr.io/re-cinq/ai-agent@sha256:b873e2975e3e38383cb2c0a95758287294d018b65177bfab440495b657da1954
