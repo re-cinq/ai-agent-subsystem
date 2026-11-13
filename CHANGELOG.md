@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.20.0
+
 ### Added
 
 - **Every install says which versions it runs.** A ConfigMap `agent-subsystem-versions` in `ai-agents` holds the release (`version`) and the CLI each vendor's init installs (`claude-cli`, `codex-cli`, `gemini-cli`, `opencode-cli`), a read-only contract for any reader in the cluster; the controller Deployment carries the release as `app.kubernetes.io/version`. The chart reads the CLI versions from the new `cli.*` values, which the release script sets from the D pins, and a unit test fails when they differ.
