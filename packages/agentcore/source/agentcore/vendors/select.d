@@ -105,3 +105,23 @@ version (unittest) import fluent.asserts;
 	agentSetupByName("gemini").name.should.equal("gemini");
 	(agentSetupByName("nope") is null).should.equal(true);
 }
+
+unittest
+{
+	import std.file : readText;
+	import std.path : buildNormalizedPath, dirName;
+	import std.algorithm.searching : canFind;
+	import agentcore.vendors.claude.setup : claudeCliVersion;
+	import agentcore.vendors.codex.setup : codexCliVersion;
+	import agentcore.vendors.gemini.setup : geminiCliVersion;
+
+	// The agent-subsystem-versions ConfigMap publishes the CLI each init installs.
+	const deploy = buildNormalizedPath(dirName(__FILE_FULL_PATH__), "../../../../../deploy");
+	const values = readText(buildNormalizedPath(deploy, "chart/values.yaml"));
+	const versions = readText(buildNormalizedPath(deploy, "versions.yaml"));
+	foreach (vendor, pin; ["claude": claudeCliVersion, "codex": codexCliVersion, "gemini": geminiCliVersion])
+	{
+		values.canFind("\n  " ~ vendor ~ `: "` ~ pin ~ "\"\n").should.equal(true);
+		versions.canFind("\n  " ~ vendor ~ `-cli: "` ~ pin ~ "\"\n").should.equal(true);
+	}
+}

@@ -12,6 +12,7 @@ resources:
   - rbac/caller-rbac.yaml
   - rbac/networkpolicy.yaml
   - controller.yaml
+  - versions.yaml
 
 # The controller image is pinned here. For reproducible, tamper-evident releases
 # run scripts/pin-image-digests.sh, which rewrites `newTag` to an immutable
