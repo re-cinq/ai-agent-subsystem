@@ -1,0 +1,14 @@
+{{- /* Mirrors deploy/versions.yaml. */ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-subsystem-versions
+  namespace: ai-agents
+  labels:
+    agents.re-cinq.com/component: versions
+data:
+  version: {{ .Chart.AppVersion | quote }}
+  claude-cli: {{ .Values.cli.claude | quote }}
+  codex-cli: {{ .Values.cli.codex | quote }}
+  gemini-cli: {{ .Values.cli.gemini | quote }}
+  opencode-cli: {{ .Values.cli.opencode | quote }}

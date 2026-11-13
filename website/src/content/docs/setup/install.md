@@ -104,6 +104,7 @@ namespace first and then fail on the chart's own Namespace object.
 | `controller.image.repository` | `ghcr.io/re-cinq/ai-agent-controller` | Controller image, without tag or digest |
 | `controller.image.digest` | the release's signed digest | Controller image digest (`sha256:…`). Tags are rejected |
 | `agentImage` | `ghcr.io/re-cinq/ai-agent@sha256:…` | Agent runtime image injected into run pods. Must be digest-pinned |
+| `cli.claude`, `cli.codex`, `cli.gemini`, `cli.opencode` | the release's pins | CLI versions published in the [versions ConfigMap](#read-the-installed-versions). Informational: the init installs its own pins |
 | `batch.enabled` | `false` | Same as the `components/batch` component: [batch runs](#enable-batch-runs-optional) |
 | `modelCatalog.enabled` | `false` | Same as the `components/model-catalog` component: [model catalog](#enable-the-model-catalog-optional) |
 | `realtime.enabled` | `false` | Same as the `components/realtime` component: [realtime sessions](#enable-realtime-sessions-optional). Create the `agent-realtime` Secret first |
@@ -214,6 +215,28 @@ The controller exposes `/healthz` (liveness), `/readyz` (readiness — green onc
 the API server), and a Prometheus `/metrics` endpoint on its health port; a `Running` pod with
 passing probes means it is reconciling. The pod template carries
 `prometheus.io/scrape` annotations, so a cluster Prometheus picks up `/metrics` automatically.
+
+## Read the installed versions
+
+Every install, `install.yaml` and the chart alike, carries a ConfigMap `agent-subsystem-versions`
+in `ai-agents` that says what it runs, and the controller Deployment carries the release as its
+`app.kubernetes.io/version` label. The ConfigMap is a read-only contract for any reader in the
+cluster: its keys are stable, and each release rewrites the values.
+
+| Key | Value |
+| --- | --- |
+| `version` | The subsystem release, without the `v` (the chart's `appVersion`) |
+| `claude-cli` | The Claude Code CLI the agent image bakes and the init installs |
+| `codex-cli` | The Codex CLI the init downloads |
+| `gemini-cli` | The Gemini CLI the init downloads |
+| `opencode-cli` | `latest`: the OpenCode installer is not pinned |
+
+```sh
+kubectl get configmap agent-subsystem-versions -n ai-agents -o jsonpath='{.data}'
+```
+
+A reader that is not cluster-wide needs only `get` on that one ConfigMap (`resourceNames:
+[agent-subsystem-versions]`) in `ai-agents`.
 
 ## Verify the release
 

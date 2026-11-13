@@ -6,6 +6,7 @@ metadata:
   namespace: ai-agents
   labels:
     agents.re-cinq.com/component: controller
+    app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 spec:
   replicas: 2
   selector:

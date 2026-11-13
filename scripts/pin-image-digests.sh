@@ -12,6 +12,8 @@
 #   - deploy/helm/.../values.yaml               controller.image.digest      digest         -> digest
 #   - deploy/helm/.../values.yaml               agentImage                   tag/@digest    -> @digest
 #   - deploy/helm/.../Chart.yaml                version, appVersion          version        -> REF sans v
+#   - deploy/versions.yaml, deploy/controller.yaml  release version          version        -> REF sans v
+#   - deploy/helm/.../values.yaml cli.*, deploy/versions.yaml *-cli          version        -> D pins
 #   - website/.../setup/install.md              cosign verify <controller>@  @digest        -> @digest
 #   - website/.../setup/{install,uninstall}.md  releases/download/<tag>/     tag            -> REF
 #   - website/.../setup/install.md, README.md   TAG=<tag> build example      tag            -> REF
@@ -93,6 +95,29 @@ if n != 1:
 open(path, "w").write(text)
 PY
 
+# CLI pins: the agent-subsystem-versions ConfigMap publishes the CLI each vendor's
+# init installs, so the chart values and deploy/ follow the D pins
+# (vendors/<vendor>/setup.d). OpenCode has no pin and stays "latest".
+python3 - "$repo" "$chart/values.yaml" "$repo/deploy/versions.yaml" <<'PY'
+import re, sys
+repo, values, versions = sys.argv[1:4]
+pins = {}
+for vendor in ("claude", "codex", "gemini"):
+    source = open(f"{repo}/packages/agentcore/source/agentcore/vendors/{vendor}/setup.d").read()
+    match = re.search(r'enum ' + vendor + r'CliVersion = "([^"]+)";', source)
+    if not match:
+        sys.exit(f"no {vendor}CliVersion in vendors/{vendor}/setup.d")
+    pins[vendor] = match.group(1)
+for path, key in ((values, "  {}: "), (versions, "  {}-cli: ")):
+    text = open(path).read()
+    for vendor, version in pins.items():
+        prefix = key.format(vendor)
+        text, n = re.subn(r"(?m)^" + re.escape(prefix) + r".*$", prefix + f'"{version}"', text)
+        if n != 1:
+            sys.exit(f"expected one {prefix.strip()} in {path}, patched {n}")
+    open(path, "w").write(text)
+PY
+
 # Docs: the install page shows `cosign verify <controller>@sha256:...` so readers
 # verify the exact image this release pins. Keep that digest in lockstep too.
 python3 - "$repo/website/src/content/docs/setup/install.md" "$controller" "$controller_digest" <<'PY'
@@ -164,6 +189,19 @@ text, m = re.subn(r"(charts/ai-agent-subsystem:)\d\S*", r"\g<1>" + version, text
 if n < 1 or m < 1:
     sys.exit(f"expected helm --version and chart cosign references in {docs}, found {n} and {m}")
 open(docs, "w").write(text)
+PY
+
+	# deploy/ carries the same release version the chart renders from appVersion.
+	python3 - "${ref#v}" "$repo/deploy/versions.yaml" "$repo/deploy/controller.yaml" <<'PY'
+import re, sys
+version, versions, controller = sys.argv[1:4]
+for path, pattern in ((versions, r"(?m)^(  version: ).*$"),
+                      (controller, r"(?m)^(    app\.kubernetes\.io/version: ).*$")):
+    text = open(path).read()
+    text, n = re.subn(pattern, r'\g<1>"' + version + '"', text)
+    if n != 1:
+        sys.exit(f"expected one release version in {path}, patched {n}")
+    open(path, "w").write(text)
 PY
 	;;
 esac
