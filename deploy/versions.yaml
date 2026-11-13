@@ -10,7 +10,7 @@ metadata:
   labels:
     agents.re-cinq.com/component: versions
 data:
-  version: "0.19.0"
+  version: "0.20.0"
   claude-cli: "2.1.311"
   codex-cli: "0.167.1"
   gemini-cli: "0.62.0"
