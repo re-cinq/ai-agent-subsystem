@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.21.0
+
 ### Added
 
 - **Claude Code and Codex can run on Microsoft Foundry.** Add `AGENT_PROVIDER: foundry` to the `agent-secrets` Secret, with `ANTHROPIC_FOUNDRY_BASE_URL` and `ANTHROPIC_FOUNDRY_API_KEY` for Claude Code and `AZURE_OPENAI_BASE_URL` and `AZURE_OPENAI_API_KEY` for Codex. AgentDefinitions, the chart and the controller settings do not change. Codex gets a `foundry` provider block in its `config.toml`, and Claude Code runs with `CLAUDE_CODE_USE_FOUNDRY=1`. Any other `AGENT_PROVIDER` value fails the run with reason `provider`. See [Run on Microsoft Foundry](https://re-cinq.github.io/ai-agent-subsystem/tasks/run-on-foundry/).
