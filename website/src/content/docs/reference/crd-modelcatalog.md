@@ -45,7 +45,8 @@ The controller lists the AgentDefinitions in its namespace and collects every di
 | `OPENAI_API_KEY` | `codex` | `openai` | `GET /v1/models` |
 | `GEMINI_API_KEY` | `gemini` | `gemini` | `GET /v1beta/models` (paginated), only models that support `generateContent` |
 
-It reads each key from the `agent-secrets` Secret and calls the vendor's list-models API with it.
+It reads each key from the `agent-secrets` Secret and calls the vendor's list-models API with it,
+even on a cluster that runs on [Microsoft Foundry](../tasks/run-on-foundry.md).
 Only model ids the subsystem would route back to that vendor are kept, so OpenAI's embeddings,
 `dall-e` and `whisper` models and Gemini's `gemma` models are dropped. Models from several keys of
 the same vendor are merged into one entry.

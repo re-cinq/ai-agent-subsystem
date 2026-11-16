@@ -8,6 +8,8 @@ and each request is one model call with no tool loop. An AgentDefinition with `e
 uses this path. No Job or pod is created: the controller submits the prompt, polls the batch from
 its reconcile loop, and records the result on the Agent.
 
+Batch runs call the vendor's API even on a cluster that runs on [Microsoft Foundry](./run-on-foundry.md).
+
 Batch runs support Anthropic (Claude models), Gemini (Gemini models, see [Gemini](#gemini)) and
 OpenAI (Codex-routed models, see [OpenAI](#openai)).
 

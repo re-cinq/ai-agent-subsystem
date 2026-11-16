@@ -124,7 +124,9 @@ Run pods get an **egress-only** NetworkPolicy. Ingress is denied; egress is limi
 - **DNS to the in-cluster resolver only** (CoreDNS/kube-dns) — so untrusted code can't tunnel data
   out through an arbitrary external resolver. This assumes the standard
   `kube-system` / `k8s-app=kube-dns` labels; adjust it for a non-standard DNS setup.
-- **HTTPS to the public internet** (model provider, source forges, registries), **excluding** RFC1918
+- **HTTPS to the public internet** (model provider, source forges, registries; with
+  [Microsoft Foundry](../tasks/run-on-foundry.md), `*.services.ai.azure.com` and
+  `*.openai.azure.com`), **excluding** RFC1918
   private ranges and link-local `169.254.0.0/16` — so the agent can't reach cluster-internal services
   (SSRF) or steal credentials from the cloud metadata endpoint `169.254.169.254`.
 
@@ -165,6 +167,9 @@ With the model catalog component, the controller also calls the list-models endp
 whose keys AgentDefinitions map: `api.anthropic.com`, `api.openai.com` and
 `generativelanguage.googleapis.com`. Allow HTTPS to the ones you use if you restrict the controller's
 egress.
+
+The controller never calls Azure. On a [Foundry](../tasks/run-on-foundry.md) cluster only run pods
+reach `*.services.ai.azure.com` and `*.openai.azure.com`.
 
 Tighten the HTTPS egress further — to specific provider CIDRs or through an egress proxy — if your
 environment allows.

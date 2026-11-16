@@ -122,21 +122,27 @@ version (unittest) import fluent.asserts;
 	(agentSetupByName("nope") is null).should.equal(true);
 }
 
-@safe unittest // returns CLAUDE_CODE_USE_FOUNDRY=1 for the claude agent when provider is foundry
+@safe unittest // validatedProviderEnv returns CLAUDE_CODE_USE_FOUNDRY=1 for claude with provider foundry
 {
 	validatedProviderEnv(agentForModel("claude-sonnet-4-6"), "foundry").should.equal(["CLAUDE_CODE_USE_FOUNDRY": "1"]);
 }
 
-@safe unittest // adds no environment for claude with an empty provider, or for codex and gemini with foundry
+@safe unittest // validatedProviderEnv returns no environment for claude with an empty provider
 {
-	[
-		validatedProviderEnv(agentForModel("claude-sonnet-4-6"), "").length,
-		validatedProviderEnv(agentForModel("gpt-5-codex"), "foundry").length,
-		validatedProviderEnv(agentForModel("gemini-3.1-pro-preview"), "foundry").length,
-	].should.equal([0, 0, 0]);
+	validatedProviderEnv(agentForModel("claude-sonnet-4-6"), "").length.should.equal(0);
 }
 
-@safe unittest // throws unsupported AGENT_PROVIDER 'bedrock' for claude with provider bedrock
+@safe unittest // validatedProviderEnv returns no environment for codex with provider foundry
+{
+	validatedProviderEnv(agentForModel("gpt-5-codex"), "foundry").length.should.equal(0);
+}
+
+@safe unittest // validatedProviderEnv returns no environment for gemini, which has no provider hook, with provider foundry
+{
+	validatedProviderEnv(agentForModel("gemini-3.1-pro-preview"), "foundry").length.should.equal(0);
+}
+
+@safe unittest // validatedProviderEnv throws unsupported AGENT_PROVIDER 'bedrock' for claude with provider bedrock
 {
 	({ validatedProviderEnv(agentForModel("claude-sonnet-4-6"), "bedrock"); }).should.throwException!Exception
 		.withMessage.equal("unsupported AGENT_PROVIDER 'bedrock' (supported: foundry)");

@@ -193,6 +193,7 @@ int main(string[] args)
 	runDeadline();
 	stderrForwarding();
 	badArgv();
+	unsupportedProvider();
 	watchedFiles();
 	watchedFileMissing();
 	uploadedFile();
@@ -481,6 +482,15 @@ private void badArgv()
 	check("exit 1", r.code == 1);
 	check("not-found logged to stderr", r.err.canFind("agent not found"));
 	check("not-found raised as a lifecycle event", emitted(r.lines, `"reason":"not-found"`));
+}
+
+private void unsupportedProvider()
+{
+	writeln("unsupported provider refused before the agent starts");
+	auto r = run(["MOCK_LINES": "3", "AGENT_MODEL": "claude-sonnet-4-6", "AGENT_PROVIDER": "bedrock"]);
+	check("exit 1", r.code == 1);
+	check("provider refusal raised as a lifecycle event", emitted(r.lines, `"reason":"provider"`));
+	check("agent never ran", payloadCount(r.lines) == 0);
 }
 
 /// output.watch: an agent whose deliverable is a FILE gets it raised as a named

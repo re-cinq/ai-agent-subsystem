@@ -82,8 +82,9 @@ extern (C) private void forwardSignal(int sig) nothrow @nogc @system
 		g_pendingSignal = sig;
 }
 
-/// The agent CLI inherits the supervisor's environment, so the cluster's AGENT_PROVIDER is
-/// translated here into the variables the vendor's CLI reads. Throws for an unsupported provider.
+/// Translate the cluster's `AGENT_PROVIDER` into the variables the vendor's CLI reads, in the
+/// supervisor's own environment, which the agent inherits. Here rather than in the controller
+/// because only the pod sees the Secret that holds `AGENT_PROVIDER`. Throws for an unsupported provider.
 void adoptProviderEnv()
 {
 	const model = environment.get(envModel, "");
@@ -502,7 +503,8 @@ Duration deadlineFromEnv()
 }
 
 /// An agent-phase `failed` event the supervisor itself raises (the agent never ran):
-/// `not-found` when the binary is missing, `spawn` when the process can't start.
+/// `not-found` when the binary is missing, `spawn` when the process can't start, `provider` when
+/// `AGENT_PROVIDER` is unsupported.
 LifecycleEvent agentFailed(string reason)
 {
 	LifecycleEvent ev = {phase: Phase.agent, status: Status.failed};
@@ -615,10 +617,8 @@ unittest
 	deadlineFromEnv().should.equal(Duration.zero);
 }
 
-unittest // sets CLAUDE_CODE_USE_FOUNDRY to 1 for model claude-sonnet-4-6 on provider foundry
+unittest // adoptProviderEnv sets CLAUDE_CODE_USE_FOUNDRY to 1 for model claude-sonnet-4-6 on provider foundry
 {
-	import agentcore.core.env : envProvider;
-
 	scope (exit)
 	{
 		environment.remove(envModel);

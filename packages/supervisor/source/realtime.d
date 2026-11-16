@@ -24,8 +24,8 @@ import agentcore.vendors.realtime : turnArgv;
 import agentcore.vendors.select : agentForModel;
 import promptserver : listenPrompts, RealtimeSession;
 import sink : emit;
-import supervise : adoptProviderEnv, agentFailed, AgentProcess, announceSession, deadlineExitCode, deadlineFromEnv, drainDeadline,
-	exitGraceFromEnv, finishRun, forceDown, g_realtime, g_terminate, msFromEnv, pollInterval, waitFlag;
+import supervise : adoptProviderEnv, agentFailed, AgentProcess, announceSession, deadlineExitCode, deadlineFromEnv,
+	drainDeadline, exitGraceFromEnv, finishRun, forceDown, g_realtime, g_terminate, msFromEnv, pollInterval, waitFlag;
 import turnqueue : idleExpired;
 
 version (unittest) import fluent.asserts;
