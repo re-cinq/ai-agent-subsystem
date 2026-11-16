@@ -6,6 +6,10 @@ the npm package versions.
 
 ## Unreleased
 
+### Fixed
+
+- **The git-credential broker is asked for a repository on any https git host, not only github.com.** The repository's `owner/name` was read only from a `https://github.com/` url, so a repository on another host skipped the broker and its clone and push ran without the broker's credential. A recipe that delivers a pull request for a repository on another host must name that host's REST API in `delivery.pullRequest.apiUrl`; without it the Agent is refused before its Job exists, since the default reaches only github.com.
+
 ## v0.20.0
 
 ### Added

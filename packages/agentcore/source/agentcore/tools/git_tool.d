@@ -154,21 +154,24 @@ private string credentialHelper(string tokenSecret, string fallbackFile = "") @s
 }
 
 /// The `owner/name` the broker grants by: a bare `owner/name` as-is, or the path of a
-/// `https://github.com/owner/name(.git)` url.
+/// `https://<host>/owner/name(.git)` url on any https git host.
 string repoSlug(string urlOrOwnerName) @safe pure
 {
-	enum github = "https://github.com/";
+	enum scheme = "https://";
 	enum dotGit = ".git";
 	auto slug = urlOrOwnerName;
-	if (slug.length > github.length && slug[0 .. github.length] == github)
-		slug = slug[github.length .. $];
+	if (slug.length > scheme.length && slug[0 .. scheme.length] == scheme)
+	{
+		const hostEnd = slug[scheme.length .. $].indexOf('/');
+		slug = hostEnd < 0 ? "" : slug[scheme.length + hostEnd + 1 .. $];
+	}
 	if (slug.length > dotGit.length && slug[$ - dotGit.length .. $] == dotGit)
 		slug = slug[0 .. $ - dotGit.length];
 	return slug;
 }
 
 /// The `owner/name` to ask the broker for, or "" when the run has no broker or the repo
-/// is not a plain GitHub owner/name — then nothing is spliced into a helper script and
+/// is not a plain owner/name — then nothing is spliced into a helper script and
 /// the repo authenticates the way it did before brokers existed.
 string brokerSlug(in RepoRef r, string brokerUrl) @safe pure
 {
@@ -818,4 +821,18 @@ unittest // with a broker the courier's push asks the broker for the token
 
 	push[6].canFind(`"$AGENT_GIT_CREDENTIAL_URL"`).should.equal(true);
 	push[7 .. $].should.equal(["push", "-q", "--", "https://github.com/o/app.git", "refs/heads/b:refs/heads/b"]);
+}
+
+unittest // the broker slug is the owner/name of a repository on any https git host
+{
+	repoSlug("https://git.example.com/acme/widgets.git").should.equal("acme/widgets");
+	repoSlug("https://github.com/acme/widgets").should.equal("acme/widgets");
+	repoSlug("acme/widgets").should.equal("acme/widgets");
+	brokerSlug(RepoRef("widgets", "https://git.example.com/acme/widgets"), "https://broker.example.com")
+		.should.equal("acme/widgets");
+}
+
+unittest // a path of three parts is not an owner/name, so the broker stays skipped
+{
+	brokerSlug(RepoRef("c", "https://git.example.com/a/b/c"), "https://broker.example.com").should.equal("");
 }
