@@ -1,7 +1,8 @@
 module agentcore.delivery.plan;
 
-import std.algorithm.searching : all, canFind, endsWith;
+import std.algorithm.searching : all, canFind, endsWith, startsWith, until;
 import std.ascii : isAlphaNum;
+import std.conv : to;
 
 import vibe.data.json : parseJsonString;
 
@@ -75,9 +76,23 @@ string deliveryViolation(const Agent agent, const AgentDefinitionSpec recipe) @s
 		return "delivery.pullRequest needs the Agent's targetRepo or resources.repos[0] as a GitHub owner/name";
 	if (!isBranchName(plan.branch) || !isBranchName(plan.base))
 		return "delivery.pullRequest cannot use branch '" ~ plan.branch ~ "' with base '" ~ plan.base ~ "'";
+	const host = otherHostOf(plan.repo.url);
+	if (host.length && recipe.delivery.pullRequest.apiUrl.length == 0)
+		return "delivery.pullRequest needs apiUrl for a repo on " ~ host;
 	if (plan.repo.tokenSecret.length == 0 && "git_credential_url" !in agent.spec.parameters)
 		return "delivery.pullRequest needs resources.repos[0].token_secret or a git_credential_url parameter";
 	return "";
+}
+
+/// The host of an `https://` repo url that is not github.com, or "" for github.com and
+/// for a bare `owner/name`: the default api url reaches only github.com.
+private string otherHostOf(string url) @safe pure
+{
+	enum scheme = "https://";
+	if (!url.startsWith(scheme))
+		return "";
+	const host = url[scheme.length .. $].until('/').to!string;
+	return host == "github.com" ? "" : host;
 }
 
 /// Whether `name` is a branch name git accepts and a refspec cannot misread: branch
@@ -195,6 +210,21 @@ version (unittest)
 	agent.spec.parameters["git_credential_url"] = "https://broker.example.com";
 
 	deliveryViolation(agent, recipe).should.equal("");
+}
+
+@safe unittest // a repo on another git host delivers only when the recipe names that host's api
+{
+	Agent agent;
+	AgentDefinitionSpec recipe;
+	deliveringFixtures(agent, recipe);
+	recipe.resources.repos[0].url = "https://git.example.com/o/app";
+	const withoutApiUrl = deliveryViolation(agent, recipe);
+	recipe.delivery.pullRequest.apiUrl = "https://git.example.com/api/v3";
+
+	[withoutApiUrl, deliveryViolation(agent, recipe)].should.equal([
+		"delivery.pullRequest needs apiUrl for a repo on git.example.com",
+		"",
+	]);
 }
 
 @safe unittest // branch names git accepts pass and option- or traversal-shaped ones do not
