@@ -50,7 +50,7 @@ that harness's address and key.
 | `AZURE_OPENAI_API_KEY` | Codex | key of the Azure OpenAI resource |
 
 The Secret of a Foundry-only cluster looks like this. It is also in
-[`examples/foundry-secrets.yaml`](https://github.com/re-cinq/ai-agent-subsystem/blob/main/examples/foundry-secrets.yaml)
+[`examples/foundry/agent-secrets.yaml`](https://github.com/re-cinq/ai-agent-subsystem/blob/main/examples/foundry/agent-secrets.yaml)
 with placeholder values. Never commit real keys.
 
 ```yaml

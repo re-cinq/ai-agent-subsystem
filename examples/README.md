@@ -10,7 +10,7 @@ Ready-to-apply examples you can try against a running cluster. Each is a recipe
 | [`bug-fixer.yaml`](bug-fixer.yaml) | Code editing — reads/edits/tests with a scoped tool allowlist. |
 | [`shared-recipe.yaml`](shared-recipe.yaml) | One AgentDefinition and Station shared by two Agents, each with its own repos, conversation, output and env. |
 | [`nightly-story.yaml`](nightly-story.yaml) | An AgentSpawner that runs `story-writer` every night at 03:00 UTC. |
-| [`foundry-secrets.yaml`](foundry-secrets.yaml) | The `agent-secrets` Secret of a cluster that runs Claude Code and Codex on Microsoft Foundry. The values are placeholders. See [Run on Microsoft Foundry](../website/src/content/docs/tasks/run-on-foundry.md). |
+| [`foundry/agent-secrets.yaml`](foundry/agent-secrets.yaml) | The `agent-secrets` Secret of a cluster that runs Claude Code and Codex on Microsoft Foundry. The values are placeholders. See [Run on Microsoft Foundry](../website/src/content/docs/tasks/run-on-foundry.md). |
 | [`run-agent.sh`](run-agent.sh) | Launch one run against a Station with `key=value` parameters. |
 | [`notify-listener.mjs`](notify-listener.mjs) | A zero-dependency listener for the `http` output sink. |
 
