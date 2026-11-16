@@ -2,7 +2,7 @@ module agentcore.vendors.claude.agent;
 
 import std.conv : to;
 
-import agentcore.vendors.base.agent : Agent, ConversationArgs, ProviderSecrets, StdinSession;
+import agentcore.vendors.base.agent : Agent, AgentProviderSwitch, ConversationArgs, StdinSession;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 import agentcore.crds.enums : PermissionMode, McpTransport;
 import agentcore.crds.mcp_server : McpServer, headerCredentials, stdioLaunch;
@@ -13,7 +13,7 @@ import agentcore.core.env : defaultModel, foundryProvider;
 /// stream-json …`. `bypass` permission mode skips the permission prompts; `auto`
 /// passes the recipe's allow/deny tool lists through. A realtime session keeps one
 /// process and feeds it user turns as `stream-json` lines on stdin.
-final class ClaudeAgent : Agent, StdinSession, ProviderSecrets
+final class ClaudeAgent : Agent, StdinSession, AgentProviderSwitch
 {
 	/// Un-hide the interface's no-conversation convenience overload, which this
 	/// class's own `command` would otherwise shadow.

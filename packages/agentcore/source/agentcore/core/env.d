@@ -1,5 +1,7 @@
 module agentcore.core.env;
 
+import std.format : format;
+
 // Environment variable names the controller injects into a run container and
 // the supervisor reads. Shared here so the Job builder and the supervisor never
 // drift apart.
@@ -9,6 +11,13 @@ enum envProvider = "AGENT_PROVIDER";
 /// The values `AGENT_PROVIDER` may take.
 immutable string[] supportedProviders = ["foundry"];
 enum foundryProvider = supportedProviders[0];
+
+/// The refusal for an `AGENT_PROVIDER` outside `supportedProviders`. One text for the supervisor
+/// and the codex setup script; the script passes the shell expansion `$AGENT_PROVIDER` as `provider`.
+string unsupportedProviderMessage(string provider) @safe pure
+{
+	return format!"unsupported %s '%s' (supported: %-(%s%|, %))"(envProvider, provider, supportedProviders);
+}
 enum envNotifyUrl = "AGENT_NOTIFY_URL";
 enum envSinks = "AGENT_SINKS";
 enum envParameters = "AGENT_PARAMETERS";

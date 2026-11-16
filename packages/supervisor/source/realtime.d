@@ -24,7 +24,7 @@ import agentcore.vendors.realtime : turnArgv;
 import agentcore.vendors.select : agentForModel;
 import promptserver : listenPrompts, RealtimeSession;
 import sink : emit;
-import supervise : agentFailed, AgentProcess, announceSession, deadlineExitCode, deadlineFromEnv, drainDeadline,
+import supervise : adoptProviderEnv, agentFailed, AgentProcess, announceSession, deadlineExitCode, deadlineFromEnv, drainDeadline,
 	exitGraceFromEnv, finishRun, forceDown, g_realtime, g_terminate, msFromEnv, pollInterval, waitFlag;
 import turnqueue : idleExpired;
 
@@ -59,6 +59,10 @@ int superviseRealtime(string[] argv)
 		return refuse(sinks, source, "realtime mode needs " ~ envRealtimeToken, "token");
 	if (findExecutable(argv[0]).length == 0)
 		return refuse(sinks, source, "agent not found: " ~ argv[0], "not-found");
+	try
+		adoptProviderEnv();
+	catch (Exception e)
+		return refuse(sinks, source, e.msg, "provider");
 	auto stdinSession = cast(const StdinSession) vendor;
 	if (stdinStyle && stdinSession is null)
 		return refuse(sinks, source, provider ~ " cannot run a stdin session", "spawn");

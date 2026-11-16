@@ -13,11 +13,11 @@ import vibe.stream.operations : readLine;
 import std.conv : to;
 import std.process : environment;
 
-import agentcore.vendors.select : agentForModel;
+import agentcore.vendors.select : agentForModel, validatedProviderEnv;
 import std.file : exists;
 import agentcore.core.env : defaultExitGraceMs, defaultMaxUploadBytes, defaultWorkspace,
 	envAgentName, envConversationPin, envConversationSource, envDeadlineMs, envExitGraceMs,
-	envDelivery, envMaxUploadBytes, envModel, envSelect, envWatch, envWorkspace;
+	envDelivery, envMaxUploadBytes, envModel, envProvider, envSelect, envWatch, envWorkspace;
 import agentcore.delivery.plan : delivers, parsePlan;
 import agentcore.crds.output_sink : OutputSink;
 import agentcore.output.event : EventSource, sourceFromEnv;
@@ -82,6 +82,16 @@ extern (C) private void forwardSignal(int sig) nothrow @nogc @system
 		g_pendingSignal = sig;
 }
 
+/// The agent CLI inherits the supervisor's environment, so the cluster's AGENT_PROVIDER is
+/// translated here into the variables the vendor's CLI reads. Throws for an unsupported provider.
+void adoptProviderEnv()
+{
+	const model = environment.get(envModel, "");
+	const provider = environment.get(envProvider, "");
+	foreach (name, value; validatedProviderEnv(agentForModel(model), provider))
+		environment[name] = value;
+}
+
 /// Take over signal handling from vibe: ignore `SIGPIPE` (so a broken sink socket
 /// can't kill us) and forward `SIGTERM`/`SIGINT` to the agent once it is running.
 /// Call once, before the event loop starts.
@@ -113,6 +123,16 @@ int supervise(string[] agentArgv)
 	{
 		logError("[supervisor] agent not found: " ~ agentArgv[0]);
 		emit(sinks, source, agentFailed("not-found").toJson);
+		fillOutbox(delivery, 1, startHead);
+		return 1;
+	}
+
+	try
+		adoptProviderEnv();
+	catch (Exception e)
+	{
+		logError("[supervisor] " ~ e.msg);
+		emit(sinks, source, agentFailed("provider").toJson);
 		fillOutbox(delivery, 1, startHead);
 		return 1;
 	}
@@ -593,6 +613,26 @@ unittest
 	deadlineFromEnv().should.equal(Duration.zero);
 	environment[envDeadlineMs] = "-1";
 	deadlineFromEnv().should.equal(Duration.zero);
+}
+
+unittest // sets CLAUDE_CODE_USE_FOUNDRY to 1 for model claude-sonnet-4-6 on provider foundry
+{
+	import agentcore.core.env : envProvider;
+
+	scope (exit)
+	{
+		environment.remove(envModel);
+		environment.remove(envProvider);
+		environment.remove("CLAUDE_CODE_USE_FOUNDRY");
+	}
+
+	environment[envModel] = "claude-sonnet-4-6";
+	environment[envProvider] = "foundry";
+	environment.remove("CLAUDE_CODE_USE_FOUNDRY");
+
+	adoptProviderEnv();
+
+	environment.get("CLAUDE_CODE_USE_FOUNDRY", "").should.equal("1");
 }
 
 unittest

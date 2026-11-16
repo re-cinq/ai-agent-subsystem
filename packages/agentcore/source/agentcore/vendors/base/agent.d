@@ -79,7 +79,7 @@ interface AgentSecretAliases
 
 /// An `Agent` whose CLI can be pointed at another provider of its models (Microsoft
 /// Foundry today) by entries of the agent-secrets Secret.
-interface ProviderSecrets
+interface AgentProviderSwitch
 {
 	/// agent-secrets keys this CLI needs on another provider; each reaches the pod as
 	/// an optional env var of the same name.
@@ -88,7 +88,8 @@ interface ProviderSecrets
 	/// The vendor's own key, optional in the pod so a cluster on another provider need not hold it.
 	string vendorKey() const @safe;
 
-	/// Environment the CLI needs when `AGENT_PROVIDER` names `provider`.
+	/// Environment the CLI needs when `AGENT_PROVIDER` names `provider`. The supervisor sets
+	/// it, not the controller: only the pod sees the Secret that holds `AGENT_PROVIDER`.
 	string[string] providerEnv(string provider) const @safe;
 }
 

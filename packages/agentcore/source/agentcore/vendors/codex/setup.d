@@ -3,7 +3,7 @@ module agentcore.vendors.codex.setup;
 import std.algorithm.iteration : map;
 import std.array : join;
 
-import agentcore.core.env : envProvider, foundryProvider, supportedProviders;
+import agentcore.core.env : envProvider, foundryProvider, unsupportedProviderMessage;
 import agentcore.vendors.base.setup : AgentSetup, ProviderSettings;
 import agentcore.vendors.codex.agent : foundryApiKeyKey, foundryBaseUrlKey;
 
@@ -97,7 +97,7 @@ ln -sf "$release/bin/codex" "$HOME/.local/bin/codex"`,
 			"bash", "-euo", "pipefail", "-c",
 			`[ -n "${` ~ envProvider ~ `:-}" ] || exit 0
 [ "$` ~ envProvider ~ `" = "` ~ foundryProvider ~ `" ] || {
-  echo "unsupported ` ~ envProvider ~ ` '$` ~ envProvider ~ `' (supported: ` ~ supportedProviders.join(", ") ~ `)" >&2
+  echo "` ~ unsupportedProviderMessage("$" ~ envProvider) ~ `" >&2
   exit 1
 }
 [ -n "${` ~ foundryBaseUrlKey ~ `:-}" ] || {

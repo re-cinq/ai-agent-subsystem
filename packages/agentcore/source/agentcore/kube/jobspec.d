@@ -23,7 +23,7 @@ import agentcore.crds.mcp_server : credentials;
 import agentcore.crds.station : Station;
 import agentcore.crds.serialization : toJson;
 import agentcore.vendors.select : agentForModel, agentSetupForModel;
-import agentcore.vendors.base.agent : Agent_ = Agent, AgentEnv, AgentSecretAliases, ConversationArgs, ProviderSecrets;
+import agentcore.vendors.base.agent : Agent_ = Agent, AgentEnv, AgentProviderSwitch, AgentSecretAliases, ConversationArgs;
 import agentcore.vendors.realtime : RealtimeArgv, realtimeArgv;
 import agentcore.kube.bundle : bundleRoot, initializerPath, supervisorPath;
 import agentcore.crds.delivery_spec : opensPullRequest;
@@ -806,7 +806,7 @@ private struct ProviderSecretKeys
 /// The secret keys the vendor's CLI needs for another provider; `.init` for a vendor without the hook.
 private ProviderSecretKeys vendorProviderSecrets(const Object vendor) @safe
 {
-	auto withProvider = cast(const ProviderSecrets) vendor;
+	auto withProvider = cast(const AgentProviderSwitch) vendor;
 	return withProvider is null ? ProviderSecretKeys.init
 		: ProviderSecretKeys(withProvider.providerSecrets, withProvider.vendorKey);
 }

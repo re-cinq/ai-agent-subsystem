@@ -1,6 +1,6 @@
 module agentcore.vendors.codex.agent;
 
-import agentcore.vendors.base.agent : Agent, AgentSecretAliases, ConversationArgs, ProviderSecrets;
+import agentcore.vendors.base.agent : Agent, AgentProviderSwitch, AgentSecretAliases, ConversationArgs;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 import agentcore.crds.enums : McpTransport, PermissionMode;
 import agentcore.crds.mcp_server : McpServer, envCredentials, headerCredentials, stdioLaunch;
@@ -13,7 +13,7 @@ package(agentcore.vendors.codex) enum foundryApiKeyKey = "AZURE_OPENAI_API_KEY";
 /// OpenAI Codex CLI adapter: `codex exec --json …`. Codex governs tool access
 /// through its sandbox/approval model rather than per-tool flags, so the recipe's
 /// allow/deny lists do not map to arguments here.
-final class CodexAgent : Agent, AgentSecretAliases, ProviderSecrets
+final class CodexAgent : Agent, AgentSecretAliases, AgentProviderSwitch
 {
 	/// Un-hide the interface's no-conversation convenience overload, which this
 	/// class's own `command` would otherwise shadow.
