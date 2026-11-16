@@ -2,7 +2,7 @@ module agentcore.vendors.select;
 
 public import agentcore.core.vendor : Vendor, vendorOf;
 
-import agentcore.vendors.base.agent : Agent;
+import agentcore.vendors.base.agent : Agent, ProviderSecrets;
 import agentcore.vendors.base.setup : AgentSetup;
 import agentcore.vendors.claude.agent : ClaudeAgent;
 import agentcore.vendors.claude.setup : ClaudeSetup;
@@ -14,6 +14,13 @@ import agentcore.vendors.gemini.agent : GeminiAgent;
 import agentcore.vendors.gemini.setup : GeminiSetup;
 import agentcore.vendors.opencode.agent : OpenCodeAgent;
 import agentcore.vendors.opencode.setup : OpenCodeSetup;
+
+/// The environment `vendor`'s CLI needs for `provider`; empty for a vendor without the hook.
+string[string] providerEnv(const Agent vendor, string provider) @safe
+{
+	auto withProvider = cast(const ProviderSecrets) vendor;
+	return withProvider is null ? null : withProvider.providerEnv(provider);
+}
 
 /// Choose the agent adapter for a model id's vendor.
 Agent agentForModel(string model) @safe
@@ -104,6 +111,11 @@ version (unittest) import fluent.asserts;
 	agentSetupByName("codex").name.should.equal("codex");
 	agentSetupByName("gemini").name.should.equal("gemini");
 	(agentSetupByName("nope") is null).should.equal(true);
+}
+
+@safe unittest // returns CLAUDE_CODE_USE_FOUNDRY=1 for the claude agent when provider is foundry
+{
+	providerEnv(agentForModel("claude-sonnet-4-6"), "foundry").should.equal(["CLAUDE_CODE_USE_FOUNDRY": "1"]);
 }
 
 unittest

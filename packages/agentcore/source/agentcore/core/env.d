@@ -5,6 +5,10 @@ module agentcore.core.env;
 // drift apart.
 
 enum envModel = "AGENT_MODEL";
+enum envProvider = "AGENT_PROVIDER";
+/// The values `AGENT_PROVIDER` may take.
+immutable string[] supportedProviders = ["foundry"];
+enum foundryProvider = supportedProviders[0];
 enum envNotifyUrl = "AGENT_NOTIFY_URL";
 enum envSinks = "AGENT_SINKS";
 enum envParameters = "AGENT_PARAMETERS";

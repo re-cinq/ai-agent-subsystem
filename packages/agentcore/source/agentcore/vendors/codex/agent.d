@@ -1,14 +1,19 @@
 module agentcore.vendors.codex.agent;
 
-import agentcore.vendors.base.agent : Agent, AgentSecretAliases, ConversationArgs;
+import agentcore.vendors.base.agent : Agent, AgentSecretAliases, ConversationArgs, ProviderSecrets;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 import agentcore.crds.enums : McpTransport, PermissionMode;
 import agentcore.crds.mcp_server : McpServer, envCredentials, headerCredentials, stdioLaunch;
 
+/// The agent-secrets key holding the Foundry endpoint Codex is pointed at, and the one
+/// holding its API key. The init's provider step (`CodexSetup`) names them too.
+package(agentcore.vendors.codex) enum foundryBaseUrlKey = "AZURE_OPENAI_BASE_URL";
+package(agentcore.vendors.codex) enum foundryApiKeyKey = "AZURE_OPENAI_API_KEY";
+
 /// OpenAI Codex CLI adapter: `codex exec --json …`. Codex governs tool access
 /// through its sandbox/approval model rather than per-tool flags, so the recipe's
 /// allow/deny lists do not map to arguments here.
-final class CodexAgent : Agent, AgentSecretAliases
+final class CodexAgent : Agent, AgentSecretAliases, ProviderSecrets
 {
 	/// Un-hide the interface's no-conversation convenience overload, which this
 	/// class's own `command` would otherwise shadow.
@@ -24,6 +29,21 @@ final class CodexAgent : Agent, AgentSecretAliases
 	override string[string] secretAliases() const @safe
 	{
 		return ["CODEX_API_KEY": "OPENAI_API_KEY"];
+	}
+
+	string[] providerSecrets() const @safe
+	{
+		return [foundryBaseUrlKey, foundryApiKeyKey];
+	}
+
+	string vendorKey() const @safe
+	{
+		return "OPENAI_API_KEY";
+	}
+
+	string[string] providerEnv(string provider) const @safe
+	{
+		return null;
 	}
 
 	/// Codex assigns its own session id — `codex exec` has no pin flag, only the

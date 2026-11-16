@@ -3,7 +3,10 @@ module agentcore.vendors.codex.setup;
 import std.algorithm.iteration : map;
 import std.array : join;
 
-import agentcore.vendors.base.setup : AgentSetup;
+import agentcore.core.env : envProvider, foundryProvider, supportedProviders;
+import agentcore.vendors.base.setup : AgentSetup, ProviderSettings;
+import agentcore.vendors.codex.agent : foundryApiKeyKey, foundryBaseUrlKey;
+
 
 /// The Codex CLI release every run installs. Pinned, because a release can change
 /// what a run needs: 0.142 stopped reading OPENAI_API_KEY in `codex exec`, and the
@@ -38,7 +41,7 @@ immutable CodexPackage[] codexPackages = [
 /// `rg` and `bwrap` the CLI looks for) and links `codex` into `~/.local/bin`. No
 /// Node runtime is needed. Guarded by `command -v` so a pre-baked CLI (the
 /// integration-test mock) or an init-container retry is a no-op.
-final class CodexSetup : AgentSetup
+final class CodexSetup : AgentSetup, ProviderSettings
 {
 	private const(CodexPackage)[] packages;
 
@@ -79,19 +82,64 @@ rm -f "$archive"
 ln -sf "$release/bin/codex" "$HOME/.local/bin/codex"`,
 		]];
 	}
+
+	/// Write the Foundry model provider into `~/.codex/config.toml`, pointing Codex at
+	/// the endpoint in `AZURE_OPENAI_BASE_URL`. The API key is never written: `env_key`
+	/// only names the variable Codex reads it from, so the secret stays in the pod's
+	/// environment and out of the file. The selection line goes before any existing
+	/// content because TOML keys after a `[table]` header belong to that table, and a
+	/// hook bundle's config.toml usually has one. The new file is built beside the old
+	/// and renamed over it, so a failure leaves the old config whole. A config that
+	/// already holds the foundry table is left alone, which makes a retry a no-op.
+	override string[][] providerSteps() const @safe
+	{
+		return [[
+			"bash", "-euo", "pipefail", "-c",
+			`[ -n "${` ~ envProvider ~ `:-}" ] || exit 0
+[ "$` ~ envProvider ~ `" = "` ~ foundryProvider ~ `" ] || {
+  echo "unsupported ` ~ envProvider ~ ` '$` ~ envProvider ~ `' (supported: ` ~ supportedProviders.join(", ") ~ `)" >&2
+  exit 1
+}
+[ -n "${` ~ foundryBaseUrlKey ~ `:-}" ] || {
+  echo "` ~ envProvider ~ `=` ~ foundryProvider ~ ` needs ` ~ foundryBaseUrlKey ~ ` in agent-secrets" >&2
+  exit 1
+}
+mkdir -p "$HOME/.codex"
+config="$HOME/.codex/config.toml"
+if [ -f "$config" ]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ "$line" != '[model_providers.` ~ foundryProvider ~ `]' ] || exit 0
+  done < "$config"
+fi
+{
+  printf '%s\n' 'model_provider = "` ~ foundryProvider ~ `"'
+  [ ! -f "$config" ] || cat "$config"
+  printf '%s\n' \
+    '' \
+    '[model_providers.` ~ foundryProvider ~ `]' \
+    'name = "Azure OpenAI"' \
+    "base_url = \"$` ~ foundryBaseUrlKey ~ `\"" \
+    'env_key = "` ~ foundryApiKeyKey ~ `"' \
+    'wire_api = "responses"'
+} > "$config.new"
+mv "$config.new" "$config"`,
+		]];
+	}
 }
 
 version (unittest)
 {
 	import fluent.asserts;
-	import std.algorithm.searching : canFind;
+	import std.algorithm.iteration : filter;
+	import std.algorithm.searching : all, canFind;
+	import std.array : array;
 	import std.conv : octal;
 	import std.digest : LetterCase, toHexString;
 	import std.digest.sha : sha256Of;
 	import std.file : exists, mkdirRecurse, read, readText, rmdirRecurse, setAttributes, symlink, tempDir, write;
 	import std.path : buildPath;
 	import std.process : Config, execute;
-	import std.string : strip;
+	import std.string : splitLines, strip;
 
 	import agentcore.core.exec : findExecutable;
 
@@ -120,7 +168,7 @@ version (unittest)
 		mkdirRecurse(box.home);
 		mkdirRecurse(box.bin);
 
-		foreach (tool; ["bash", "sh", "mkdir", "tar", "gzip", "sha256sum", "ln", "rm", "cp"])
+		foreach (tool; ["bash", "sh", "mkdir", "tar", "gzip", "sha256sum", "ln", "rm", "cp", "cat", "mv"])
 			symlink(findExecutable(tool), buildPath(box.bin, tool));
 		writeExecutable(buildPath(box.bin, "uname"), "#!/bin/sh\necho " ~ machine ~ "\n");
 
@@ -153,10 +201,25 @@ version (unittest)
 
 	/// Run one install step inside `box`, with the pod's PATH (the CLI's install dir
 	/// in HOME first) and nothing from the host's environment.
-	auto runIn(in Sandbox box, string[] step)
+	auto runIn(in Sandbox box, string[] step, const string[string] podEnv = null)
 	{
 		const path = buildPath(box.home, ".local", "bin") ~ ":" ~ box.bin;
-		return execute(step, ["HOME": box.home, "PATH": path], Config.newEnv);
+		string[string] env = ["HOME": box.home, "PATH": path];
+		foreach (name, value; podEnv)
+			env[name] = value;
+		return execute(step, env, Config.newEnv);
+	}
+
+	/// The one provider step run in `box` with `podEnv`: its message, whether it failed,
+	/// and whether it left a config behind.
+	string[] providerFailure(in Sandbox box, const string[string] podEnv)
+	{
+		const result = runIn(box, (new CodexSetup).providerSteps[0], podEnv);
+		return [
+			result.output.strip,
+			result.status != 0 ? "fails" : "succeeds",
+			buildPath(box.home, ".codex", "config.toml").exists ? "writes config" : "writes no config",
+		];
 	}
 
 	string installedVersion(in Sandbox box)
@@ -247,6 +310,123 @@ unittest // codex already on PATH is neither downloaded nor replaced
 
 	box.curlLog.exists.should.equal(false);
 	buildPath(box.home, ".local", "bin", "codex").exists.should.equal(false);
+}
+
+unittest // foundry provider steps write the foundry model provider block into ~/.codex/config.toml
+{
+	auto box = sandbox("foundry", "x86_64");
+	scope (exit)
+		rmdirRecurse(box.root);
+	const podEnv = [
+		"AGENT_PROVIDER": "foundry",
+		"AZURE_OPENAI_BASE_URL": "https://my-foundry.openai.azure.com/openai/v1",
+	];
+
+	foreach (step; (new CodexSetup).providerSteps)
+		runIn(box, step, podEnv.dup).status.should.equal(0);
+
+	readText(buildPath(box.home, ".codex", "config.toml")).strip.should.equal(
+		"model_provider = \"foundry\"\n\n"
+		~ "[model_providers.foundry]\n"
+		~ "name = \"Azure OpenAI\"\n"
+		~ "base_url = \"https://my-foundry.openai.azure.com/openai/v1\"\n"
+		~ "env_key = \"AZURE_OPENAI_API_KEY\"\n"
+		~ "wire_api = \"responses\"");
+}
+
+unittest // provider steps succeed and write no ~/.codex/config.toml when the pod has no AGENT_PROVIDER or AZURE_OPENAI_BASE_URL
+{
+	auto box = sandbox("unswitched", "x86_64");
+	scope (exit)
+		rmdirRecurse(box.root);
+
+	int[] statuses;
+	foreach (step; (new CodexSetup).providerSteps)
+		statuses ~= runIn(box, step).status;
+
+	[statuses.all!(status => status == 0), buildPath(box.home, ".codex", "config.toml").exists]
+		.should.equal([true, false]);
+}
+
+unittest // unsupported AGENT_PROVIDER bedrock fails the step with the supported list and writes no ~/.codex/config.toml
+{
+	auto box = sandbox("unsupported", "x86_64");
+	scope (exit)
+		rmdirRecurse(box.root);
+	const podEnv = [
+		"AGENT_PROVIDER": "bedrock",
+		"AZURE_OPENAI_BASE_URL": "https://my-foundry.openai.azure.com/openai/v1",
+	];
+
+	providerFailure(box, podEnv).should.equal([
+		"unsupported AGENT_PROVIDER 'bedrock' (supported: foundry)",
+		"fails",
+		"writes no config",
+	]);
+}
+
+unittest // AGENT_PROVIDER foundry without AZURE_OPENAI_BASE_URL fails the step naming the missing variable and writes no ~/.codex/config.toml
+{
+	auto box = sandbox("missing-base-url", "x86_64");
+	scope (exit)
+		rmdirRecurse(box.root);
+	const podEnv = ["AGENT_PROVIDER": "foundry"];
+
+	providerFailure(box, podEnv).should.equal([
+		"AGENT_PROVIDER=foundry needs AZURE_OPENAI_BASE_URL in agent-secrets",
+		"fails",
+		"writes no config",
+	]);
+}
+
+unittest // existing ~/.codex/config.toml keeps its lines between the model_provider line and the foundry table, empty lines ignored
+{
+	auto box = sandbox("existing-config", "x86_64");
+	scope (exit)
+		rmdirRecurse(box.root);
+	mkdirRecurse(buildPath(box.home, ".codex"));
+	write(buildPath(box.home, ".codex", "config.toml"),
+		"approval_policy = \"never\"\n\n[features]\nweb_search = true\n");
+	const podEnv = [
+		"AGENT_PROVIDER": "foundry",
+		"AZURE_OPENAI_BASE_URL": "https://my-foundry.openai.azure.com/openai/v1",
+	];
+
+	foreach (step; (new CodexSetup).providerSteps)
+		runIn(box, step, podEnv.dup).status.should.equal(0);
+
+	readText(buildPath(box.home, ".codex", "config.toml")).splitLines.filter!(line => line.strip.length).array
+		.should.equal([
+			"model_provider = \"foundry\"",
+			"approval_policy = \"never\"",
+			"[features]",
+			"web_search = true",
+			"[model_providers.foundry]",
+			"name = \"Azure OpenAI\"",
+			"base_url = \"https://my-foundry.openai.azure.com/openai/v1\"",
+			"env_key = \"AZURE_OPENAI_API_KEY\"",
+			"wire_api = \"responses\"",
+		]);
+}
+
+unittest // second foundry provider run succeeds and leaves ~/.codex/config.toml byte-for-byte as the first run left it
+{
+	auto box = sandbox("provider-retry", "x86_64");
+	scope (exit)
+		rmdirRecurse(box.root);
+	const podEnv = [
+		"AGENT_PROVIDER": "foundry",
+		"AZURE_OPENAI_BASE_URL": "https://my-foundry.openai.azure.com/openai/v1",
+	];
+	const configPath = buildPath(box.home, ".codex", "config.toml");
+	auto step = (new CodexSetup).providerSteps[0];
+
+	runIn(box, step, podEnv.dup).status.should.equal(0);
+	const firstRun = readText(configPath);
+	const secondStatus = runIn(box, step, podEnv.dup).status;
+
+	secondStatus.should.equal(0);
+	readText(configPath).should.equal(firstRun);
 }
 
 unittest // init-container retry after an install keeps the CLI without downloading again
