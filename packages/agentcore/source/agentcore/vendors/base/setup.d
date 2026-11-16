@@ -50,6 +50,16 @@ interface CliReport
 	string[] versionCommand() const @safe;
 }
 
+/// An `AgentSetup` whose CLI reads its model provider from a settings file rather
+/// than its argv, so the init has to write it there when the cluster's
+/// `AGENT_PROVIDER` names another provider. Optional: a vendor whose CLI takes the
+/// provider from its environment alone does not implement it.
+interface ProviderSettings
+{
+	/// The argv steps that point this vendor's CLI at the cluster's provider.
+	string[][] providerSteps() const @safe;
+}
+
 /// An `AgentSetup` whose CLI reads a recipe's `mcp_servers` from a settings file
 /// rather than its argv, so the init has to write them there before the agent starts.
 /// Optional: a vendor whose adapter passes them on the command line (Claude's

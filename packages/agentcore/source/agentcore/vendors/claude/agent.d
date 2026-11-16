@@ -2,18 +2,18 @@ module agentcore.vendors.claude.agent;
 
 import std.conv : to;
 
-import agentcore.vendors.base.agent : Agent, ConversationArgs, StdinSession;
+import agentcore.vendors.base.agent : Agent, AgentProviderSwitch, ConversationArgs, StdinSession;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
 import agentcore.crds.enums : PermissionMode, McpTransport;
 import agentcore.crds.mcp_server : McpServer, headerCredentials, stdioLaunch;
 import agentcore.kube.bundle : claudeSettingsPath;
-import agentcore.core.env : defaultModel;
+import agentcore.core.env : defaultModel, foundryProvider;
 
 /// Claude Code CLI adapter: maps the recipe to `claude --print --output-format
 /// stream-json …`. `bypass` permission mode skips the permission prompts; `auto`
 /// passes the recipe's allow/deny tool lists through. A realtime session keeps one
 /// process and feeds it user turns as `stream-json` lines on stdin.
-final class ClaudeAgent : Agent, StdinSession
+final class ClaudeAgent : Agent, StdinSession, AgentProviderSwitch
 {
 	/// Un-hide the interface's no-conversation convenience overload, which this
 	/// class's own `command` would otherwise shadow.
@@ -22,6 +22,21 @@ final class ClaudeAgent : Agent, StdinSession
 	override string name() const @safe
 	{
 		return "claude";
+	}
+
+	string[] providerSecrets() const @safe
+	{
+		return ["ANTHROPIC_FOUNDRY_BASE_URL", "ANTHROPIC_FOUNDRY_API_KEY"];
+	}
+
+	string vendorKey() const @safe
+	{
+		return "ANTHROPIC_API_KEY";
+	}
+
+	string[string] providerEnv(string provider) const @safe
+	{
+		return provider == foundryProvider ? ["CLAUDE_CODE_USE_FOUNDRY": "1"] : null;
 	}
 
 	override string[] pinConversationArgs(string conversationId) const @safe

@@ -6,6 +6,14 @@ the npm package versions.
 
 ## Unreleased
 
+### Added
+
+- **Claude Code and Codex can run on Microsoft Foundry.** Add `AGENT_PROVIDER: foundry` to the `agent-secrets` Secret, with `ANTHROPIC_FOUNDRY_BASE_URL` and `ANTHROPIC_FOUNDRY_API_KEY` for Claude Code and `AZURE_OPENAI_BASE_URL` and `AZURE_OPENAI_API_KEY` for Codex. AgentDefinitions, the chart and the controller settings do not change. Codex gets a `foundry` provider block in its `config.toml`, and Claude Code runs with `CLAUDE_CODE_USE_FOUNDRY=1`. Any other `AGENT_PROVIDER` value fails the run with reason `provider`. See [Run on Microsoft Foundry](https://re-cinq.github.io/ai-agent-subsystem/tasks/run-on-foundry/).
+
+### Changed
+
+- **The vendor key reference is optional in the pod for Claude Code and Codex runs.** `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` (and Codex's `CODEX_API_KEY` copy) no longer block the pod when the `agent-secrets` entry is missing. Before, the pod stopped with `CreateContainerConfigError`. Now the run starts and the CLI reports the authentication error.
+
 ## v0.20.1
 
 ### Fixed

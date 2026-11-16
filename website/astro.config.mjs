@@ -62,6 +62,7 @@ export default defineConfig({
 						{ label: 'Setting limits', slug: 'tasks/set-limits' },
 						{ label: 'Isolate runs', slug: 'tasks/isolate-runs' },
 						{ label: 'Batch runs', slug: 'tasks/batch-runs' },
+						{ label: 'Run on Microsoft Foundry', slug: 'tasks/run-on-foundry' },
 						{ label: 'Realtime sessions', slug: 'tasks/realtime-sessions' },
 						{ label: 'Collect output', slug: 'tasks/collect-output' },
 						{ label: 'Open pull requests', slug: 'tasks/open-pull-requests' },

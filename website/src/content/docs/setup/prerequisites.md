@@ -35,6 +35,10 @@ its keys from the recipe's `resources.secrets` (e.g.
 container env var via `secretKeyRef`, sourced from that single Secret. See
 [Launch an agent](../tasks/launch-an-agent.md#verify-api-key-auth-end-to-end).
 
+A cluster that runs on Microsoft Foundry holds Foundry entries in the same Secret and needs no
+vendor keys. The entries are `AGENT_PROVIDER` and an endpoint and key per harness. See
+[Run on Microsoft Foundry](../tasks/run-on-foundry.md).
+
 :::note
 Earlier versions suggested mounting your host `~/.claude` into the run container for subscription
 auth during local development. That no longer works: the `ai-agents` namespace enforces Pod Security

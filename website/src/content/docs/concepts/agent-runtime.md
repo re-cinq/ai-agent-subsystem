@@ -350,6 +350,13 @@ strips leading slashes and refuses `..` members, so a bundle cannot write outsid
   secret becomes a second `secretKeyRef` to the same `agent-secrets` key, so the key still never
   reaches argv or disk; a literal `env` value is copied as is. Other vendors are unaffected.
 
+  **Microsoft Foundry.** Entries in `agent-secrets` can point Claude Code and Codex runs at
+  Foundry. The controller offers `AGENT_PROVIDER` and each harness's Foundry entries as optional
+  references, and the pod acts on them. For these two vendors the vendor key (`ANTHROPIC_API_KEY`,
+  `OPENAI_API_KEY`) is also an optional reference. A missing one no longer blocks the pod from
+  starting. The run starts and the CLI reports the authentication error. See
+  [Run on Microsoft Foundry](../tasks/run-on-foundry.md).
+
   **Batch exception.** For a definition with `execution: batch` there is no run pod: the controller
   itself reads the key that a `resources.secrets` entry points at from `agent-secrets` and sends it
   to the vendor's batch API. The entry's name depends on the vendor the model routes to:

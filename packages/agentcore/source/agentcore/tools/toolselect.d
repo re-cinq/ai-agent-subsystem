@@ -7,6 +7,7 @@ import agentcore.tools.conversation_tool : ConversationTool;
 import agentcore.tools.files_tool : FilesTool;
 import agentcore.tools.hooks_tool : HooksTool;
 import agentcore.tools.mcp_tool : McpTool;
+import agentcore.tools.provider_tool : ProviderTool;
 import agentcore.tools.skills_tool : SkillsTool;
 import agentcore.tools.supervisor_tool : SupervisorTool;
 import agentcore.tools.tool : Tool;
@@ -41,6 +42,9 @@ Tool[] allTools(in InitContext ctx) @safe
 	// Last, the recipe's MCP servers for a vendor that reads them from a settings file:
 	// written to a file of the subsystem's own, after everything else under $HOME.
 	tools ~= new McpTool(setup);
+	// Last of all, the model provider in the vendor's config.toml: the hooks bundle
+	// is unpacked by then, and it may bring a config.toml of its own.
+	tools ~= new ProviderTool(setup);
 	return tools;
 }
 
@@ -51,7 +55,7 @@ version (unittest) import fluent.asserts;
 	InitContext ctx;
 	ctx.model = "claude-sonnet-4-6";
 	auto tools = allTools(ctx);
-	tools.length.should.equal(8);
+	tools.length.should.equal(9);
 	tools[0].name.should.equal("supervisor");
 	tools[1].name.should.equal("git");
 	tools[2].name.should.equal("files");
@@ -59,8 +63,9 @@ version (unittest) import fluent.asserts;
 	tools[4].name.should.equal("skills");
 	tools[5].name.should.equal("hooks");
 	tools[6].name.should.equal("conversation");
-	// Last: the MCP settings the agent CLI reads when it starts.
 	tools[7].name.should.equal("mcp");
+	// Last: the model provider the agent CLI reads when it starts.
+	tools[8].name.should.equal("provider");
 
 	// The hook bundle is keyed to the same vendor the CLI install routes to.
 	import std.algorithm.searching : canFind;
@@ -76,4 +81,21 @@ version (unittest) import fluent.asserts;
 	allTools(ctx)[3].name.should.equal("codex");
 	ctx.model = "opencode";
 	allTools(ctx)[3].name.should.equal("opencode");
+}
+
+@safe unittest // the last tool is "provider": codex gets CodexSetup's provider steps, claude gets none
+{
+	import agentcore.vendors.codex.setup : CodexSetup;
+
+	InitContext codexCtx;
+	codexCtx.model = "gpt-5-codex";
+	auto codexLast = allTools(codexCtx)[$ - 1];
+	codexLast.name.should.equal("provider");
+	codexLast.steps(codexCtx).should.equal((new CodexSetup).providerSteps);
+
+	InitContext claudeCtx;
+	claudeCtx.model = "claude-sonnet-4-6";
+	auto claudeLast = allTools(claudeCtx)[$ - 1];
+	claudeLast.name.should.equal("provider");
+	claudeLast.steps(claudeCtx).length.should.equal(0);
 }

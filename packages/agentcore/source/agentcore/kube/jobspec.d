@@ -23,7 +23,7 @@ import agentcore.crds.mcp_server : credentials;
 import agentcore.crds.station : Station;
 import agentcore.crds.serialization : toJson;
 import agentcore.vendors.select : agentForModel, agentSetupForModel;
-import agentcore.vendors.base.agent : Agent_ = Agent, AgentEnv, AgentSecretAliases, ConversationArgs;
+import agentcore.vendors.base.agent : Agent_ = Agent, AgentEnv, AgentProviderSwitch, AgentSecretAliases, ConversationArgs;
 import agentcore.vendors.realtime : RealtimeArgv, realtimeArgv;
 import agentcore.kube.bundle : bundleRoot, initializerPath, supervisorPath;
 import agentcore.crds.delivery_spec : opensPullRequest;
@@ -182,7 +182,7 @@ Json buildJob(Agent agent, Station station, AgentDefinition definition, string a
 	const session = realtime ? realtimeArgv(vendor, recipe, conv) : RealtimeArgv.init;
 	auto argv = realtime ? session.first.dup : vendor.command(recipe, prompt, conv);
 	auto env = runEnv(agent, station, recipe, vendorEnv(cast(Object) vendor),
-		vendorSecretAliases(cast(Object) vendor));
+		vendorSecretAliases(cast(Object) vendor), vendorProviderSecrets(cast(Object) vendor));
 	if (realtime)
 		env = withRealtimeEnv(env, session, recipe.realtime.idleTimeoutMinutes, realtimeToken,
 			conversation.id.length ? "" : prompt);
@@ -735,12 +735,12 @@ private Json literalEnv(string name, string value)
 }
 
 /// An env entry resolving `key` of the agent-secrets Secret at pod start.
-private Json secretEnv(string name, string key)
+private Json secretEnv(string name, string key, bool optional = false)
 {
 	Json[string] keyRef;
 	keyRef["name"] = Json(agentSecretName);
 	keyRef["key"] = Json(key);
-	keyRef["optional"] = Json(false);
+	keyRef["optional"] = Json(optional);
 	Json[string] from;
 	from["secretKeyRef"] = Json(keyRef);
 	Json[string] entry;
@@ -796,8 +796,24 @@ private string[string] vendorSecretAliases(const Object vendor) @safe
 	return withAliases is null ? null : withAliases.secretAliases;
 }
 
+/// The agent-secrets keys a vendor offers a pod: `secrets` for another provider, and its own `vendorKey`.
+private struct ProviderSecretKeys
+{
+	string[] secrets;
+	string vendorKey;
+}
+
+/// The secret keys the vendor's CLI needs for another provider; `.init` for a vendor without the hook.
+private ProviderSecretKeys vendorProviderSecrets(const Object vendor) @safe
+{
+	auto withProvider = cast(const AgentProviderSwitch) vendor;
+	return withProvider is null ? ProviderSecretKeys.init
+		: ProviderSecretKeys(withProvider.providerSecrets, withProvider.vendorKey);
+}
+
 private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe,
-	const string[string] vendorDefaults, const string[string] secretAliases)
+	const string[string] vendorDefaults, const string[string] secretAliases,
+	const ProviderSecretKeys provider)
 {
 	Json[] env;
 
@@ -818,9 +834,9 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe,
 		env ~= Json(entry);
 	}
 
-	void secretVar(string name, string key)
+	void secretVar(string name, string key, bool optional = false)
 	{
-		env ~= secretEnv(name, key);
+		env ~= secretEnv(name, key, optional);
 	}
 
 	// An http sink's `headers_secret` names a key in the agent-secrets Secret holding the
@@ -963,9 +979,21 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe,
 	foreach (secret; recipe.resources.secrets)
 		if (!isReservedEnvName(secret.name) && secret.name !in secretsInjected)
 		{
-			secretVar(secret.name, secret.ref_);
+			secretVar(secret.name, secret.ref_, secret.name == provider.vendorKey);
 			secretsInjected[secret.name] = true;
 		}
+	// The controller cannot read the agent-secrets Secret, so a vendor with a provider hook
+	// is offered its provider keys unconditionally; optional refs resolve to nothing when
+	// the cluster does not set them. The vendor's own key is optional for the same reason:
+	// a cluster on another provider need not hold it.
+	const offered = provider.secrets.length ? [envProvider] ~ provider.secrets : null;
+	foreach (name; offered)
+	{
+		if (name in secretsInjected)
+			continue;
+		secretVar(name, name, true);
+		secretsInjected[name] = true;
+	}
 	// An alias copies the entry its source name resolves to in the pod — the last one,
 	// as the kubelet is last-wins — so a secret stays a secretKeyRef, never in argv or on disk.
 	bool named(Json entry, string name)
@@ -999,7 +1027,7 @@ bool isReservedEnvName(string name) @safe pure nothrow
 		envConversationPin, envConversationAuth,
 		envSelect, envWatch, envFiles, envMcpServers, envWorkspace, envParameters, envGitCredential, envGitCredentialUrl, envTargetRepo,
 		envBranch, envModel, envAgentName, envStationName, envTaskId, envPodName,
-		envPodNamespace, envDeadlineMs, envDelivery, homeEnv, pathEnv,
+		envPodNamespace, envDeadlineMs, envDelivery, envProvider, homeEnv, pathEnv,
 		envRealtimeStyle, envRealtimeIdleMs, envRealtimeToken, envRealtimePrompt, envRealtimeNextArgv, envRealtimePort,
 	];
 	foreach (owned; reserved)
@@ -1107,6 +1135,21 @@ version (unittest)
 				&& ("secretKeyRef" in entry["valueFrom"]))
 				return entry["valueFrom"]["secretKeyRef"]["key"].get!string;
 		return "";
+	}
+
+	/// Every optional agent-secrets reference in the container's env as `ENV=key`, sorted.
+	private string[] optionalSecretRefs(Json container)
+	{
+		string[] refs;
+		foreach (entry; container["env"].get!(Json[]))
+		{
+			if (!("valueFrom" in entry) || !("secretKeyRef" in entry["valueFrom"]))
+				continue;
+			auto keyRef = entry["valueFrom"]["secretKeyRef"];
+			if (keyRef["name"].get!string == agentSecretName && keyRef["optional"].get!bool)
+				refs ~= entry["name"].get!string ~ "=" ~ keyRef["key"].get!string;
+		}
+		return refs.sort.array;
 	}
 
 	private void fixtures(out Agent agent, out Station station, out AgentDefinition definition)
@@ -2026,10 +2069,131 @@ unittest
 {
 	isReservedEnvName("AGENT_SINKS").should.equal(true);
 	isReservedEnvName("AGENT_NAME").should.equal(true);
+	isReservedEnvName("AGENT_PROVIDER").should.equal(true);
 	isReservedEnvName("HOME").should.equal(true);
 	isReservedEnvName("PATH").should.equal(true);
 	isReservedEnvName("LOG_LEVEL").should.equal(false);
 	isReservedEnvName("ANTHROPIC_API_KEY").should.equal(false);
+}
+
+unittest // a claude-sonnet-4-6 run with no secrets gets optional refs for AGENT_PROVIDER and the two ANTHROPIC_FOUNDRY entries only
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.model = "claude-sonnet-4-6";
+	definition.spec.resources.secrets = null;
+
+	optionalSecretRefs(agentContainer(buildJob(agent, station, definition, "img"))).should.equal([
+		"AGENT_PROVIDER=AGENT_PROVIDER",
+		"ANTHROPIC_FOUNDRY_API_KEY=ANTHROPIC_FOUNDRY_API_KEY",
+		"ANTHROPIC_FOUNDRY_BASE_URL=ANTHROPIC_FOUNDRY_BASE_URL",
+	]);
+}
+
+unittest // a claude-sonnet-4-6 run with secret ANTHROPIC_API_KEY=anthropic-key makes that ref optional too
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.model = "claude-sonnet-4-6";
+	definition.spec.resources.secrets = [SecretRef("ANTHROPIC_API_KEY", "anthropic-key")];
+
+	optionalSecretRefs(agentContainer(buildJob(agent, station, definition, "img"))).should.equal([
+		"AGENT_PROVIDER=AGENT_PROVIDER",
+		"ANTHROPIC_API_KEY=anthropic-key",
+		"ANTHROPIC_FOUNDRY_API_KEY=ANTHROPIC_FOUNDRY_API_KEY",
+		"ANTHROPIC_FOUNDRY_BASE_URL=ANTHROPIC_FOUNDRY_BASE_URL",
+	]);
+}
+
+unittest // a gpt-5-codex run with no secrets gets optional refs for AGENT_PROVIDER and AZURE_OPENAI_BASE_URL and AZURE_OPENAI_API_KEY only
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.model = "gpt-5-codex";
+	definition.spec.resources.secrets = null;
+
+	optionalSecretRefs(agentContainer(buildJob(agent, station, definition, "img"))).should.equal([
+		"AGENT_PROVIDER=AGENT_PROVIDER",
+		"AZURE_OPENAI_API_KEY=AZURE_OPENAI_API_KEY",
+		"AZURE_OPENAI_BASE_URL=AZURE_OPENAI_BASE_URL",
+	]);
+}
+
+unittest // a gpt-5-codex run with secret OPENAI_API_KEY=openai-key has optional refs for OPENAI_API_KEY and its CODEX_API_KEY alias beside the provider entries
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.model = "gpt-5-codex";
+	definition.spec.resources.secrets = [SecretRef("OPENAI_API_KEY", "openai-key")];
+
+	optionalSecretRefs(agentContainer(buildJob(agent, station, definition, "img"))).should.equal([
+		"AGENT_PROVIDER=AGENT_PROVIDER",
+		"AZURE_OPENAI_API_KEY=AZURE_OPENAI_API_KEY",
+		"AZURE_OPENAI_BASE_URL=AZURE_OPENAI_BASE_URL",
+		"CODEX_API_KEY=openai-key",
+		"OPENAI_API_KEY=openai-key",
+	]);
+}
+
+unittest // a gemini-3.1-pro-preview run with secret GEMINI_API_KEY=gemini-key has no optional refs
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.model = "gemini-3.1-pro-preview";
+	definition.spec.resources.secrets = [SecretRef("GEMINI_API_KEY", "gemini-key")];
+
+	optionalSecretRefs(agentContainer(buildJob(agent, station, definition, "img"))).should.equal([]);
+}
+
+unittest // a claude-sonnet-4-6 run with secrets ANTHROPIC_API_KEY=anthropic-key and GITHUB_TOKEN=github-key keeps GITHUB_TOKEN out of the optional refs
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.model = "claude-sonnet-4-6";
+	definition.spec.resources.secrets = [
+		SecretRef("ANTHROPIC_API_KEY", "anthropic-key"),
+		SecretRef("GITHUB_TOKEN", "github-key"),
+	];
+
+	optionalSecretRefs(agentContainer(buildJob(agent, station, definition, "img"))).should.equal([
+		"AGENT_PROVIDER=AGENT_PROVIDER",
+		"ANTHROPIC_API_KEY=anthropic-key",
+		"ANTHROPIC_FOUNDRY_API_KEY=ANTHROPIC_FOUNDRY_API_KEY",
+		"ANTHROPIC_FOUNDRY_BASE_URL=ANTHROPIC_FOUNDRY_BASE_URL",
+	]);
+}
+
+unittest // a claude-sonnet-4-6 definition with env AGENT_PROVIDER=bedrock gets no literal AGENT_PROVIDER and keeps the optional AGENT_PROVIDER ref
+{
+	import agentcore.crds.env_var : EnvVar;
+
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.model = "claude-sonnet-4-6";
+	definition.spec.resources.secrets = null;
+	definition.spec.resources.env = [EnvVar("AGENT_PROVIDER", "bedrock")];
+	auto container = agentContainer(buildJob(agent, station, definition, "img"));
+
+	envValues(container, "AGENT_PROVIDER").should.equal([]);
+	optionalSecretRefs(container).should.equal([
+		"AGENT_PROVIDER=AGENT_PROVIDER",
+		"ANTHROPIC_FOUNDRY_API_KEY=ANTHROPIC_FOUNDRY_API_KEY",
+		"ANTHROPIC_FOUNDRY_BASE_URL=ANTHROPIC_FOUNDRY_BASE_URL",
+	]);
 }
 
 unittest // a gpt-5-codex run with secret OPENAI_API_KEY=openai-key also gets CODEX_API_KEY from key openai-key

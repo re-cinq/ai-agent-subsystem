@@ -96,6 +96,9 @@ Agents call a model provider, so before a run can succeed create an `agent-secre
 `ai-agents` namespace and reference its keys from your recipe — see the
 [install guide](https://re-cinq.github.io/ai-agent-subsystem/setup/install/).
 
+To run Claude Code and Codex on Microsoft Foundry, see
+[Run on Microsoft Foundry](https://re-cinq.github.io/ai-agent-subsystem/tasks/run-on-foundry/).
+
 With the controller running, define your first recipe from the [`examples/`](examples/).
 
 ### Build your own images
