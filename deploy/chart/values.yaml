@@ -2,12 +2,12 @@
 controller:
   image:
     repository: ghcr.io/re-cinq/ai-agent-controller
-    digest: sha256:037d4168997bd4d47dbe99721ceed948b9714f9d86270952eeaf38d560dfb693
+    digest: sha256:b66d58b34997824590e39ed7f719c57dc89051c028571cee303d05063416e84d
   # A PodMonitor for a cluster that runs the Prometheus operator.
   podMonitor: { enabled: false }
 
 # Injected into each run pod as the init container that provides the agent runtime.
-agentImage: ghcr.io/re-cinq/ai-agent@sha256:b069f2adcfe3b1da50a50c3945513a74ddfda5aaf0eb18c393966c1547f4e102
+agentImage: ghcr.io/re-cinq/ai-agent@sha256:9f17a88d996b5782cd1ec9a3b1eea78c8c8af8b44a7143a5697c38e7e1d96ada
 
 # The agent CLI each vendor's init installs, published in the agent-subsystem-versions
 # ConfigMap. Set by scripts/pin-image-digests.sh from the D pins; a unit test holds them equal.
