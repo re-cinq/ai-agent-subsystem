@@ -6,6 +6,8 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.21.1
+
 ### Fixed
 
 - **`gh` is authenticated on a GitHub Enterprise Server host.** The first repository credential was aliased only to `GH_TOKEN`, which `gh` reads for github.com and ghe.com. A run on a self-hosted GitHub Enterprise Server cloned and pushed, but `gh pr view`, `gh pr diff` and `gh pr comment` ran unauthenticated. The same credential is now also offered as `GH_ENTERPRISE_TOKEN`, from the same `agent-secrets` key, unless the recipe sets `GH_ENTERPRISE_TOKEN` itself, as an env variable or a secret. A run with `delivery.pullRequest` keeps it out of the agent container, as it does `GH_TOKEN`.
