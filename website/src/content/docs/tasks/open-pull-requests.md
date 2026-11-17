@@ -9,7 +9,8 @@ in the same pod pushes the branch and opens the pull request. The pull request's
 Agent's `status.prUrl`.
 
 Without `delivery`, the agent container gets the repo's token as its `token_secret` variable and as
-`GH_TOKEN`, and the clone keeps push auth in its config. An agent that a prompt injection has taken
+`GH_TOKEN` and `GH_ENTERPRISE_TOKEN` (the variable `gh` reads for a GitHub Enterprise Server host),
+and the clone keeps push auth in its config. An agent that a prompt injection has taken
 over can then push anywhere that token reaches. With `delivery`, it can only commit.
 
 ## Configure the recipe
@@ -68,7 +69,7 @@ kubectl -n ai-agents get agent fix-abc12 -o jsonpath='{.status.prUrl}'
 ## What happens in the pod
 
 1. The init container clones the repo with the token and writes no push auth into the clone.
-2. The agent runs and commits. Its container has no git token, no `GH_TOKEN`, and no broker
+2. The agent runs and commits. Its container has no git token, no `GH_TOKEN` or `GH_ENTERPRISE_TOKEN`, and no broker
    credential.
 3. When the agent exits, the supervisor writes a `git bundle` of the clone's `HEAD` to the `outbox`
    volume, and then a marker that says whether there is anything to deliver.
