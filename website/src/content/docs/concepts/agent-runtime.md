@@ -100,6 +100,9 @@ vars). The clone authenticates through a git credential helper that reads that v
 at clone time, so the token value never appears in an argv or a log line. The env-var name is
 validated before use, and the repo url is never passed through a shell.
 
+The first repo's token is also offered as `GH_TOKEN` and `GH_ENTERPRISE_TOKEN`, so the `gh` CLI is authenticated
+on github.com and on a GitHub Enterprise Server host alike. A recipe that sets `GH_ENTERPRISE_TOKEN` itself keeps its own value.
+
 The helper persisted into the clone's config additionally falls back to a token **file** at
 `<clone>/.git/agent-token` (written by the init, `0600` before a byte lands) when the variable is
 unset or empty: some agent CLIs spawn their shell-tool children with a scrubbed environment, in
@@ -137,7 +140,7 @@ names, only while its run is open.
 **None of that push auth exists when the recipe sets
 [`delivery.pullRequest`](../tasks/open-pull-requests.md).** The init still clones with the token,
 but persists no helper, token file or header into the clone, and the agent container gets neither the
-repo's token variable nor `GH_TOKEN` nor the broker variables. A `courier` container pushes the work
+repo's token variable nor `GH_TOKEN` nor `GH_ENTERPRISE_TOKEN` nor the broker variables. A `courier` container pushes the work
 instead.
 
 Before running the tools it **self-bootstraps prerequisites**: any executable a tool needs (`git`,

@@ -12,6 +12,7 @@ import vibe.data.json;
 import agentcore.crds.agent : Agent;
 import agentcore.crds.agent_definition : AgentDefinition;
 import agentcore.crds.agent_definition_spec : AgentDefinitionSpec;
+import agentcore.crds.agent_resources : AgentResources;
 import agentcore.crds.output_selector : OutputSelector;
 import agentcore.crds.output_watch : OutputWatch;
 import agentcore.crds.output_sink : OutputSink;
@@ -811,6 +812,13 @@ private ProviderSecretKeys vendorProviderSecrets(const Object vendor) @safe
 		: ProviderSecretKeys(withProvider.providerSecrets, withProvider.vendorKey);
 }
 
+/// Whether the recipe sets `name` itself, as an env variable or a secret.
+private bool declaresEnvName(const AgentResources resources, string name) @safe
+{
+	return resources.env.canFind!(variable => variable.name == name)
+		|| resources.secrets.canFind!(secret => secret.name == name);
+}
+
 private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe,
 	const string[string] vendorDefaults, const string[string] secretAliases,
 	const ProviderSecretKeys provider)
@@ -918,7 +926,8 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe,
 	// `gh` (and every tool reading the conventional variable) authenticates via GH_TOKEN;
 	// the per-task key carries a run-scoped name, so the first repo credential is also
 	// aliased to the standard name — without it the agent's gh calls run unauthenticated
-	// and 404 on private repos.
+	// and 404 on private repos. `gh` reads GH_ENTERPRISE_TOKEN instead on a GitHub
+	// Enterprise Server host, so the credential gets that name too, whatever the repo's host.
 	foreach (repo; recipe.resources.repos)
 		if (repo.tokenSecret.length)
 		{
@@ -926,6 +935,11 @@ private Json runEnv(Agent agent, Station station, AgentDefinitionSpec recipe,
 			{
 				secretVar("GH_TOKEN", repo.tokenSecret);
 				secretsInjected["GH_TOKEN"] = true;
+			}
+			if (!declaresEnvName(recipe.resources, "GH_ENTERPRISE_TOKEN"))
+			{
+				secretVar("GH_ENTERPRISE_TOKEN", repo.tokenSecret);
+				secretsInjected["GH_ENTERPRISE_TOKEN"] = true;
 			}
 			break;
 		}
@@ -1773,6 +1787,43 @@ unittest
 	envSecretKey(container, "GH_TOKEN").should.equal("GH_TOKEN_abc12345");
 }
 
+unittest // a run with repo credential key GH_TOKEN_abc12345 also gets GH_ENTERPRISE_TOKEN from that key
+{
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.resources.repos = [
+		RepoRef("target", "https://ghe.example.com/octo/app.git", "main", "", "GH_TOKEN_abc12345"),
+	];
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img"));
+
+	// `gh` reads GH_TOKEN only for github.com and ghe.com; for a GitHub Enterprise Server host
+	// it reads GH_ENTERPRISE_TOKEN, so the same credential is offered under that name too.
+	envSecretKey(container, "GH_ENTERPRISE_TOKEN").should.equal("GH_TOKEN_abc12345");
+}
+
+unittest // a run with its own GH_ENTERPRISE_TOKEN=enterprise-key secret keeps one GH_ENTERPRISE_TOKEN entry from enterprise-key
+{
+	import std.algorithm : count;
+
+	Agent agent;
+	Station station;
+	AgentDefinition definition;
+	fixtures(agent, station, definition);
+	definition.spec.resources.repos = [
+		RepoRef("target", "https://ghe.example.com/octo/app.git", "main", "", "GH_TOKEN_abc12345"),
+	];
+	definition.spec.resources.secrets = [SecretRef("GH_ENTERPRISE_TOKEN", "enterprise-key")];
+
+	auto container = agentContainer(buildJob(agent, station, definition, "img"));
+
+	container["env"].get!(Json[]).count!(entry => entry["name"].get!string == "GH_ENTERPRISE_TOKEN")
+		.should.equal(1);
+	envSecretKey(container, "GH_ENTERPRISE_TOKEN").should.equal("enterprise-key");
+}
+
 unittest
 {
 	// A live mcp_servers entry's headers_secret is injected as a secretKeyRef env under the
@@ -2516,7 +2567,7 @@ version (unittest)
 	}
 }
 
-unittest // a delivering run's agent container holds no git token, GH_TOKEN or broker credential
+unittest // a delivering run's agent container holds no git token, GH_TOKEN, GH_ENTERPRISE_TOKEN or broker credential
 {
 	Agent agent;
 	Station station;
@@ -2538,12 +2589,12 @@ unittest // a delivering run's courier and init containers receive the token and
 	auto job = buildJob(agent, station, definition, "img");
 
 	pushCredentials(containerNamed(job, courierContainerName)).should.equal(
-		["GH_TOKEN_APP", "GH_TOKEN", "AGENT_GIT_CREDENTIAL", "AGENT_GIT_CREDENTIAL_URL", "GITHUB_TOKEN"]);
+		["GH_TOKEN_APP", "GH_TOKEN", "GH_ENTERPRISE_TOKEN", "AGENT_GIT_CREDENTIAL", "AGENT_GIT_CREDENTIAL_URL", "GITHUB_TOKEN"]);
 	pushCredentials(initContainerOf(job)).should.equal(
-		["GH_TOKEN_APP", "GH_TOKEN", "AGENT_GIT_CREDENTIAL", "AGENT_GIT_CREDENTIAL_URL", "GITHUB_TOKEN"]);
+		["GH_TOKEN_APP", "GH_TOKEN", "GH_ENTERPRISE_TOKEN", "AGENT_GIT_CREDENTIAL", "AGENT_GIT_CREDENTIAL_URL", "GITHUB_TOKEN"]);
 }
 
-unittest // a run without delivery keeps the repo token and its GH_TOKEN alias in the agent container
+unittest // a run without delivery keeps the repo token and its GH_TOKEN and GH_ENTERPRISE_TOKEN aliases in the agent container
 {
 	Agent agent;
 	Station station;
@@ -2554,7 +2605,7 @@ unittest // a run without delivery keeps the repo token and its GH_TOKEN alias i
 	auto job = buildJob(agent, station, definition, "img");
 
 	pushCredentials(agentContainer(job)).should.equal(
-		["GH_TOKEN_APP", "GH_TOKEN", "AGENT_GIT_CREDENTIAL", "AGENT_GIT_CREDENTIAL_URL", "GITHUB_TOKEN"]);
+		["GH_TOKEN_APP", "GH_TOKEN", "GH_ENTERPRISE_TOKEN", "AGENT_GIT_CREDENTIAL", "AGENT_GIT_CREDENTIAL_URL", "GITHUB_TOKEN"]);
 	job["spec"]["template"]["spec"]["containers"].get!(Json[]).length.should.equal(2);
 }
 
