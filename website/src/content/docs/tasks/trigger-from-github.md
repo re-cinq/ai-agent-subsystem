@@ -91,7 +91,9 @@ A spawner with only `github` never runs on a schedule.
 ## Expose the receiver
 
 GitHub has to reach `POST /v1/namespaces/<namespace>/agentspawners/<spawner>/github` on the
-`agent-controller-webhooks` Service. Put it behind your ingress with TLS, for example:
+`agent-controller-webhooks` Service. Put it behind an ingress with TLS. Any ingress controller works if it
+terminates TLS and routes that path prefix to the Service. For example, with
+`<your-ingress-class>` replaced by the class of your controller:
 
 ```yaml
 apiVersion: networking.k8s.io/v1
@@ -100,7 +102,7 @@ metadata:
   name: agent-webhooks
   namespace: ai-agents
 spec:
-  ingressClassName: nginx
+  ingressClassName: <your-ingress-class>
   tls:
     - hosts: [agents.example.com]
       secretName: agents-example-com-tls
