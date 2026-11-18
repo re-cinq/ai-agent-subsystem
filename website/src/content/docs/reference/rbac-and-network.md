@@ -97,7 +97,7 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: ingress-nginx   # your ingress controller's namespace
+              kubernetes.io/metadata.name: <ingress-controller-namespace>   # replace with your ingress controller's namespace
       ports:
         - protocol: TCP
           port: 8083
