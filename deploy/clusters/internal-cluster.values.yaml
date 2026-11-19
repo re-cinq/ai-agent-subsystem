@@ -4,10 +4,10 @@
 # Everything lands in the chart's own `ai-agents` namespace; the floor
 # (re-cinq/floor) creates its Agents there.
 #
-# Both images come from the v0.21.2 release install.yaml.
+# Both images come from the v0.21.3 release install.yaml.
 controller:
   image:
     repository: ghcr.io/re-cinq/ai-agent-controller
-    digest: sha256:0135f7de18d905f3a2512ad4ddb9922b68fcab312479e1674408ffa63a465c60
+    digest: sha256:0ea35e3e02f3da88212afa5e33179f9d36a624a159b972fb351b6e180d28dfd4
   podMonitor: { enabled: true }
-agentImage: ghcr.io/re-cinq/ai-agent@sha256:ed643d981607365ea3cc17d6e70d3978ba7e7bdd81c27e2a5daf666b085ff9b6
+agentImage: ghcr.io/re-cinq/ai-agent@sha256:6ccb9ccb3f146252ff50097779a9bb173045616623baaac5144e7137f71114c5
