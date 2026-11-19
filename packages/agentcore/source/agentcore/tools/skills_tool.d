@@ -73,7 +73,8 @@ private string[][] registrySteps(in InitContext ctx) @safe
 	string[][] steps = [[
 		"sh", "-c",
 		"mkdir -p " ~ claudeConfigDir ~ " && curl -fsSL " ~ src ~ "/settings.json -o "
-			~ claudeSettingsPath ~ " 2>/dev/null || true",
+			~ claudeSettingsPath ~ ".download 2>/dev/null && mv " ~ claudeSettingsPath ~ ".download "
+			~ claudeSettingsPath ~ " || true",
 	]];
 
 	// (3) each named skill as a tarball, extracted into the skills dir.

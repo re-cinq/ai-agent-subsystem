@@ -10,7 +10,7 @@ import agentcore.vendors.base.setup : AgentSetup, CliOrigin, CliReport;
 
 /// The Claude Code CLI release a run installs: the one the agent image bakes, its
 /// `CLAUDE_CLI_VERSION` build arg (a unit test holds the two equal).
-enum claudeCliVersion = "2.1.328";
+enum claudeCliVersion = "2.1.329";
 
 /// One architecture's native glibc build of `claudeCliVersion`; the hashes come from
 /// downloads.claude.ai/claude-code-releases/<version>/manifest.json.
@@ -22,8 +22,8 @@ struct ClaudePackage
 }
 
 immutable ClaudePackage[] claudePackages = [
-	ClaudePackage("x86_64", "linux-x64", "a982d38030b97e750848add2cbb2df6d9a70d5544a22ca9b216a349ba25865e8"),
-	ClaudePackage("aarch64", "linux-arm64", "307f8bada27b37db7553fac75e86004e3dbff5a931ffc611b54fe710ce1eb521"),
+	ClaudePackage("x86_64", "linux-x64", "30e2724e2aecb1bf5dc9f3130901afb71c5fa229051c190a6d7ad9aff6378d6d"),
+	ClaudePackage("aarch64", "linux-arm64", "8489e2c7ba7846b4681b84e559fed4ed5bb265e129e21dc9de9e322157fb2bea"),
 ];
 
 /// Put the Claude Code CLI on `~/.local/bin` in the shared HOME. The agent image
@@ -60,10 +60,15 @@ final class ClaudeSetup : AgentSetup, CliReport
 
 	override string[][] installSteps() const @safe
 	{
+		enum ensureSettings = `mkdir -p "$HOME/.claude"
+if [ ! -e "$HOME/.claude/settings.json" ]; then
+  printf '{}\n' > "$HOME/.claude/settings.json"
+fi
+`;
 		if (baked)
 			return [[
-				"sh", "-c",
-				`command -v claude >/dev/null 2>&1 || { mkdir -p "$HOME/.local/bin" && cp '`
+				"sh", "-ec",
+				ensureSettings ~ `command -v claude >/dev/null 2>&1 || { mkdir -p "$HOME/.local/bin" && cp '`
 					~ bakedCli ~ `' "$HOME/.local/bin/claude" && chmod +x "$HOME/.local/bin/claude"; }`,
 			]];
 		const architectures = packages
@@ -71,7 +76,7 @@ final class ClaudeSetup : AgentSetup, CliReport
 			.join;
 		return [[
 			"bash", "-euo", "pipefail", "-c",
-			`command -v claude >/dev/null 2>&1 && exit 0
+			ensureSettings ~ `command -v claude >/dev/null 2>&1 && exit 0
 case "$(uname -m)" in` ~ architectures ~ `
   *) echo "no Claude CLI release for $(uname -m)" >&2; exit 1 ;;
 esac
@@ -233,7 +238,7 @@ unittest
 	auto box = sandbox("baked");
 	scope (exit)
 		rmdirRecurse(box.root);
-	writeExecutable(box.baked, "#!/bin/sh\necho '2.1.328 (Claude Code)'\n");
+	writeExecutable(box.baked, "#!/bin/sh\necho '2.1.329 (Claude Code)'\n");
 
 	auto claude = new ClaudeSetup(box.baked);
 	originIn(box, claude).should.equal(CliOrigin.baked);
@@ -243,7 +248,8 @@ unittest
 		runIn(box, step).status.should.equal(0);
 
 	box.curlLog.exists.should.equal(false);
-	installedVersion(box).should.equal("2.1.328 (Claude Code)");
+	readText(buildPath(box.home, ".claude", "settings.json")).strip.should.equal("{}");
+	installedVersion(box).should.equal("2.1.329 (Claude Code)");
 }
 
 unittest
@@ -252,14 +258,19 @@ unittest
 	auto box = sandbox("baked-retry");
 	scope (exit)
 		rmdirRecurse(box.root);
-	writeExecutable(box.baked, "#!/bin/sh\necho '2.1.328 (Claude Code)'\n");
+	writeExecutable(box.baked, "#!/bin/sh\necho '2.1.329 (Claude Code)'\n");
 	auto claude = new ClaudeSetup(box.baked);
 
-	foreach (attempt; 0 .. 2)
-		foreach (step; claude.installSteps)
-			runIn(box, step).status.should.equal(0);
+	foreach (step; claude.installSteps)
+		runIn(box, step).status.should.equal(0);
 
-	installedVersion(box).should.equal("2.1.328 (Claude Code)");
+	const settings = buildPath(box.home, ".claude", "settings.json");
+	write(settings, `{"language":"Spanish"}`);
+	foreach (step; claude.installSteps)
+		runIn(box, step).status.should.equal(0);
+	readText(settings).should.equal(`{"language":"Spanish"}`);
+
+	installedVersion(box).should.equal("2.1.329 (Claude Code)");
 }
 
 unittest
@@ -315,7 +326,7 @@ unittest
 	auto box = sandbox("present");
 	scope (exit)
 		rmdirRecurse(box.root);
-	writeExecutable(box.baked, "#!/bin/sh\necho '2.1.328 (Claude Code)'\n");
+	writeExecutable(box.baked, "#!/bin/sh\necho '2.1.329 (Claude Code)'\n");
 	writeExecutable(buildPath(box.bin, "claude"), "#!/bin/sh\necho '1.0.0 (Claude Code)'\n");
 
 	auto claude = new ClaudeSetup(box.baked);

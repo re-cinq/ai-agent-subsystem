@@ -12,7 +12,7 @@ agentImage: ghcr.io/re-cinq/ai-agent@sha256:ed643d981607365ea3cc17d6e70d3978ba7e
 # The agent CLI each vendor's init installs, published in the agent-subsystem-versions
 # ConfigMap. Set by scripts/pin-image-digests.sh from the D pins; a unit test holds them equal.
 cli:
-  claude: "2.1.328"
+  claude: "2.1.329"
   codex: "0.167.1"
   gemini: "0.62.0"
   opencode: "latest"

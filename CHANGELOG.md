@@ -6,6 +6,12 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.21.3
+
+### Fixed
+
+- Claude Code now starts for recipes without a skills registry. The initializer creates empty settings when needed and preserves existing settings on retry. Agent pods install Claude Code 2.1.329.
+
 ## v0.21.2
 
 ### Changed

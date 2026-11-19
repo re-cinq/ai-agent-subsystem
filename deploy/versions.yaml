@@ -10,8 +10,8 @@ metadata:
   labels:
     agents.re-cinq.com/component: versions
 data:
-  version: "0.21.2"
-  claude-cli: "2.1.328"
+  version: "0.21.3"
+  claude-cli: "2.1.329"
   codex-cli: "0.167.1"
   gemini-cli: "0.62.0"
   # OpenCode is installed from its official installer, unpinned.
