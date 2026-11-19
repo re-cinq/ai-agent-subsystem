@@ -6,6 +6,12 @@ the npm package versions.
 
 ## Unreleased
 
+## v0.21.2
+
+### Changed
+
+- Agent pods install Claude Code 2.1.328 on Linux amd64 and arm64. To run Sonnet 5.5, set `spec.model` to `claude-sonnet-5-5` on the Agent or AgentDefinition.
+
 ## v0.21.1
 
 ### Fixed
