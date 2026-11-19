@@ -104,11 +104,7 @@ final class ClaudeAgent : Agent, StdinSession, AgentProviderSwitch
 		if (mcpConfig.length)
 			cmd ~= ["--mcp-config", mcpConfig, "--strict-mcp-config"];
 
-		// The init stages the org base settings (session hooks) + the recipe's skills
-		// into $HOME/.claude (HOME=/agent). Skills auto-load user-scope with no flag;
-		// point --settings at the staged file explicitly for robustness (a missing file
-		// is silently ignored in --print). The path is shared with the SkillsTool via
-		// kube.bundle so the two can never drift.
+		// ClaudeSetup seeds this file before optional registry settings and hooks are staged.
 		cmd ~= ["--settings", claudeSettingsPath];
 
 		if (recipe.maxTurns > 0)
