@@ -1,4 +1,4 @@
-# lore-trace-impact-version: 2
+# lore-trace-impact-version: 3
 name: Lore Spec Impact
 
 on:
@@ -6,6 +6,7 @@ on:
     types: [opened, synchronize, reopened]
 
 permissions:
+  id-token: write
   contents: read
   checks: write
   pull-requests: write
@@ -21,14 +22,36 @@ jobs:
       - name: Read graph baseline
         id: baseline
         env:
-          LORE_INGEST_TOKEN: ${{ secrets.LORE_INGEST_TOKEN }}
+          LORE_CI_AUTH: identity
           LORE_INGEST_URL: ${{ secrets.LORE_INGEST_URL || vars.LORE_INGEST_URL || vars.LORE_API_URL }}
         run: |
           # Which commit the graph's line ranges belong to. Needed BEFORE the
           # diff, because it decides which files can be compared line-for-line.
-          GRAPH_COMMIT=$(curl -s -H "Authorization: Bearer ${LORE_INGEST_TOKEN}" \
-            "${LORE_INGEST_URL}/api/repos/${{ github.repository }}/impact/base" \
-            | node -e 'let b="";process.stdin.on("data",d=>b+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(b).graphCommit||""))}catch{process.stdout.write("")}})' || echo "")
+          # GitHub vouches for this run: trade its request token for an identity
+          # token whose audience is this install's address. Fetched fresh before
+          # every Lore call.
+          id_token() {
+            curl -fsS --get \
+              -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+              --data-urlencode "audience=${LORE_INGEST_URL}" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}" \
+              | node -e 'let b="";process.stdin.on("data",d=>b+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(b).value||""))}catch{}})' || true
+          }
+          BASE_FILE="$(mktemp)"
+          # The Authorization header rides in a file so the token never
+          # appears on the curl command line (readable in the process table
+          # for the request duration).
+          AUTH_FILE="$(mktemp)"
+          trap 'rm -f "$BASE_FILE" "$AUTH_FILE"' EXIT
+          # A 401 may just be an expired token: ask for a new one, retry once.
+          for ATTEMPT in 1 2; do
+            LORE_TOKEN=$(id_token)
+            printf 'Authorization: Bearer %s\n' "${LORE_TOKEN}" > "$AUTH_FILE"
+            CODE=$(curl -s -o "$BASE_FILE" -w '%{http_code}' -H @"$AUTH_FILE" \
+              "${LORE_INGEST_URL}/api/repos/${{ github.repository }}/impact/base" || echo 000)
+            [ "$CODE" = "401" ] || break
+          done
+          GRAPH_COMMIT=$(node -e 'let b="";process.stdin.on("data",d=>b+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(b).graphCommit||""))}catch{process.stdout.write("")}})' < "$BASE_FILE" || echo "")
           echo "graph_commit=$GRAPH_COMMIT" >> "$GITHUB_OUTPUT"
           echo "graph baseline: ${GRAPH_COMMIT:-<none>}"
 
@@ -137,11 +160,21 @@ jobs:
       - name: Query Lore impact
         id: query
         env:
-          LORE_INGEST_TOKEN: ${{ secrets.LORE_INGEST_TOKEN }}
+          LORE_CI_AUTH: identity
           LORE_INGEST_URL: ${{ secrets.LORE_INGEST_URL || vars.LORE_INGEST_URL || vars.LORE_API_URL }}
           COMMIT: ${{ github.event.pull_request.head.sha }}
           GRAPH_COMMIT: ${{ steps.baseline.outputs.graph_commit }}
         run: |
+          # GitHub vouches for this run: trade its request token for an identity
+          # token whose audience is this install's address. Fetched fresh before
+          # every Lore call.
+          id_token() {
+            curl -fsS --get \
+              -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+              --data-urlencode "audience=${LORE_INGEST_URL}" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}" \
+              | node -e 'let b="";process.stdin.on("data",d=>b+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(b).value||""))}catch{}})' || true
+          }
           # protocol 2 declares that this diff is merge-base-relative and carries
           # baseRanges + per-file alignment. Without it the server suppresses the
           # findings, because a protocol-1 diff cannot be trusted.
@@ -154,15 +187,26 @@ jobs:
           # render a bad token, a 404 and a real outage as the same cheerful
           # "no action needed" - a check that looks identical when broken and
           # when clean is a check nobody reads.
-          CODE=$(curl -s -o impact.json -w '%{http_code}' -X POST \
-            -H "Authorization: Bearer ${LORE_INGEST_TOKEN}" \
-            -H "Content-Type: application/json" \
-            --data-binary @impact-body.json \
-            "${LORE_INGEST_URL}/api/repos/${{ github.repository }}/impact" || echo 000)
+          # The Authorization header rides in a file so the token never
+          # appears on the curl command line (readable in the process table
+          # for the request duration).
+          AUTH_FILE="$(mktemp)"
+          trap 'rm -f "$AUTH_FILE"' EXIT
+          # A 401 may just be an expired token: ask for a new one, retry once.
+          for ATTEMPT in 1 2; do
+            LORE_TOKEN=$(id_token)
+            printf 'Authorization: Bearer %s\n' "${LORE_TOKEN}" > "$AUTH_FILE"
+            CODE=$(curl -s -o impact.json -w '%{http_code}' -X POST \
+              -H @"$AUTH_FILE" \
+              -H "Content-Type: application/json" \
+              --data-binary @impact-body.json \
+              "${LORE_INGEST_URL}/api/repos/${{ github.repository }}/impact" || echo 000)
+            [ "$CODE" = "401" ] || break
+          done
           echo "impact endpoint returned $CODE"
           case "$CODE" in
             2*) ;;
-            401|403) REASON="Lore rejected the request ($CODE) - the LORE_INGEST_TOKEN secret is missing, expired, or lacks the write scope." ;;
+            401|403) REASON="Lore rejected the request ($CODE) - GitHub's identity token was not accepted for this repository (is id-token: write granted?)." ;;
             404) REASON="Lore has no impact endpoint for this repo ($CODE) - it may not be onboarded yet." ;;
             *)   REASON="Lore API unreachable (HTTP $CODE). This check could not run." ;;
           esac
