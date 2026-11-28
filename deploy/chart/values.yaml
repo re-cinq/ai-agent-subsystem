@@ -20,6 +20,9 @@ cli:
 # Each toggle reproduces the deploy/components/<name> kustomize component.
 batch:
   enabled: false
+# The ModelCatalog `default`: list each vendor's models, and on a cluster whose agent-secrets
+# holds AGENT_PROVIDER=foundry probe every model the AgentDefinitions name. It needs the
+# controller's `get` on agent-secrets, which this switch grants.
 modelCatalog:
   enabled: false
 realtime:

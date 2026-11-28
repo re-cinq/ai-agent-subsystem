@@ -6,12 +6,17 @@ import std.conv : to;
 import vibe.data.json : Json;
 
 import agentcore.batch.provider : batchVendor, HttpTransport;
-import agentcore.core.vendor : Vendor;
+import agentcore.core.env : envProvider, foundryProvider;
+import agentcore.core.vendor : Vendor, vendorOf;
 import agentcore.crds.agent_definition : AgentDefinition;
 import agentcore.crds.model_catalog : ModelCatalog, ModelCatalogStatus, ModelInfo, VendorModels;
 import agentcore.crds.serialization : toJson;
 import agentcore.kube.jobspec : agentSecretName;
+import agentcore.kube.kubeclient : NotFound;
+import agentcore.models.foundry : probeFoundryModels;
 import agentcore.models.listing : listModels;
+import agentcore.vendors.base.agent : AgentProviderSwitch;
+import agentcore.vendors.select : agentForModel;
 
 version (unittest)
 {
@@ -60,10 +65,56 @@ struct KeyListing
 /// them as the `default` ModelCatalog stamped `now`.
 void refreshModelCatalog(ModelCatalogClient client, string ns, HttpTransport transport, string now)
 {
-	auto listings = vendorKeys(client.listAgentDefinitions(ns))
+	auto definitions = client.listAgentDefinitions(ns);
+	auto listings = vendorKeys(definitions)
 		.map!(key => listKey(client, ns, key, transport))
 		.array;
-	client.applyModelCatalog(ns, catalogObject(ModelCatalogStatus(now, vendorModels(listings))));
+	auto vendors = vendorModels(listings) ~ foundryModels(client, ns, definitions, transport);
+	client.applyModelCatalog(ns, catalogObject(ModelCatalogStatus(now, vendors)));
+}
+
+/// One foundry entry per listable vendor whose CLI switches provider and whose models
+/// `definitions` name; none unless the agent-secrets Secret sets AGENT_PROVIDER to foundry.
+VendorModels[] foundryModels(ModelCatalogClient client, string ns, AgentDefinition[] definitions,
+	HttpTransport transport)
+{
+	if (!isFoundry(client, ns))
+		return null;
+	auto named = definitions.map!(definition => definition.spec.model).filter!(model => model.length).array
+		.sort.uniq.array;
+	return listableVendors
+		.map!(vendor => named.filter!(model => vendorOf(model) == vendor).array)
+		.filter!(models => models.length && providerSwitch(models[0]) !is null)
+		.map!(models => foundryEntry(client, ns, models, transport))
+		.array;
+}
+
+/// Whether the agent-secrets Secret sets AGENT_PROVIDER to foundry; a Secret or key that is absent says no.
+private bool isFoundry(ModelCatalogClient client, string ns)
+{
+	try
+		return client.secretValue(ns, agentSecretName, envProvider) == foundryProvider;
+	catch (NotFound)
+		return false;
+}
+
+private const(AgentProviderSwitch) providerSwitch(string model)
+{
+	return cast(const AgentProviderSwitch) agentForModel(model);
+}
+
+private VendorModels foundryEntry(ModelCatalogClient client, string ns, string[] models, HttpTransport transport)
+{
+	const vendor = vendorOf(models[0]);
+	const providerSecrets = providerSwitch(models[0]).providerSecrets();
+	try
+	{
+		auto probe = probeFoundryModels(vendor, client.secretValue(ns, agentSecretName, providerSecrets[0]),
+			client.secretValue(ns, agentSecretName, providerSecrets[1]), models, transport);
+		return VendorModels(vendor.to!string, foundryProvider, providerSecrets.dup, probe.error, probe.models);
+	}
+	catch (Exception error)
+		return VendorModels(vendor.to!string, foundryProvider, providerSecrets.dup, error.msg, null);
 }
 
 /// The distinct agent-secrets keys `definitions` map under a vendor's API key env name,
@@ -136,6 +187,13 @@ version (unittest)
 		return definition;
 	}
 
+	private AgentDefinition definitionOf(string model)
+	{
+		AgentDefinition definition;
+		definition.spec.model = model;
+		return definition;
+	}
+
 	private final class FakeCatalogClient : ModelCatalogClient
 	{
 		AgentDefinition[] definitions;
@@ -155,7 +213,6 @@ version (unittest)
 
 		string secretValue(string ns, string name, string key)
 		{
-			import agentcore.kube.kubeclient : NotFound;
 			import std.exception : enforce;
 
 			enforce(key in secrets, new NotFound("Secret has no key " ~ key));
@@ -222,5 +279,25 @@ unittest // refresh applies the default catalog with claude-opus-5-5 and gpt-5.1
 				"models": [{"id": "gpt-5.1", "displayName": "gpt-5.1"}]},
 			{"vendor": "gemini", "provider": "gemini", "secretRefs": ["missing-key"],
 				"error": "missing-key: Secret has no key missing-key", "models": []}
+		]}}`));
+}
+
+unittest // with AGENT_PROVIDER foundry the refresh adds a foundry claude entry holding the deployed claude-opus-5-5 and a foundry codex entry whose missing AZURE_OPENAI_BASE_URL is its error
+{
+	auto client = new FakeCatalogClient([definitionOf("claude-opus-5-5"), definitionOf("gpt-5.1-codex"), definitionOf("")], [
+		"AGENT_PROVIDER": "foundry",
+		"ANTHROPIC_FOUNDRY_BASE_URL": "https://my-foundry.services.ai.azure.com/anthropic",
+		"ANTHROPIC_FOUNDRY_API_KEY": "foundry-key",
+	]);
+
+	refreshModelCatalog(client, "ai-agents", (request) => HttpResponse(200, `{"id":"msg_1"}`), "2026-11-28T09:00:00Z");
+
+	client.applied.should.equal(parseJsonString(`{
+		"apiVersion": "agents.re-cinq.com/v1beta1", "kind": "ModelCatalog", "metadata": {"name": "default"},
+		"status": {"refreshedAt": "2026-11-28T09:00:00Z", "vendors": [
+			{"vendor": "claude", "provider": "foundry", "secretRefs": ["ANTHROPIC_FOUNDRY_BASE_URL", "ANTHROPIC_FOUNDRY_API_KEY"], "error": "",
+				"models": [{"id": "claude-opus-5-5", "displayName": "claude-opus-5-5"}]},
+			{"vendor": "codex", "provider": "foundry", "secretRefs": ["AZURE_OPENAI_BASE_URL", "AZURE_OPENAI_API_KEY"],
+				"error": "Secret has no key AZURE_OPENAI_BASE_URL", "models": []}
 		]}}`));
 }

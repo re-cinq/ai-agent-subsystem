@@ -197,8 +197,9 @@ saves the conversation under its session id (`status.sessionId`), and a later Ag
 is opt-in through the `deploy/components/realtime` kustomize component.
 
 A fourth, controller-owned resource, **ModelCatalog** (`kubectl get mc default -n ai-agents`), lists
-the models the subsystem can run with the API keys AgentDefinitions map from `agent-secrets`, so an
-orchestrator can discover them
+the models the subsystem can run with the API keys AgentDefinitions map from `agent-secrets`, and on a
+Microsoft Foundry cluster the deployments its AgentDefinitions' models have, so an orchestrator can
+discover them
 ([ModelCatalog](https://re-cinq.github.io/ai-agent-subsystem/reference/crd-modelcatalog/)). It is
 opt-in through the `deploy/components/model-catalog` kustomize component.
 

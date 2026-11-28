@@ -6,6 +6,10 @@ the npm package versions.
 
 ## Unreleased
 
+### Added
+
+- On a cluster whose `agent-secrets` holds `AGENT_PROVIDER=foundry`, the ModelCatalog probes each model the AgentDefinitions name on its Foundry deployment and adds one `provider: foundry` entry per vendor. A `404` leaves the model out; a `401`, `403` or `5xx` is the entry's `error`. The ModelCatalog reference says when a caller should treat a model as not verified.
+
 ## v0.21.3
 
 ### Fixed
