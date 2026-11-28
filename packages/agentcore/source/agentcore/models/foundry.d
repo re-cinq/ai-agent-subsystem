@@ -1,17 +1,17 @@
 module agentcore.models.foundry;
 
+import std.algorithm : filter, map;
+import std.array : array, join;
 import std.exception : enforce;
-import std.array : join;
 import std.format : format;
 import vibe.data.json : Json;
 
-import agentcore.batch.provider : HttpRequest, HttpTransport;
+import agentcore.batch.provider : HttpRequest, HttpResponse, HttpTransport;
 import agentcore.core.vendor : Vendor;
 import agentcore.crds.model_catalog : ModelInfo;
 
 version (unittest)
 {
-	import agentcore.batch.provider : HttpRequest, HttpResponse;
 	import fluent.asserts;
 }
 
@@ -22,20 +22,31 @@ struct FoundryProbe
 	string error;
 }
 
+/// Probes each of `modelIds` on the Foundry resource at `endpoint`: a 404 drops the model (not deployed),
+/// a 401, 403 or 5xx is an error naming it, any other status (a 429 included) keeps it.
 FoundryProbe probeFoundryModels(Vendor vendor, string endpoint, string apiKey, string[] modelIds,
 	HttpTransport transport)
 {
-	ModelInfo[] models;
-	string[] errors;
-	foreach (modelId; modelIds)
+	auto answers = modelIds
+		.map!(modelId => ModelAnswer(modelId, transport(probeRequest(vendor, endpoint, apiKey, modelId))))
+		.array;
+	return FoundryProbe(
+		answers.filter!(answer => answer.response.status != 404 && !answer.failed)
+			.map!(answer => ModelInfo(answer.modelId, answer.modelId)).array,
+		answers.filter!(answer => answer.failed)
+			.map!(answer => format!"%s: HTTP %s: %s"(answer.modelId, answer.response.status, answer.response.body))
+			.join("; "));
+}
+
+private struct ModelAnswer
+{
+	string modelId;
+	HttpResponse response;
+
+	bool failed() const
 	{
-		const response = transport(probeRequest(vendor, endpoint, apiKey, modelId));
-		if (response.status == 401 || response.status == 403 || response.status >= 500)
-			errors ~= format!"%s: HTTP %s: %s"(modelId, response.status, response.body);
-		else if (response.status != 404)
-			models ~= ModelInfo(modelId, modelId);
+		return response.status == 401 || response.status == 403 || response.status >= 500;
 	}
-	return FoundryProbe(models, errors.join("; "));
 }
 
 /// The request that proves `modelId` is deployed on the Foundry resource at `endpoint`.

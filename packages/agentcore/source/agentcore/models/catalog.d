@@ -12,6 +12,7 @@ import agentcore.crds.agent_definition : AgentDefinition;
 import agentcore.crds.model_catalog : ModelCatalog, ModelCatalogStatus, ModelInfo, VendorModels;
 import agentcore.crds.serialization : toJson;
 import agentcore.kube.jobspec : agentSecretName;
+import agentcore.kube.kubeclient : NotFound;
 import agentcore.models.foundry : probeFoundryModels;
 import agentcore.models.listing : listModels;
 import agentcore.vendors.base.agent : AgentProviderSwitch;
@@ -81,38 +82,39 @@ VendorModels[] foundryModels(ModelCatalogClient client, string ns, AgentDefiniti
 		return null;
 	auto named = definitions.map!(definition => definition.spec.model).filter!(model => model.length).array
 		.sort.uniq.array;
-	VendorModels[] entries;
-	foreach (vendor; listableVendors)
-	{
-		auto ofVendor = named.filter!(model => vendorOf(model) == vendor).array;
-		if (ofVendor.length == 0)
-			continue;
-		auto withProvider = cast(const AgentProviderSwitch) agentForModel(ofVendor[0]);
-		if (withProvider !is null)
-			entries ~= foundryEntry(client, ns, vendor, withProvider.providerSecrets(), ofVendor, transport);
-	}
-	return entries;
+	return listableVendors
+		.map!(vendor => named.filter!(model => vendorOf(model) == vendor).array)
+		.filter!(models => models.length && providerSwitch(models[0]) !is null)
+		.map!(models => foundryEntry(client, ns, models, transport))
+		.array;
 }
 
+/// Whether the agent-secrets Secret sets AGENT_PROVIDER to foundry; a Secret or key that is absent says no.
 private bool isFoundry(ModelCatalogClient client, string ns)
 {
 	try
 		return client.secretValue(ns, agentSecretName, envProvider) == foundryProvider;
-	catch (Exception)
+	catch (NotFound)
 		return false;
 }
 
-private VendorModels foundryEntry(ModelCatalogClient client, string ns, Vendor vendor, string[] providerSecrets,
-	string[] models, HttpTransport transport)
+private const(AgentProviderSwitch) providerSwitch(string model)
 {
+	return cast(const AgentProviderSwitch) agentForModel(model);
+}
+
+private VendorModels foundryEntry(ModelCatalogClient client, string ns, string[] models, HttpTransport transport)
+{
+	const vendor = vendorOf(models[0]);
+	const providerSecrets = providerSwitch(models[0]).providerSecrets();
 	try
 	{
 		auto probe = probeFoundryModels(vendor, client.secretValue(ns, agentSecretName, providerSecrets[0]),
 			client.secretValue(ns, agentSecretName, providerSecrets[1]), models, transport);
-		return VendorModels(vendor.to!string, foundryProvider, providerSecrets, probe.error, probe.models);
+		return VendorModels(vendor.to!string, foundryProvider, providerSecrets.dup, probe.error, probe.models);
 	}
 	catch (Exception error)
-		return VendorModels(vendor.to!string, foundryProvider, providerSecrets, error.msg, null);
+		return VendorModels(vendor.to!string, foundryProvider, providerSecrets.dup, error.msg, null);
 }
 
 /// The distinct agent-secrets keys `definitions` map under a vendor's API key env name,
@@ -211,7 +213,6 @@ version (unittest)
 
 		string secretValue(string ns, string name, string key)
 		{
-			import agentcore.kube.kubeclient : NotFound;
 			import std.exception : enforce;
 
 			enforce(key in secrets, new NotFound("Secret has no key " ~ key));
