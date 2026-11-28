@@ -2,7 +2,8 @@ name: Lore test report
 
 on:
   push:
-  pull_request:
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -12,12 +13,14 @@ jobs:
     name: D unit tests (dub)
     runs-on: ubuntu-latest
     if: >
-      github.event_name == 'pull_request' ||
-      contains(toJson(github.event.commits), '"packages/') ||
+      github.event_name == 'workflow_dispatch' ||
       contains(toJson(github.event.commits), '"dub.json') ||
-      contains(toJson(github.event.commits), '"Makefile')
+      contains(toJson(github.event.commits), '"Makefile') ||
+      contains(toJson(github.event.commits), '"packages/')
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
 
       - name: Set up D toolchain (DMD)
         uses: dlang-community/setup-dlang@d7d85fcde7c4cd5f9a6618fce1bccc316e1e910b # v2
@@ -25,16 +28,28 @@ jobs:
           compiler: dmd-2.111.0
 
       - name: Fetch lore-code-trace
+        id: fetch-trace-d
         env:
           LORE_INGEST_URL: ${{ secrets.LORE_INGEST_URL || vars.LORE_INGEST_URL || vars.LORE_API_URL }}
         run: |
-          curl -fsSL "${LORE_INGEST_URL}/dist/lore-code-trace/linux-amd64" -o linux-amd64
-          curl -fsSL "${LORE_INGEST_URL}/dist/lore-code-trace/checksums.txt" -o checksums.txt
+          curl --connect-timeout 20 --retry 6 --retry-delay 30 --retry-all-errors \
+            -fsSL "${LORE_INGEST_URL}/dist/lore-code-trace/linux-amd64" -o linux-amd64 || {
+            echo "::warning::Failed to download lore-code-trace; skipping run"
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          curl --connect-timeout 20 --retry 6 --retry-delay 30 --retry-all-errors \
+            -fsSL "${LORE_INGEST_URL}/dist/lore-code-trace/checksums.txt" -o checksums.txt || {
+            echo "::warning::Failed to download checksums; skipping run"
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
           sha256sum --check --ignore-missing checksums.txt
           mv linux-amd64 lore-code-trace
           chmod +x lore-code-trace
 
       - name: Run tests and post report to Lore
+        if: steps.fetch-trace-d.outputs.failed != 'true'
         env:
           LORE_API_URL: ${{ secrets.LORE_INGEST_URL || vars.LORE_INGEST_URL || vars.LORE_API_URL }}
           LORE_INGEST_TOKEN: ${{ secrets.LORE_INGEST_TOKEN }}
@@ -46,8 +61,13 @@ jobs:
     defaults:
       run:
         working-directory: packages/agent-contracts
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      contains(toJson(github.event.commits), '"packages/agent-contracts/')
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -57,17 +77,29 @@ jobs:
       - run: npm ci
 
       - name: Fetch lore-code-trace
+        id: fetch-trace-contracts
         working-directory: .
         env:
           LORE_INGEST_URL: ${{ secrets.LORE_INGEST_URL || vars.LORE_INGEST_URL || vars.LORE_API_URL }}
         run: |
-          curl -fsSL "${LORE_INGEST_URL}/dist/lore-code-trace/linux-amd64" -o linux-amd64
-          curl -fsSL "${LORE_INGEST_URL}/dist/lore-code-trace/checksums.txt" -o checksums.txt
+          curl --connect-timeout 20 --retry 6 --retry-delay 30 --retry-all-errors \
+            -fsSL "${LORE_INGEST_URL}/dist/lore-code-trace/linux-amd64" -o linux-amd64 || {
+            echo "::warning::Failed to download lore-code-trace; skipping run"
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          curl --connect-timeout 20 --retry 6 --retry-delay 30 --retry-all-errors \
+            -fsSL "${LORE_INGEST_URL}/dist/lore-code-trace/checksums.txt" -o checksums.txt || {
+            echo "::warning::Failed to download checksums; skipping run"
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
           sha256sum --check --ignore-missing checksums.txt
           mv linux-amd64 lore-code-trace
           chmod +x lore-code-trace
 
       - name: Run tests and post report to Lore
+        if: steps.fetch-trace-contracts.outputs.failed != 'true'
         working-directory: .
         env:
           LORE_API_URL: ${{ secrets.LORE_INGEST_URL || vars.LORE_INGEST_URL || vars.LORE_API_URL }}
