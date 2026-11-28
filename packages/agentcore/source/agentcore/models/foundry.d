@@ -25,23 +25,32 @@ struct FoundryProbe
 FoundryProbe probeFoundryModels(Vendor vendor, string endpoint, string apiKey, string[] modelIds,
 	HttpTransport transport)
 {
+	ModelInfo[] models;
+	string[] errors;
+	foreach (modelId; modelIds)
+	{
+		const response = transport(probeRequest(vendor, endpoint, apiKey, modelId));
+		if (response.status == 401 || response.status == 403 || response.status >= 500)
+			errors ~= format!"%s: HTTP %s: %s"(modelId, response.status, response.body);
+		else if (response.status != 404)
+			models ~= ModelInfo(modelId, modelId);
+	}
+	return FoundryProbe(models, errors.join("; "));
+}
+
+/// The request that proves `modelId` is deployed on the Foundry resource at `endpoint`.
+HttpRequest probeRequest(Vendor vendor, string endpoint, string apiKey, string modelId)
+{
 	final switch (vendor)
 	{
 	case Vendor.claude:
-		ModelInfo[] models;
-		string[] errors;
-		foreach (modelId; modelIds)
-		{
-			const response = transport(HttpRequest("POST", endpoint ~ "/v1/messages",
-				["api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json"],
-				format!`{"model":%s,"max_tokens":1,"messages":[{"role":"user","content":"ping"}]}`(Json(modelId).toString())));
-			if (response.status == 401 || response.status == 403 || response.status >= 500)
-				errors ~= format!"%s: HTTP %s: %s"(modelId, response.status, response.body);
-			else if (response.status != 404)
-				models ~= ModelInfo(modelId, modelId);
-		}
-		return FoundryProbe(models, errors.join("; "));
+		return HttpRequest("POST", endpoint ~ "/v1/messages",
+			["api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json"],
+			format!`{"model":%s,"max_tokens":1,"messages":[{"role":"user","content":"ping"}]}`(Json(modelId).toString()));
 	case Vendor.codex:
+		return HttpRequest("POST", endpoint ~ "/responses",
+			["api-key": apiKey, "content-type": "application/json"],
+			format!`{"model":%s,"input":"ping","max_output_tokens":16}`(Json(modelId).toString()));
 	case Vendor.gemini:
 	case Vendor.exec:
 	case Vendor.opencode:
@@ -94,4 +103,22 @@ unittest // a 401 for claude-opus-5-5 is the probe's error and a 429 for claude-
 		["claude-opus-5-5", "claude-sonnet-5-5"], &transport.send).should.equal(
 		FoundryProbe([ModelInfo("claude-sonnet-5-5", "claude-sonnet-5-5")],
 		`claude-opus-5-5: HTTP 401: {"error":{"code":"401","message":"Access denied"}}`));
+}
+
+unittest // codex probes POST /responses per model and keeps gpt-5.1-codex, dropping gpt-5.1 which answers 404
+{
+	auto transport = FakeTransport([HttpResponse(404, `{"error":{"code":"DeploymentNotFound"}}`),
+		HttpResponse(200, `{"id":"resp_1"}`)]);
+
+	probeFoundryModels(Vendor.codex, "https://my-foundry.openai.azure.com/openai/v1", "foundry-key",
+		["gpt-5.1", "gpt-5.1-codex"], &transport.send).should.equal(
+		FoundryProbe([ModelInfo("gpt-5.1-codex", "gpt-5.1-codex")], ""));
+	transport.requests.should.equal([
+		HttpRequest("POST", "https://my-foundry.openai.azure.com/openai/v1/responses",
+			["api-key": "foundry-key", "content-type": "application/json"],
+			`{"model":"gpt-5.1","input":"ping","max_output_tokens":16}`),
+		HttpRequest("POST", "https://my-foundry.openai.azure.com/openai/v1/responses",
+			["api-key": "foundry-key", "content-type": "application/json"],
+			`{"model":"gpt-5.1-codex","input":"ping","max_output_tokens":16}`)
+	]);
 }
