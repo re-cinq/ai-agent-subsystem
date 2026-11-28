@@ -11,3 +11,7 @@ controller:
     digest: sha256:0ea35e3e02f3da88212afa5e33179f9d36a624a159b972fb351b6e180d28dfd4
   podMonitor: { enabled: true }
 agentImage: ghcr.io/re-cinq/ai-agent@sha256:6ccb9ccb3f146252ff50097779a9bb173045616623baaac5144e7137f71114c5
+# The ModelCatalog `default`: the models the keys AgentDefinitions map can run, which the
+# floor's cluster agent reports and checks a visit's model against.
+modelCatalog:
+  enabled: true
